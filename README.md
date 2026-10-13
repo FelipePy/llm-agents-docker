@@ -23,27 +23,42 @@ Agentes como esses costumam ser usados em modo autônomo (`--dangerously-skip-pe
 ```sh
 git clone https://github.com/FelipePy/llm-agents-docker.git
 cd llm-agents-docker
-
-# Coloca o comando no PATH (opcional, mas recomendado)
-mkdir -p ~/.local/bin
-ln -s "$PWD/llm-agent" ~/.local/bin/llm-agent
-
-# Constroi a imagem com o seu UID/GID
-llm-agent --build
+./install.sh
 ```
+
+O instalador:
+
+1. verifica se o Docker e o `docker compose` estão disponíveis;
+2. cria o comando `llm-agent` em `~/.local/bin` (um link para o script deste repositório; use `LLM_AGENT_BIN_DIR` para outro destino);
+3. constrói a imagem com o seu UID/GID;
+4. avisa se `~/.local/bin` não estiver no seu `PATH`.
+
+Para desinstalar: `./install.sh --uninstall`.
 
 ## Uso
 
-Entre na pasta do projeto e chame o agente:
+Entre na pasta do projeto e rode `llm-agent`. Um menu pergunta qual agente abrir:
+
+```console
+$ cd ~/projetos/meu-app
+$ llm-agent
+Qual agente abrir em /home/voce/projetos/meu-app?
+  1) Claude Code
+  2) Codex
+  3) Shell (zsh)
+Escolha [1-3]:
+```
+
+Pelo menu, os agentes abrem em **modo autônomo** (`claude --dangerously-skip-permissions` e `codex --dangerously-bypass-approvals-and-sandbox`), já que o container limita o que eles conseguem acessar.
+
+Também dá para chamar o agente direto, com os argumentos que quiser:
 
 ```sh
-cd ~/projetos/meu-app
-
-llm-agent claude                                  # Claude Code
-llm-agent claude --dangerously-skip-permissions   # Claude Code sem pedir permissões
-llm-agent                                         # Codex (comando padrão, já sem aprovações)
+llm-agent claude                                  # Claude Code pedindo permissões
+llm-agent claude --dangerously-skip-permissions   # Claude Code autônomo
 llm-agent codex                                   # Codex com aprovações normais
 llm-agent zsh                                     # shell dentro do container
+llm-agent --help                                  # ajuda
 ```
 
 Tudo que vem depois de `llm-agent` é executado dentro do container. Para usar outro diretório sem entrar nele:
@@ -67,13 +82,24 @@ llm-agent claude --resume     # escolhe entre os chats deste projeto
 
 Evite continuar o mesmo chat no host e no container ao mesmo tempo.
 
-### Atualizando os CLIs
+### Atualizando os agentes
 
-As versões são fixadas na imagem. Para trocar:
+Sempre que você abre o Claude Code ou o Codex, o `llm-agent` consulta a última versão publicada no npm. Se houver uma mais nova, ele pergunta antes de atualizar:
+
+```console
+$ llm-agent claude
+Nova versao do Claude Code: 2.1.285 -> 2.1.296. Atualizar agora? [s/N]
+```
+
+Ao aceitar, a imagem é reconstruída só com a nova versão desse agente; o outro continua como está. A consulta leva no máximo 3 segundos e é ignorada se você estiver offline. Para desativá-la, use `LLM_AGENT_NO_UPDATE_CHECK=1`.
+
+Também dá para escolher as versões manualmente:
 
 ```sh
-CLAUDE_CODE_VERSION=2.1.285 CODEX_VERSION=0.149.0 llm-agent --build
+CLAUDE_CODE_VERSION=2.1.296 CODEX_VERSION=0.162.1 llm-agent --build
 ```
+
+Sem essas variáveis, o `llm-agent --build` mantém as versões já instaladas na imagem. O atualizador interno do Claude Code fica desativado no container, porque as versões são gerenciadas pela imagem.
 
 ## O que o container enxerga
 

@@ -3,18 +3,30 @@
 # apenas o projeto atual.
 #
 # Uso:
-#   llm-agent                 abre o Codex (comando padrao da imagem)
+#   llm-agent                 menu para escolher o agente
 #   llm-agent claude [args]   abre o Claude Code
-#   llm-agent codex [args]    abre o Codex com outros argumentos
+#   llm-agent codex [args]    abre o Codex
 #   llm-agent zsh             abre um shell no container
 #   llm-agent --build         (re)constroi a imagem
 #
 # Variaveis:
 #   AGENT_WORKDIR             projeto a montar (padrao: diretorio atual)
 #   CODEX_VERSION, CLAUDE_CODE_VERSION   versoes usadas no --build
+#                             (padrao: as versoes ja instaladas na imagem)
+#   LLM_AGENT_NO_UPDATE_CHECK=1          nao procura versoes novas ao abrir
 set -euo pipefail
 
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  sed -n '2,/^set -euo/{/^set -euo/d;s/^# \{0,1\}//;p}' "$(readlink -f "${BASH_SOURCE[0]}")"
+  exit 0
+fi
+
 repo_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+
+# O build nao monta nenhum projeto; o compose so exige que a variavel exista.
+if [ "${1:-}" = "--build" ]; then
+  AGENT_WORKDIR="$repo_dir"
+fi
 
 # Caminho fisico (sem symlinks), igual ao que os CLIs usam no host; assim o
 # historico de chats do projeto e o mesmo dentro e fora do container.
@@ -28,6 +40,75 @@ case "$AGENT_WORKDIR" in
 esac
 export AGENT_WORKDIR
 export HOST_UID="$(id -u)" HOST_GID="$(id -g)"
+
+# Sem argumentos: pergunta qual agente abrir. Os agentes rodam em modo
+# autonomo, ja que o container limita o que eles conseguem acessar.
+if [ $# -eq 0 ] && [ -t 0 ]; then
+  echo "Qual agente abrir em $AGENT_WORKDIR?"
+  echo "  1) Claude Code"
+  echo "  2) Codex"
+  echo "  3) Shell (zsh)"
+  read -rp "Escolha [1-3]: " choice
+  case "$choice" in
+    1) set -- claude --dangerously-skip-permissions ;;
+    2) set -- codex --dangerously-bypass-approvals-and-sandbox ;;
+    3) set -- zsh ;;
+    *) echo "llm-agent: opcao invalida: '$choice'" >&2; exit 1 ;;
+  esac
+fi
+
+image="local/llm-agent-safe:latest"
+
+# Versao de um CLI instalada na imagem (labels definidos no Dockerfile).
+image_version() {
+  local v
+  v="$(docker image inspect --format "{{ index .Config.Labels \"llm-agent.$1\" }}" "$image" 2>/dev/null)" || return 0
+  [ "$v" = "<no value>" ] || echo "$v"
+}
+
+# Ultima versao publicada no npm; vazio se offline ou sem curl.
+npm_latest_version() {
+  command -v curl >/dev/null || return 0
+  curl -fsS --max-time 3 "https://registry.npmjs.org/$1/latest" 2>/dev/null \
+    | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4 || true
+}
+
+# Sem versao explicita, mantem as ja instaladas na imagem (um rebuild nao
+# desfaz atualizacoes); sem imagem, vale o padrao do docker-compose.yml.
+build_image() {
+  : "${CLAUDE_CODE_VERSION:=$(image_version claude-code)}"
+  : "${CODEX_VERSION:=$(image_version codex)}"
+  export CLAUDE_CODE_VERSION CODEX_VERSION
+  docker compose -f "$repo_dir/docker-compose.yml" build "$@"
+}
+
+# Ao abrir um agente, oferece atualizar se houver versao nova no npm.
+check_update() { # label pacote-npm variavel-de-versao nome
+  local current latest answer
+  current="$(image_version "$1")"
+  [ -n "$current" ] || return 0
+  latest="$(npm_latest_version "$2")"
+  [ -n "$latest" ] && [ "$latest" != "$current" ] || return 0
+  [ "$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -1)" = "$latest" ] || return 0
+
+  read -rp "Nova versao do $4: $current -> $latest. Atualizar agora? [s/N] " answer
+  case "$answer" in
+    s | S | sim | y | Y | yes) ;;
+    *) return 0 ;;
+  esac
+  if (export "$3=$latest"; build_image); then
+    echo "$4 atualizado para $latest."
+  else
+    echo "llm-agent: falha ao atualizar; seguindo com a versao $current." >&2
+  fi
+}
+
+if [ -t 0 ] && [ -z "${LLM_AGENT_NO_UPDATE_CHECK:-}" ]; then
+  case "${1:-}" in
+    claude) check_update claude-code @anthropic-ai/claude-code CLAUDE_CODE_VERSION "Claude Code" ;;
+    codex) check_update codex @openai/codex CODEX_VERSION "Codex" ;;
+  esac
+fi
 
 # Estado dos CLIs precisa existir antes do mount (o compose nao cria).
 mkdir -p "$HOME/.codex" "$HOME/.claude"
@@ -84,7 +165,7 @@ fi
 
 if [ "${1:-}" = "--build" ]; then
   shift
-  docker compose "${compose_files[@]}" build "$@"
+  build_image "$@"
 else
   docker compose "${compose_files[@]}" run --rm agent "$@"
 fi
