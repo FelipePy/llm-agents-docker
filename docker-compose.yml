@@ -40,19 +40,19 @@ services:
       # create_host_path: false evita que o Docker crie diretorios de root no
       # lugar de arquivos/pastas ausentes (o Claude perderia login/tema).
       - type: bind
-        source: ${HOME}/.codex
+        source: ${HOST_HOME:?set HOST_HOME to your home directory}/.codex
         target: /home/agent/.codex
         read_only: false
         bind:
           create_host_path: false
       - type: bind
-        source: ${HOME}/.claude
+        source: ${HOST_HOME:?set HOST_HOME to your home directory}/.claude
         target: /home/agent/.claude
         read_only: false
         bind:
           create_host_path: false
       - type: bind
-        source: ${HOME}/.claude.json
+        source: ${HOST_HOME:?set HOST_HOME to your home directory}/.claude.json
         target: /home/agent/.claude.json
         read_only: false
         bind:

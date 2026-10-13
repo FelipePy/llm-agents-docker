@@ -35,6 +35,23 @@ O instalador:
 
 Para desinstalar: `./install.sh --uninstall`.
 
+### Servidores onde só outro usuário acessa o Docker
+
+Se o seu usuário não acessa o Docker, mas pode rodá-lo como outro usuário (por exemplo, `sudo -u dockeruser docker`), instale **com o seu próprio usuário** e informe o comando do Docker:
+
+```sh
+./install.sh --docker "sudo -u dockeruser docker"
+```
+
+O valor fica salvo em `~/.config/llm-agent/config` e passa a ser usado em toda chamada ao Docker. O resto continua sendo seu: o comando fica no seu `~/.local/bin`, e os agentes usam a sua home, o seu UID, as suas credenciais e os seus projetos. Os arquivos que o agente cria pertencem a você.
+
+Requisitos:
+
+- **Leitura do repositório:** o outro usuário precisa conseguir ler a pasta deste repositório, porque o `docker compose` lê o `Dockerfile` e o `docker-compose.yml` como ele. Se a sua home for fechada para outros usuários, clone o projeto em um lugar acessível, como `/opt/llm-agents-docker`.
+- **Senha do sudo:** o `sudo` pode pedir a sua senha ao abrir um agente, conforme a configuração do servidor.
+
+Também funciona com `--docker "sudo docker"`. Para trocar o comando, rode o `./install.sh --docker ...` de novo. Para um uso pontual, defina `LLM_AGENT_DOCKER`.
+
 ## Uso
 
 Entre na pasta do projeto e rode `llm-agent`. Um menu pergunta qual agente abrir:
@@ -138,6 +155,9 @@ rmdir ~/.claude.json && echo '{}' > ~/.claude.json && chmod 600 ~/.claude.json
 
 **Arquivos criados pelo agente pertencem a outro usuário.**
 A imagem foi construída com outro UID/GID. Rode `llm-agent --build` com o seu usuário.
+
+**`permission denied` ao ler o `docker-compose.yml` ou o `Dockerfile` (com `--docker "sudo -u ..."`).**
+O usuário do Docker não consegue ler a pasta do repositório. Mova o clone para um lugar acessível (por exemplo, `/opt/llm-agents-docker`) e rode o `./install.sh` de novo a partir de lá.
 
 **`the input device is not a TTY`.**
 O `llm-agent` precisa de um terminal interativo; não o chame a partir de pipes ou scripts sem TTY.

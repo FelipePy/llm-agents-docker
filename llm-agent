@@ -14,6 +14,10 @@
 #   CODEX_VERSION, CLAUDE_CODE_VERSION   versoes usadas no --build
 #                             (padrao: as versoes ja instaladas na imagem)
 #   LLM_AGENT_NO_UPDATE_CHECK=1          nao procura versoes novas ao abrir
+#   LLM_AGENT_DOCKER          comando do Docker (padrao: docker). Ex.: em um
+#                             servidor onde so outro usuario acessa o Docker,
+#                             "sudo -u dockeruser docker". O install.sh --docker
+#                             salva esse valor em ~/.config/llm-agent/config.
 set -euo pipefail
 
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
@@ -22,6 +26,13 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 fi
 
 repo_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+
+config_file="${XDG_CONFIG_HOME:-$HOME/.config}/llm-agent/config"
+# shellcheck source=/dev/null
+[ -f "$config_file" ] && . "$config_file"
+# So as chamadas ao Docker usam esse comando; todo o resto (home, UID,
+# credenciais, projeto) e do usuario que executa o llm-agent.
+read -ra docker_cmd <<< "${LLM_AGENT_DOCKER:-docker}"
 
 # O build nao monta nenhum projeto; o compose so exige que a variavel exista.
 if [ "${1:-}" = "--build" ]; then
@@ -38,8 +49,36 @@ case "$AGENT_WORKDIR" in
     exit 1
     ;;
 esac
-export AGENT_WORKDIR
-export HOST_UID="$(id -u)" HOST_GID="$(id -g)"
+HOST_UID="$(id -u)" HOST_GID="$(id -g)"
+
+# Arquivos temporarios lidos pelo docker compose. Ficam legiveis para outros
+# usuarios porque o Docker pode rodar como outro usuario (LLM_AGENT_DOCKER).
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/llm-agent.XXXXXX")"
+trap 'rm -rf "$tmp_dir"' EXIT
+chmod 755 "$tmp_dir"
+env_file="$tmp_dir/env"
+override="$tmp_dir/override.yml"
+
+# Variaveis do docker-compose.yml vao por --env-file, e nao pelo ambiente,
+# para sobreviverem a um sudo (que descarta o ambiente do usuario).
+compose() {
+  {
+    printf "%s='%s'\n" \
+      AGENT_WORKDIR "$AGENT_WORKDIR" \
+      HOST_HOME "$HOME" \
+      HOST_UID "$HOST_UID" \
+      HOST_GID "$HOST_GID" \
+      COLORTERM "${COLORTERM:-truecolor}" \
+      TERM "${TERM:-xterm-256color}"
+    [ -z "${CLAUDE_CODE_VERSION:-}" ] || printf "CLAUDE_CODE_VERSION='%s'\n" "$CLAUDE_CODE_VERSION"
+    [ -z "${CODEX_VERSION:-}" ] || printf "CODEX_VERSION='%s'\n" "$CODEX_VERSION"
+  } > "$env_file"
+  chmod 644 "$env_file"
+  # O ambiente teria prioridade sobre o --env-file; remove para valer o arquivo.
+  env -u AGENT_WORKDIR -u HOST_HOME -u HOST_UID -u HOST_GID \
+    -u CLAUDE_CODE_VERSION -u CODEX_VERSION \
+    "${docker_cmd[@]}" compose --env-file "$env_file" -f "$repo_dir/docker-compose.yml" "$@"
+}
 
 # Sem argumentos: pergunta qual agente abrir. Os agentes rodam em modo
 # autonomo, ja que o container limita o que eles conseguem acessar.
@@ -62,7 +101,7 @@ image="local/llm-agent-safe:latest"
 # Versao de um CLI instalada na imagem (labels definidos no Dockerfile).
 image_version() {
   local v
-  v="$(docker image inspect --format "{{ index .Config.Labels \"llm-agent.$1\" }}" "$image" 2>/dev/null)" || return 0
+  v="$("${docker_cmd[@]}" image inspect --format "{{ index .Config.Labels \"llm-agent.$1\" }}" "$image" 2>/dev/null)" || return 0
   [ "$v" = "<no value>" ] || echo "$v"
 }
 
@@ -78,8 +117,7 @@ npm_latest_version() {
 build_image() {
   : "${CLAUDE_CODE_VERSION:=$(image_version claude-code)}"
   : "${CODEX_VERSION:=$(image_version codex)}"
-  export CLAUDE_CODE_VERSION CODEX_VERSION
-  docker compose -f "$repo_dir/docker-compose.yml" build "$@"
+  compose build "$@"
 }
 
 # Ao abrir um agente, oferece atualizar se houver versao nova no npm.
@@ -96,7 +134,7 @@ check_update() { # label pacote-npm variavel-de-versao nome
     s | S | sim | y | Y | yes) ;;
     *) return 0 ;;
   esac
-  if (export "$3=$latest"; build_image); then
+  if (printf -v "$3" '%s' "$latest"; build_image); then
     echo "$4 atualizado para $latest."
   else
     echo "llm-agent: falha ao atualizar; seguindo com a versao $current." >&2
@@ -147,10 +185,8 @@ if [ -S "${SSH_AUTH_SOCK:-}" ]; then
 "
 fi
 
-compose_files=(-f "$repo_dir/docker-compose.yml")
+override_args=()
 if [ -n "$optional_volumes$optional_env" ]; then
-  override="$(mktemp "${TMPDIR:-/tmp}/llm-agent.XXXXXX.yml")"
-  trap 'rm -f "$override"' EXIT
   {
     echo "services:"
     echo "  agent:"
@@ -160,12 +196,13 @@ if [ -n "$optional_volumes$optional_env" ]; then
       printf '%s' "$optional_volumes"
     fi
   } > "$override"
-  compose_files+=(-f "$override")
+  chmod 644 "$override"
+  override_args=(-f "$override")
 fi
 
 if [ "${1:-}" = "--build" ]; then
   shift
   build_image "$@"
 else
-  docker compose "${compose_files[@]}" run --rm agent "$@"
+  compose "${override_args[@]}" run --rm agent "$@"
 fi
