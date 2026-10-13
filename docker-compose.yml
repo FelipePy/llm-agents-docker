@@ -1,95 +1,59 @@
 services:
-  codex:
+  agent:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        UID: "${UID:-1000}"
-        GID: "${GID:-1000}"
+        UID: "${HOST_UID:-1000}"
+        GID: "${HOST_GID:-1000}"
+        CODEX_VERSION: "${CODEX_VERSION:-0.149.0}"
         CLAUDE_CODE_VERSION: "${CLAUDE_CODE_VERSION:-2.1.285}"
-    image: local/codex-safe:latest
+    image: local/llm-agent-safe:latest
     stdin_open: true
     tty: true
-    working_dir: ${CODEX_WORKDIR:?set CODEX_WORKDIR to the project path}
+    working_dir: ${AGENT_WORKDIR:?set AGENT_WORKDIR to the project path}
     environment:
-      # HOME fica em /home/codex (usuario do container). NUNCA aponte HOME para
+      # HOME fica em /home/agent (usuario "agent" do container). NUNCA aponte HOME para
       # ${HOME} do host: isso obriga a montar a home inteira e vaza os projetos
       # vizinhos para o agente.
-      HOME: /home/codex
+      HOME: /home/agent
       COLORTERM: "${COLORTERM:-truecolor}"
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
       SHELL: /usr/bin/zsh
       TERM: "${TERM:-xterm-256color}"
-      SSH_AUTH_SOCK: /ssh-agent
+    # Aqui ficam so os mounts obrigatorios. Os opcionais (ssh, gh, git, zsh,
+    # toolchains) sao adicionados pelo script llm-agent apenas se existirem no host.
     volumes:
       # --- unico caminho gravavel e visivel do host: o projeto ---
+      # Montado no mesmo caminho absoluto do host, para que host e container
+      # compartilhem o historico de chats do projeto (~/.claude/projects/<caminho>).
       - type: bind
-        source: ${CODEX_WORKDIR:?set CODEX_WORKDIR to the project path}
-        target: ${CODEX_WORKDIR:?set CODEX_WORKDIR to the project path}
+        source: ${AGENT_WORKDIR:?set AGENT_WORKDIR to the project path}
+        target: ${AGENT_WORKDIR:?set AGENT_WORKDIR to the project path}
         read_only: false
 
       # --- credenciais e estado dos CLIs ---
-      - type: bind
-        source: ${SSH_AUTH_SOCK:?set SSH_AUTH_SOCK or remove this mount}
-        target: /ssh-agent
-        read_only: false
-      - type: bind
-        source: ${HOME}/.ssh
-        target: /home/codex/.ssh
-        read_only: true
-      - type: bind
-        source: ${HOME}/.config/gh
-        target: /home/codex/.config/gh
-        read_only: true
-      - type: bind
-        source: ${HOME}/.gitconfig
-        target: /home/codex/.gitconfig
-        read_only: true
+      # create_host_path: false evita que o Docker crie diretorios de root no
+      # lugar de arquivos/pastas ausentes (o Claude perderia login/tema).
       - type: bind
         source: ${HOME}/.codex
-        target: /home/codex/.codex
+        target: /home/agent/.codex
         read_only: false
+        bind:
+          create_host_path: false
       - type: bind
         source: ${HOME}/.claude
-        target: /home/codex/.claude
+        target: /home/agent/.claude
         read_only: false
+        bind:
+          create_host_path: false
       - type: bind
         source: ${HOME}/.claude.json
-        target: /home/codex/.claude.json
+        target: /home/agent/.claude.json
         read_only: false
-      # Algumas skills em .claude/skills sao symlinks relativos para
-      # ../../.agents/skills/... Sem este mount elas viram links quebrados.
-      - type: bind
-        source: ${HOME}/.agents
-        target: /home/codex/.agents
-        read_only: false
-
-      # --- ambiente de shell / toolchains do host ---
-      - type: bind
-        source: ${HOME}/.zshrc
-        target: /home/codex/.zshrc
-        read_only: true
-      - type: bind
-        source: ${HOME}/.oh-my-zsh
-        target: /home/codex/.oh-my-zsh
-        read_only: true
-      - type: bind
-        source: ${HOME}/.nvm
-        target: /home/codex/.nvm
-        read_only: true
-      - type: bind
-        source: ${HOME}/.pyenv
-        target: /home/codex/.pyenv
-        read_only: true
-      - type: bind
-        source: ${HOME}/.local/bin
-        target: /home/codex/.local/bin
-        read_only: true
-      - type: bind
-        source: ${HOME}/.bun
-        target: /home/codex/.bun
-        read_only: false
+        bind:
+          create_host_path: false
 
     security_opt:
       - no-new-privileges:true

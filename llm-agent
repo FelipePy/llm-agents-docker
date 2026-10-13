@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Executa um agente LLM (Codex, Claude Code) em um container que enxerga
+# apenas o projeto atual.
+#
+# Uso:
+#   llm-agent                 abre o Codex (comando padrao da imagem)
+#   llm-agent claude [args]   abre o Claude Code
+#   llm-agent codex [args]    abre o Codex com outros argumentos
+#   llm-agent zsh             abre um shell no container
+#   llm-agent --build         (re)constroi a imagem
+#
+# Variaveis:
+#   AGENT_WORKDIR             projeto a montar (padrao: diretorio atual)
+#   CODEX_VERSION, CLAUDE_CODE_VERSION   versoes usadas no --build
+set -euo pipefail
+
+repo_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+
+# Caminho fisico (sem symlinks), igual ao que os CLIs usam no host; assim o
+# historico de chats do projeto e o mesmo dentro e fora do container.
+AGENT_WORKDIR="$(cd "${AGENT_WORKDIR:-$PWD}" && pwd -P)"
+case "$AGENT_WORKDIR" in
+  / | "$(cd "$HOME" && pwd -P)")
+    echo "llm-agent: execute dentro de um projeto, nao em '$AGENT_WORKDIR'" >&2
+    echo "(montar a home ou a raiz exporia todos os seus arquivos ao agente)." >&2
+    exit 1
+    ;;
+esac
+export AGENT_WORKDIR
+export HOST_UID="$(id -u)" HOST_GID="$(id -g)"
+
+# Estado dos CLIs precisa existir antes do mount (o compose nao cria).
+mkdir -p "$HOME/.codex" "$HOME/.claude"
+if [ ! -e "$HOME/.claude.json" ]; then
+  echo '{}' > "$HOME/.claude.json"
+  chmod 600 "$HOME/.claude.json"
+fi
+
+# Mounts opcionais: so entram se existirem no host.
+optional_volumes=""
+add_mount() { # origem destino read_only
+  [ -e "$1" ] || return 0
+  optional_volumes+="      - type: bind
+        source: \"${1//\$/\$\$}\"
+        target: \"$2\"
+        read_only: $3
+"
+}
+add_mount "$HOME/.ssh"         /home/agent/.ssh         true
+add_mount "$HOME/.config/gh"   /home/agent/.config/gh   true
+add_mount "$HOME/.gitconfig"   /home/agent/.gitconfig   true
+# Skills em ~/.claude/skills podem ser symlinks para ../../.agents/skills/...
+add_mount "$HOME/.agents"      /home/agent/.agents      false
+add_mount "$HOME/.zshrc"       /home/agent/.zshrc       true
+add_mount "$HOME/.oh-my-zsh"   /home/agent/.oh-my-zsh   true
+add_mount "$HOME/.nvm"         /home/agent/.nvm         true
+add_mount "$HOME/.pyenv"       /home/agent/.pyenv       true
+add_mount "$HOME/.local/bin"   /home/agent/.local/bin   true
+add_mount "$HOME/.bun"         /home/agent/.bun         false
+
+optional_env=""
+if [ -S "${SSH_AUTH_SOCK:-}" ]; then
+  add_mount "$SSH_AUTH_SOCK" /ssh-agent false
+  optional_env="    environment:
+      SSH_AUTH_SOCK: /ssh-agent
+"
+fi
+
+compose_files=(-f "$repo_dir/docker-compose.yml")
+if [ -n "$optional_volumes$optional_env" ]; then
+  override="$(mktemp "${TMPDIR:-/tmp}/llm-agent.XXXXXX.yml")"
+  trap 'rm -f "$override"' EXIT
+  {
+    echo "services:"
+    echo "  agent:"
+    printf '%s' "$optional_env"
+    if [ -n "$optional_volumes" ]; then
+      echo "    volumes:"
+      printf '%s' "$optional_volumes"
+    fi
+  } > "$override"
+  compose_files+=(-f "$override")
+fi
+
+if [ "${1:-}" = "--build" ]; then
+  shift
+  docker compose "${compose_files[@]}" build "$@"
+else
+  docker compose "${compose_files[@]}" run --rm agent "$@"
+fi
