@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+.ssh
+.config
+.codex
+.claude
+.claude.json
+node_modules
+dist
+build
+tmp
+*.log

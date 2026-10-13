@@ -1,0 +1,97 @@
+services:
+  codex:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        UID: "${UID:-1000}"
+        GID: "${GID:-1000}"
+        CLAUDE_CODE_VERSION: "${CLAUDE_CODE_VERSION:-2.1.285}"
+    image: local/codex-safe:latest
+    stdin_open: true
+    tty: true
+    working_dir: ${CODEX_WORKDIR:?set CODEX_WORKDIR to the project path}
+    environment:
+      # HOME fica em /home/codex (usuario do container). NUNCA aponte HOME para
+      # ${HOME} do host: isso obriga a montar a home inteira e vaza os projetos
+      # vizinhos para o agente.
+      HOME: /home/codex
+      COLORTERM: "${COLORTERM:-truecolor}"
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      SHELL: /usr/bin/zsh
+      TERM: "${TERM:-xterm-256color}"
+      SSH_AUTH_SOCK: /ssh-agent
+    volumes:
+      # --- unico caminho gravavel e visivel do host: o projeto ---
+      - type: bind
+        source: ${CODEX_WORKDIR:?set CODEX_WORKDIR to the project path}
+        target: ${CODEX_WORKDIR:?set CODEX_WORKDIR to the project path}
+        read_only: false
+
+      # --- credenciais e estado dos CLIs ---
+      - type: bind
+        source: ${SSH_AUTH_SOCK:?set SSH_AUTH_SOCK or remove this mount}
+        target: /ssh-agent
+        read_only: false
+      - type: bind
+        source: ${HOME}/.ssh
+        target: /home/codex/.ssh
+        read_only: true
+      - type: bind
+        source: ${HOME}/.config/gh
+        target: /home/codex/.config/gh
+        read_only: true
+      - type: bind
+        source: ${HOME}/.gitconfig
+        target: /home/codex/.gitconfig
+        read_only: true
+      - type: bind
+        source: ${HOME}/.codex
+        target: /home/codex/.codex
+        read_only: false
+      - type: bind
+        source: ${HOME}/.claude
+        target: /home/codex/.claude
+        read_only: false
+      - type: bind
+        source: ${HOME}/.claude.json
+        target: /home/codex/.claude.json
+        read_only: false
+      # Algumas skills em .claude/skills sao symlinks relativos para
+      # ../../.agents/skills/... Sem este mount elas viram links quebrados.
+      - type: bind
+        source: ${HOME}/.agents
+        target: /home/codex/.agents
+        read_only: false
+
+      # --- ambiente de shell / toolchains do host ---
+      - type: bind
+        source: ${HOME}/.zshrc
+        target: /home/codex/.zshrc
+        read_only: true
+      - type: bind
+        source: ${HOME}/.oh-my-zsh
+        target: /home/codex/.oh-my-zsh
+        read_only: true
+      - type: bind
+        source: ${HOME}/.nvm
+        target: /home/codex/.nvm
+        read_only: true
+      - type: bind
+        source: ${HOME}/.pyenv
+        target: /home/codex/.pyenv
+        read_only: true
+      - type: bind
+        source: ${HOME}/.local/bin
+        target: /home/codex/.local/bin
+        read_only: true
+      - type: bind
+        source: ${HOME}/.bun
+        target: /home/codex/.bun
+        read_only: false
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
