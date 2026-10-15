@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
-# Executa um agente LLM (Codex, Claude Code) em um container que enxerga
-# apenas o projeto atual.
+# Executa um agente LLM (Codex, Claude Code, OpenCode) em um container que
+# enxerga apenas o projeto atual.
 #
 # Uso:
 #   llm-agent                 menu para escolher o agente
 #   llm-agent claude [args]   abre o Claude Code
 #   llm-agent codex [args]    abre o Codex
+#   llm-agent opencode [args] abre o OpenCode
 #   llm-agent zsh             abre um shell no container
 #   llm-agent --build         (re)constroi a imagem
 #
 # Variaveis:
 #   AGENT_WORKDIR             projeto a montar (padrao: diretorio atual)
-#   CODEX_VERSION, CLAUDE_CODE_VERSION   versoes usadas no --build
+#   CODEX_VERSION, CLAUDE_CODE_VERSION, OPENCODE_VERSION
+#                             versoes usadas no --build
 #                             (padrao: as versoes ja instaladas na imagem)
 #   LLM_AGENT_NO_UPDATE_CHECK=1          nao procura versoes novas ao abrir
 #   LLM_AGENT_DOCKER          comando do Docker (padrao: docker). Ex.: em um
@@ -72,26 +74,32 @@ compose() {
       TERM "${TERM:-xterm-256color}"
     [ -z "${CLAUDE_CODE_VERSION:-}" ] || printf "CLAUDE_CODE_VERSION='%s'\n" "$CLAUDE_CODE_VERSION"
     [ -z "${CODEX_VERSION:-}" ] || printf "CODEX_VERSION='%s'\n" "$CODEX_VERSION"
+    [ -z "${OPENCODE_VERSION:-}" ] || printf "OPENCODE_VERSION='%s'\n" "$OPENCODE_VERSION"
   } > "$env_file"
   chmod 644 "$env_file"
   # O ambiente teria prioridade sobre o --env-file; remove para valer o arquivo.
   env -u AGENT_WORKDIR -u HOST_HOME -u HOST_UID -u HOST_GID \
-    -u CLAUDE_CODE_VERSION -u CODEX_VERSION \
+    -u CLAUDE_CODE_VERSION -u CODEX_VERSION -u OPENCODE_VERSION \
     "${docker_cmd[@]}" compose --env-file "$env_file" -f "$repo_dir/docker-compose.yml" "$@"
 }
 
 # Sem argumentos: pergunta qual agente abrir. Os agentes rodam em modo
 # autonomo, ja que o container limita o que eles conseguem acessar.
+# run_args: opcoes extras do "compose run" (ex.: variaveis so desta execucao).
+run_args=()
 if [ $# -eq 0 ] && [ -t 0 ]; then
   echo "Qual agente abrir em $AGENT_WORKDIR?"
   echo "  1) Claude Code"
   echo "  2) Codex"
-  echo "  3) Shell (zsh)"
-  read -rp "Escolha [1-3]: " choice
+  echo "  3) OpenCode"
+  echo "  4) Shell (zsh)"
+  read -rp "Escolha [1-4]: " choice
   case "$choice" in
     1) set -- claude --dangerously-skip-permissions ;;
     2) set -- codex --dangerously-bypass-approvals-and-sandbox ;;
-    3) set -- zsh ;;
+    # O OpenCode nao tem flag de modo autonomo; libera tudo pela config.
+    3) run_args=(-e 'OPENCODE_PERMISSION="allow"'); set -- opencode ;;
+    4) set -- zsh ;;
     *) echo "llm-agent: opcao invalida: '$choice'" >&2; exit 1 ;;
   esac
 fi
@@ -117,6 +125,7 @@ npm_latest_version() {
 build_image() {
   : "${CLAUDE_CODE_VERSION:=$(image_version claude-code)}"
   : "${CODEX_VERSION:=$(image_version codex)}"
+  : "${OPENCODE_VERSION:=$(image_version opencode)}"
   compose build "$@"
 }
 
@@ -145,11 +154,13 @@ if [ -t 0 ] && [ -z "${LLM_AGENT_NO_UPDATE_CHECK:-}" ]; then
   case "${1:-}" in
     claude) check_update claude-code @anthropic-ai/claude-code CLAUDE_CODE_VERSION "Claude Code" ;;
     codex) check_update codex @openai/codex CODEX_VERSION "Codex" ;;
+    opencode) check_update opencode opencode-ai OPENCODE_VERSION "OpenCode" ;;
   esac
 fi
 
 # Estado dos CLIs precisa existir antes do mount (o compose nao cria).
-mkdir -p "$HOME/.codex" "$HOME/.claude"
+mkdir -p "$HOME/.codex" "$HOME/.claude" "$HOME/.config/opencode" \
+  "$HOME/.local/share/opencode" "$HOME/.local/state/opencode" "$HOME/.cache/opencode"
 if [ ! -e "$HOME/.claude.json" ]; then
   echo '{}' > "$HOME/.claude.json"
   chmod 600 "$HOME/.claude.json"
@@ -204,5 +215,5 @@ if [ "${1:-}" = "--build" ]; then
   shift
   build_image "$@"
 else
-  compose "${override_args[@]}" run --rm agent "$@"
+  compose "${override_args[@]}" run --rm "${run_args[@]}" agent "$@"
 fi
