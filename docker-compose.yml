@@ -8,6 +8,7 @@ services:
         GID: "${HOST_GID:-1000}"
         CODEX_VERSION: "${CODEX_VERSION:-0.149.0}"
         CLAUDE_CODE_VERSION: "${CLAUDE_CODE_VERSION:-2.1.285}"
+        OPENCODE_VERSION: "${OPENCODE_VERSION:-1.19.1}"
     image: local/llm-agent-safe:latest
     stdin_open: true
     tty: true
@@ -25,6 +26,7 @@ services:
       # As versoes dos CLIs sao gerenciadas pela imagem (llm-agent oferece a
       # atualizacao); o npm global do container nao e gravavel pelo agente.
       DISABLE_AUTOUPDATER: "1"
+      OPENCODE_DISABLE_AUTOUPDATE: "1"
     # Aqui ficam so os mounts obrigatorios. Os opcionais (ssh, gh, git, zsh,
     # toolchains) sao adicionados pelo script llm-agent apenas se existirem no host.
     volumes:
@@ -54,6 +56,31 @@ services:
       - type: bind
         source: ${HOST_HOME:?set HOST_HOME to your home directory}/.claude.json
         target: /home/agent/.claude.json
+        read_only: false
+        bind:
+          create_host_path: false
+      # OpenCode: config, login/sessoes (share), estado da TUI e cache de providers.
+      - type: bind
+        source: ${HOST_HOME:?set HOST_HOME to your home directory}/.config/opencode
+        target: /home/agent/.config/opencode
+        read_only: false
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${HOST_HOME:?set HOST_HOME to your home directory}/.local/share/opencode
+        target: /home/agent/.local/share/opencode
+        read_only: false
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${HOST_HOME:?set HOST_HOME to your home directory}/.local/state/opencode
+        target: /home/agent/.local/state/opencode
+        read_only: false
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${HOST_HOME:?set HOST_HOME to your home directory}/.cache/opencode
+        target: /home/agent/.cache/opencode
         read_only: false
         bind:
           create_host_path: false

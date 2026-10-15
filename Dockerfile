@@ -4,6 +4,7 @@ ARG UID=1000
 ARG GID=1000
 ARG CODEX_VERSION=0.149.0
 ARG CLAUDE_CODE_VERSION=2.1.285
+ARG OPENCODE_VERSION=1.19.1
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
@@ -44,14 +45,15 @@ RUN apt-get update \
         > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends gh \
-    && npm install -g "@openai/codex@${CODEX_VERSION}" "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+    && npm install -g "@openai/codex@${CODEX_VERSION}" "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "opencode-ai@${OPENCODE_VERSION}" \
     && python3 -m pip install --break-system-packages poetry \
     && existing_group="$(getent group "${GID}" | cut -d: -f1 || true)" \
     && if [ -n "${existing_group}" ]; then groupmod -n agent "${existing_group}"; else groupadd --gid "${GID}" agent; fi \
     && existing_user="$(getent passwd "${UID}" | cut -d: -f1 || true)" \
     && if [ -n "${existing_user}" ]; then usermod --login agent --home /home/agent --move-home --gid "${GID}" --shell /usr/bin/zsh "${existing_user}"; else useradd --uid "${UID}" --gid "${GID}" --create-home --shell /usr/bin/zsh agent; fi \
     && ln -sf "$(command -v fdfind)" /usr/local/bin/fd \
-    && mkdir -p /workspace /attachments /home/agent/.codex /home/agent/.claude /home/agent/.config \
+    && mkdir -p /workspace /attachments /home/agent/.codex /home/agent/.claude /home/agent/.config/opencode \
+        /home/agent/.local/share/opencode /home/agent/.local/state/opencode /home/agent/.cache/opencode \
     && touch /home/agent/.zshrc \
     && chown -R agent:agent /workspace /attachments /home/agent \
     && echo "agent ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/agent \
@@ -61,7 +63,8 @@ RUN apt-get update \
 
 # Versoes instaladas, lidas pelo llm-agent para checar atualizacoes.
 LABEL llm-agent.claude-code="${CLAUDE_CODE_VERSION}" \
-      llm-agent.codex="${CODEX_VERSION}"
+      llm-agent.codex="${CODEX_VERSION}" \
+      llm-agent.opencode="${OPENCODE_VERSION}"
 
 USER agent
 WORKDIR /workspace
