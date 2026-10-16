@@ -1,13 +1,13 @@
 # llm-agents-docker
 
-Rode agentes de código LLM — **Claude Code** e **Codex** — dentro de um container Docker que enxerga **apenas o projeto em que você está trabalhando**.
+Rode agentes de código LLM — **Claude Code**, **Codex** e **OpenCode** — dentro de um container Docker que enxerga **apenas o projeto em que você está trabalhando**.
 
 Agentes como esses costumam ser usados em modo autônomo (`--dangerously-skip-permissions`, `--dangerously-bypass-approvals-and-sandbox`). Rodá-los no container limita o estrago possível: o agente pode editar o projeto montado, mas não o resto da sua home, outros projetos ou o sistema.
 
 ## Recursos
 
-- Imagem única com Claude Code e Codex (versões fixadas e configuráveis).
-- Usa o **mesmo login e configuração** dos CLIs no host (`~/.claude`, `~/.claude.json`, `~/.codex`) — nada de logar de novo.
+- Imagem única com Claude Code, Codex e OpenCode (versões fixadas e configuráveis).
+- Usa o **mesmo login e configuração** dos CLIs no host (`~/.claude`, `~/.claude.json`, `~/.codex`, pastas do OpenCode) — nada de logar de novo.
 - **Histórico de chats compartilhado** com o host: um chat iniciado fora do container pode ser retomado dentro dele (e vice-versa) com `claude --resume`.
 - Usuário do container com o mesmo UID/GID do seu usuário, então os arquivos criados pertencem a você.
 - Repassa, se existirem no host: SSH agent, `~/.ssh`, `gh`, `~/.gitconfig`, `~/.zshrc`/oh-my-zsh, nvm, pyenv, bun e `~/.local/bin`.
@@ -16,7 +16,7 @@ Agentes como esses costumam ser usados em modo autônomo (`--dangerously-skip-pe
 ## Requisitos
 
 - Linux (ou WSL2) com Docker e o plugin `docker compose` v2.
-- Uma conta do Claude e/ou da OpenAI para os respectivos CLIs.
+- Uma conta do Claude, da OpenAI ou de um provider suportado pelo OpenCode para os respectivos CLIs.
 
 ## Instalação
 
@@ -62,11 +62,14 @@ $ llm-agent
 Qual agente abrir em /home/voce/projetos/meu-app?
   1) Claude Code
   2) Codex
-  3) Shell (zsh)
-Escolha [1-3]:
+  3) OpenCode
+  4) Shell (zsh)
+Escolha [1-4]:
 ```
 
 Pelo menu, os agentes abrem em **modo autônomo** (`claude --dangerously-skip-permissions` e `codex --dangerously-bypass-approvals-and-sandbox`), já que o container limita o que eles conseguem acessar.
+
+O OpenCode não tem uma flag de modo autônomo; pelo menu, ele roda com `OPENCODE_PERMISSION='{"*":"allow"}'`, que libera todas as ferramentas só naquela execução. Chamado direto (`llm-agent opencode`), ele segue as permissões do seu `opencode.json`.
 
 Também dá para chamar o agente direto, com os argumentos que quiser:
 
@@ -74,6 +77,7 @@ Também dá para chamar o agente direto, com os argumentos que quiser:
 llm-agent claude                                  # Claude Code pedindo permissões
 llm-agent claude --dangerously-skip-permissions   # Claude Code autônomo
 llm-agent codex                                   # Codex com aprovações normais
+llm-agent opencode                                # OpenCode com a sua config
 llm-agent zsh                                     # shell dentro do container
 llm-agent --help                                  # ajuda
 ```
@@ -101,22 +105,22 @@ Evite continuar o mesmo chat no host e no container ao mesmo tempo.
 
 ### Atualizando os agentes
 
-Sempre que você abre o Claude Code ou o Codex, o `llm-agent` consulta a última versão publicada no npm. Se houver uma mais nova, ele pergunta antes de atualizar:
+Sempre que você abre o Claude Code, o Codex ou o OpenCode, o `llm-agent` consulta a última versão publicada no npm. Se houver uma mais nova, ele pergunta antes de atualizar:
 
 ```console
 $ llm-agent claude
 Nova versao do Claude Code: 2.1.285 -> 2.1.296. Atualizar agora? [s/N]
 ```
 
-Ao aceitar, a imagem é reconstruída só com a nova versão desse agente; o outro continua como está. A consulta leva no máximo 3 segundos e é ignorada se você estiver offline. Para desativá-la, use `LLM_AGENT_NO_UPDATE_CHECK=1`.
+Ao aceitar, a imagem é reconstruída só com a nova versão desse agente; os outros continuam como estão. A consulta leva no máximo 3 segundos e é ignorada se você estiver offline. Para desativá-la, use `LLM_AGENT_NO_UPDATE_CHECK=1`.
 
 Também dá para escolher as versões manualmente:
 
 ```sh
-CLAUDE_CODE_VERSION=2.1.296 CODEX_VERSION=0.162.1 llm-agent --build
+CLAUDE_CODE_VERSION=2.1.296 CODEX_VERSION=0.162.1 OPENCODE_VERSION=1.19.1 llm-agent --build
 ```
 
-Sem essas variáveis, o `llm-agent --build` mantém as versões já instaladas na imagem. O atualizador interno do Claude Code fica desativado no container, porque as versões são gerenciadas pela imagem.
+Sem essas variáveis, o `llm-agent --build` mantém as versões já instaladas na imagem. O atualizador interno do Claude Code e o do OpenCode ficam desativados no container, porque as versões são gerenciadas pela imagem.
 
 ## O que o container enxerga
 
@@ -125,6 +129,7 @@ Sem essas variáveis, o `llm-agent --build` mantém as versões já instaladas n
 | projeto atual | mesmo caminho | leitura e escrita | sempre |
 | `~/.claude`, `~/.claude.json` | `/home/agent/...` | leitura e escrita | sempre (criados se faltarem) |
 | `~/.codex` | `/home/agent/.codex` | leitura e escrita | sempre (criado se faltar) |
+| `~/.config/opencode`, `~/.local/share/opencode`, `~/.local/state/opencode`, `~/.cache/opencode` | `/home/agent/...` | leitura e escrita | sempre (criados se faltarem) |
 | `$SSH_AUTH_SOCK` | `/ssh-agent` | uso do agente SSH | se houver SSH agent rodando |
 | `~/.ssh`, `~/.config/gh`, `~/.gitconfig` | `/home/agent/...` | somente leitura | se existirem |
 | `~/.zshrc`, `~/.oh-my-zsh`, `~/.nvm`, `~/.pyenv`, `~/.local/bin` | `/home/agent/...` | somente leitura | se existirem |
@@ -137,7 +142,7 @@ Os mounts obrigatórios estão em [`docker-compose.yml`](docker-compose.yml); os
 O isolamento é de sistema de arquivos, não um sandbox completo. Saiba que:
 
 - **O agente tem acesso à rede**, como qualquer container padrão.
-- **Credenciais montadas são legíveis pelo agente**: tokens do Claude/Codex, token do `gh` e, se existir, sua pasta `~/.ssh` (somente leitura, mas as chaves privadas podem ser lidas). Remova os mounts que não quiser expor.
+- **Credenciais montadas são legíveis pelo agente**: tokens do Claude/Codex/OpenCode (`~/.local/share/opencode/auth.json`), token do `gh` e, se existir, sua pasta `~/.ssh` (somente leitura, mas as chaves privadas podem ser lidas). Remova os mounts que não quiser expor.
 - Com o SSH agent repassado, o agente pode usar suas chaves (por exemplo, para `git push`) enquanto o container estiver rodando.
 - O projeto montado pode ser alterado ou apagado — use git e faça commits com frequência.
 - `sudo` não funciona dentro do container, por causa do `no-new-privileges`.
