@@ -8,7 +8,7 @@ Permitir rodar o [OpenCode](https://opencode.ai) no container do `llm-agent`, do
 
 - **Instalação:** pacote npm `opencode-ai`, no mesmo `npm install -g` dos outros CLIs. Versão padrão: `1.19.1`.
 - **Estado:** compartilhado com o host (leitura e escrita), como `~/.claude` e `~/.codex`.
-- **Modo autônomo:** o OpenCode não tem flag equivalente a `--dangerously-skip-permissions`. Pelo menu, ele roda com `OPENCODE_PERMISSION='"allow"'`, só naquela execução. `llm-agent opencode [args]` chamado direto usa a configuração do usuário.
+- **Modo autônomo:** o OpenCode não tem flag equivalente a `--dangerously-skip-permissions`. Pelo menu, ele roda com `OPENCODE_PERMISSION='{"*":"allow"}'`, só naquela execução. `llm-agent opencode [args]` chamado direto usa a configuração do usuário.
 
 ## Imagem
 
@@ -36,7 +36,7 @@ Permitir rodar o [OpenCode](https://opencode.ai) no container do `llm-agent`, do
 
 - Criar os 4 diretórios acima com `mkdir -p` antes de rodar o compose, como já é feito para `~/.codex`.
 - Menu: `1) Claude Code`, `2) Codex`, `3) OpenCode`, `4) Shell (zsh)`.
-- Novo array `run_args`, passado entre `run --rm` e `agent`. A opção 3 coloca nele `-e OPENCODE_PERMISSION="allow"` (JSON da string `"allow"`).
+- Novo array `run_args`, passado entre `run --rm` e `agent`. A opção 3 coloca nele `-e OPENCODE_PERMISSION={"*":"allow"}` (objeto JSON; a string `"allow"` é rejeitada pelo OpenCode).
 - `check_update opencode opencode-ai OPENCODE_VERSION "OpenCode"` quando o primeiro argumento for `opencode`.
 - `build_image` preserva `OPENCODE_VERSION` lido da imagem, como faz com as outras versões.
 - `compose()` grava `OPENCODE_VERSION` no `env_file` quando definida e a inclui no `env -u`.
@@ -57,4 +57,4 @@ Não há testes automatizados no projeto. Validar com:
 1. `bash -n llm-agent`.
 2. `docker compose config` com as variáveis necessárias, para checar o YAML.
 3. `llm-agent --build` e `llm-agent opencode --version` (deve imprimir `1.19.1`).
-4. Confirmar no container que `OPENCODE_PERMISSION='"allow"'` é aceito pela versão instalada. Se não for, ajustar o valor para o formato aceito antes de concluir.
+4. Confirmar no container que `OPENCODE_PERMISSION='{"*":"allow"}'` é aceito pela versão instalada. Se não for, ajustar o valor para o formato aceito antes de concluir.

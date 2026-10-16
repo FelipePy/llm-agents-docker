@@ -98,7 +98,7 @@ if [ $# -eq 0 ] && [ -t 0 ]; then
     1) set -- claude --dangerously-skip-permissions ;;
     2) set -- codex --dangerously-bypass-approvals-and-sandbox ;;
     # O OpenCode nao tem flag de modo autonomo; libera tudo pela config.
-    3) run_args=(-e 'OPENCODE_PERMISSION="allow"'); set -- opencode ;;
+    3) run_args=(-e 'OPENCODE_PERMISSION={"*":"allow"}'); set -- opencode ;;
     4) set -- zsh ;;
     *) echo "llm-agent: opcao invalida: '$choice'" >&2; exit 1 ;;
   esac

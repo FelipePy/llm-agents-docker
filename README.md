@@ -69,7 +69,7 @@ Escolha [1-4]:
 
 Pelo menu, os agentes abrem em **modo autônomo** (`claude --dangerously-skip-permissions` e `codex --dangerously-bypass-approvals-and-sandbox`), já que o container limita o que eles conseguem acessar.
 
-O OpenCode não tem uma flag de modo autônomo; pelo menu, ele roda com `OPENCODE_PERMISSION='"allow"'`, que libera todas as ferramentas só naquela execução. Chamado direto (`llm-agent opencode`), ele segue as permissões do seu `opencode.json`.
+O OpenCode não tem uma flag de modo autônomo; pelo menu, ele roda com `OPENCODE_PERMISSION='{"*":"allow"}'`, que libera todas as ferramentas só naquela execução. Chamado direto (`llm-agent opencode`), ele segue as permissões do seu `opencode.json`.
 
 Também dá para chamar o agente direto, com os argumentos que quiser:
 
