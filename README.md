@@ -74,17 +74,20 @@ Também dá para chamar o agente direto, com os argumentos que quiser:
 llm-agent claude                                  # Claude Code pedindo permissões
 llm-agent claude --dangerously-skip-permissions   # Claude Code autônomo
 llm-agent codex                                   # Codex com aprovações normais
+llm-agent claude --model opus                     # Claude Code com outro modelo
 llm-agent zsh                                     # shell dentro do container
 llm-agent --help                                  # ajuda
 ```
 
-Tudo que vem depois de `llm-agent` é executado dentro do container. Para usar outro diretório sem entrar nele:
+Tudo que vem depois de `llm-agent` é executado dentro do container, então os argumentos de cada CLI (como `--model`) funcionam normalmente. Para usar outro diretório sem entrar nele:
 
 ```sh
 AGENT_WORKDIR=~/projetos/meu-app llm-agent claude
 ```
 
 Por segurança, o script se recusa a rodar na sua home ou em `/`, pois isso exporia todos os seus arquivos ao agente.
+
+Cada sessão roda em um container chamado `llm-agent-<comando>-<pasta>`, como `llm-agent-claude-meu-app`, o que facilita identificá-la em `docker ps`. Se você abrir o mesmo agente mais de uma vez no mesmo projeto, as sessões seguintes recebem `-2`, `-3` etc. O container é removido ao sair.
 
 Se você ainda não fez login, faça uma vez (no host ou no container) — o login fica salvo no host e vale para os dois.
 
