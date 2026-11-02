@@ -1,9 +1,11 @@
 // Processo do servidor da interface. Normalmente iniciado por "llm-agent ui".
-import { rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createApp } from './server.ts';
 import { loadOrCreateToken } from './auth.ts';
 import { watchPaths } from './watch.ts';
+import { ClaudeBrain } from './voice/brain.ts';
+import { WorkerProcess } from './voice/worker.ts';
 
 const home = process.env.HOME;
 if (!home) {
@@ -16,6 +18,15 @@ const stateDir =
   process.env.LLM_AGENT_UI_STATE_DIR ?? join(process.env.XDG_CONFIG_HOME ?? join(home, '.config'), 'llm-agent', 'ui');
 const workspaceDir = join(process.env.XDG_DATA_HOME ?? join(home, '.local', 'share'), 'llm-agent', 'workspace');
 const token = loadOrCreateToken(stateDir);
+mkdirSync(workspaceDir, { recursive: true });
+
+// Voz: o worker Python so e preparado e iniciado quando a escuta e ligada.
+const voiceWorker = new WorkerProcess({
+  voiceDir: join(repo, 'app', 'voice'),
+  env: { ...process.env },
+  log: (line) => console.error(`[voz] ${line}`),
+});
+const brain = new ClaudeBrain({ model: process.env.LLM_AGENT_VOICE_MODEL || 'haiku', cwd: workspaceDir });
 
 const app = createApp({
   home,
@@ -28,6 +39,7 @@ const app = createApp({
   projectsDir: process.env.LLM_AGENT_PROJECTS_DIR || undefined,
   city: process.env.LLM_AGENT_UI_CITY || undefined,
   newsUrl: process.env.LLM_AGENT_UI_NEWS_RSS || undefined,
+  voice: { worker: voiceWorker, brain },
 });
 
 const port = await app.listen();
@@ -51,6 +63,7 @@ async function stop(): Promise<void> {
   stopping = true;
   stopWatching();
   await app.close();
+  voiceWorker.stop();
   rmSync(serverJson, { force: true });
   process.exit(0);
 }

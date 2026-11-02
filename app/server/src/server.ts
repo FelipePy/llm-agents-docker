@@ -11,6 +11,9 @@ import { NEWS_DEFAULT, createDayService } from './day.ts';
 import { isFile } from './files.ts';
 import { PROJECT_NAME, TASKS, isTask, projectPrompt } from './tasks.ts';
 import { TerminalManager } from './terminals.ts';
+import type { Brain } from './voice/brain.ts';
+import { VoiceSession, type VoiceWorker } from './voice/session.ts';
+import type { VoiceClientMessage } from './types.ts';
 
 export interface AppOptions {
   home: string;
@@ -29,6 +32,8 @@ export interface AppOptions {
   city?: string;
   newsUrl?: string;
   fetch?: typeof fetch;
+  /** Voz (etapa 3a): sem ela, /ws/voice responde 404. */
+  voice?: { worker: VoiceWorker; brain: Brain };
 }
 
 export interface App {
@@ -209,16 +214,51 @@ export function createApp(opts: AppOptions): App {
     }
   }
 
+  // Uma conversa de voz por vez: uma conexao nova substitui a anterior.
+  let voiceSocket: WebSocket | undefined;
+  let voiceSession: VoiceSession | undefined;
+  function openVoice(ws: WebSocket): void {
+    const voice = opts.voice!;
+    voiceSession?.stop();
+    voiceSocket?.close(4000, 'substituída por outra conexão');
+    const session = new VoiceSession(voice.worker, voice.brain, (m) => {
+      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m));
+    });
+    voiceSocket = ws;
+    voiceSession = session;
+    ws.on('message', (raw, isBinary) => {
+      if (isBinary) return session.audio(Buffer.isBuffer(raw) ? raw : Buffer.from(raw as ArrayBuffer));
+      let msg: VoiceClientMessage;
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+      session.client(msg);
+    });
+    ws.on('close', () => {
+      session.stop();
+      if (voiceSession === session) {
+        voiceSession = undefined;
+        voiceSocket = undefined;
+      }
+    });
+  }
+
   const wss = new WebSocketServer({ noServer: true });
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const allowed =
-      url.pathname === '/ws' &&
+      (url.pathname === '/ws' || (url.pathname === '/ws/voice' && opts.voice)) &&
       originAllowed(req.headers.origin, port, opts.extraOrigins) &&
       tokenMatches(url.searchParams.get('token'), opts.token);
     if (!allowed) {
       socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
       socket.destroy();
+      return;
+    }
+    if (url.pathname === '/ws/voice') {
+      wss.handleUpgrade(req, socket, head, (ws) => openVoice(ws));
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
@@ -248,6 +288,8 @@ export function createApp(opts: AppOptions): App {
       }),
     close: async () => {
       terminals.closeAll();
+      voiceSession?.stop();
+      voiceSocket?.terminate();
       for (const c of clients) c.terminate();
       wss.close();
       await new Promise<void>((ok) => server.close(() => ok()));
