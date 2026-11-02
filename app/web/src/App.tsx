@@ -48,15 +48,17 @@ function Connected({ token }: { token: string }) {
   const [reduceMotion, setReduceMotion] = usePref('llm-agent-reduce-motion', systemReducedMotion());
   const [voiceDemo, setVoiceDemo] = usePref('llm-agent-voice-demo', false);
   const [voiceOn, setVoiceOn] = usePref('llm-agent-voice', false);
+  const [planets, setPlanets] = usePref('llm-agent-planets', true);
   const [voice, setVoice] = useState<VoiceView>(OFF_VIEW);
   const voiceRef = useRef<VoiceClient | null>(null);
   const use3d = webgl && mode3d;
-  const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn };
+  const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn, planets };
   const toggles = {
     on3d: () => setMode3d(!mode3d),
     onReduceMotion: () => setReduceMotion(!reduceMotion),
     onVoiceDemo: () => setVoiceDemo(!voiceDemo),
     onVoice: () => setVoiceOn(!voiceOn),
+    onPlanets: () => setPlanets(!planets),
   };
 
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -358,7 +360,19 @@ function Connected({ token }: { token: string }) {
         {use3d ? (
           <>
             <Suspense fallback={null}>
-              <CoreScene signal={signal} reducedMotion={reduceMotion} dimmed={tabs.order.length > 0 && !drawerCollapsed} />
+              <CoreScene
+                signal={signal}
+                reducedMotion={reduceMotion}
+                dimmed={tabs.order.length > 0 && !drawerCollapsed}
+                overview={overview}
+                sessions={sessions}
+                focusId={projectId}
+                planets={planets}
+                onSelectProject={showProject}
+                onSelectProfile={() => dispatch({ type: 'jump', node: { kind: 'profile' } })}
+                onSelectSkill={showSkill}
+                onResume={resumeConversation}
+              />
             </Suspense>
             <div className="navbar">
               <div className="crumbs">

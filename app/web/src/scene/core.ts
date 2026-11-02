@@ -1,4 +1,4 @@
-// Dinamica do nucleo (atomo). A etapa 3 alimenta CoreSignal com a voz real.
+// Dinamica do nucleo (buraco negro). A etapa 3 alimenta CoreSignal com a voz real.
 // A voz vira "calor": frio = parado; quente = particulas e orbitas agitadas.
 
 export type CoreMode = 'idle' | 'listening' | 'thinking' | 'speaking';
@@ -14,16 +14,6 @@ export const MODE_LABEL: Record<CoreMode, string> = {
   listening: 'ouvindo',
   thinking: 'pensando',
   speaking: 'falando',
-};
-
-export const PROTON_COLOR = '#ffbf3c';
-export const NEUTRON_COLOR = '#f3e2b0';
-
-export const MODE_COLORS: Record<CoreMode, { ring: string; electron: string }> = {
-  idle: { ring: '#b8913a', electron: '#ffe7a3' },
-  listening: { ring: '#ffd36b', electron: '#fff3c4' },
-  thinking: { ring: '#ffb347', electron: '#ffe0a8' },
-  speaking: { ring: '#ffc94a', electron: '#fff6d6' },
 };
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
@@ -48,15 +38,6 @@ export function smoothHeat(prev: number, target: number, dt: number): number {
   const k = 1 - Math.exp(-rate * dt);
   return clamp01(prev + (target - prev) * k);
 }
-
-/** Velocidade angular dos eletrons (rad/s). */
-export const electronSpeed = (heat: number): number => 0.35 + 4.2 * heat;
-
-/** Amplitude da vibracao de protons e neutrons (unidades da cena). */
-export const jitterAmplitude = (heat: number): number => 0.006 + 0.2 * heat * heat + 0.04 * heat;
-
-/** Deformacao relativa das orbitas. */
-export const wobble = (heat: number): number => 0.004 + 0.16 * heat;
 
 /** Envelope sintetico parecido com fala: silabas dentro de palavras, com pausas. */
 export function speechEnvelope(t: number): number {

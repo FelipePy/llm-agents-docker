@@ -83,3 +83,9 @@
 .captions p { margin: 4px 0; line-height: 1.4; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9); }
 .captions .you { color: var(--muted); font-size: 13px; }
 .captions .jarvis { color: #ffe7a3; font-size: 15px; }
+.label {
+  display: flex; flex-direction: column; gap: 2px; padding: 4px 8px;
+  background: rgba(8, 10, 18, 0.85); border: 1px solid var(--line); border-radius: 6px;
+  color: var(--text); font-size: 12px; white-space: nowrap; pointer-events: none;
+}
+.label span { color: var(--muted); }

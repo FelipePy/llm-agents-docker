@@ -207,3 +207,11 @@ Cada marco tem o seu plano de implementação, escrito quando o anterior termina
 - Editar memórias, instruções ou skills pelo app.
 - App desktop para macOS e Linux.
 - Acesso ao app pelo celular. O celular usa o Remote Control.
+
+## Revisão do marco 2 (depois da etapa 3a)
+
+A pedido do usuário, o núcleo volta a ser o **buraco negro** (o átomo sai, sem opção de escolha):
+
+- O buraco negro é a voz do Jarvis: o mesmo sinal `{ mode, level }` vira calor (disco mais turbulento e mais rápido) e o volume da fala se projeta no disco como ondas que saem do centro.
+- Projetos voltam a orbitar como planetas e skills como cinturão de estrelas; a coluna de cartões à direita continua sendo a navegação principal. A câmera fica sempre apontada para o centro (gira e aproxima dentro de limites, sem voar até os planetas). Clicar num planeta faz o mesmo que o cartão do projeto; o projeto em foco mostra as conversas como luas (clicar retoma).
+- Configuração **Planetas** (`llm-agent-planets`, ligada por padrão): esconde planetas e estrelas.
