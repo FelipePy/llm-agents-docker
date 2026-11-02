@@ -120,6 +120,7 @@ export type VoiceServerMessage =
   | { type: 'audio'; id: number; data: string; last: boolean }
   | { type: 'stop-audio' }
   | { type: 'chime' }
+  | { type: 'ui'; command: UiCommand }
   | { type: 'error'; message: string };
 
 export type VoiceClientMessage =
@@ -127,3 +128,20 @@ export type VoiceClientMessage =
   | { type: 'stop' }
   | { type: 'interrupt' }
   | { type: 'played'; id: number };
+
+/** Nivel da navegacao radial da interface (a voz usa os mesmos niveis). */
+export type NavNode =
+  | { kind: 'home' }
+  | { kind: 'profile' }
+  | { kind: 'projects' }
+  | { kind: 'project'; id: string }
+  | { kind: 'conversations'; projectId: string }
+  | { kind: 'skills' }
+  | { kind: 'sessions' };
+
+/** Ordem do Jarvis para a interface (etapa 3b). */
+export type UiCommand =
+  | { kind: 'nav'; node: NavNode }
+  | { kind: 'back' }
+  | { kind: 'focus-session'; id: string }
+  | { kind: 'commands' };

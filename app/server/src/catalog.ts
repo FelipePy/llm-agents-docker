@@ -56,6 +56,16 @@ export function projectsBase(home: string, projects: ProjectSummary[], configure
   return best || join(home, 'projetos');
 }
 
+/** Linhas da saida de um comando git no projeto (vazio se falhar). */
+export async function gitLines(path: string, args: string[]): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', path, ...args], { timeout: 3000 });
+    return stdout.split('\n').filter((l) => l.trim());
+  } catch {
+    return [];
+  }
+}
+
 export async function gitInfo(path: string): Promise<{ branch: string; dirty: boolean } | null> {
   const git = (...args: string[]) => execFileAsync('git', ['-C', path, ...args], { timeout: 3000 });
   try {

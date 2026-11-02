@@ -5,6 +5,7 @@ import { createApp } from './server.ts';
 import { loadOrCreateToken } from './auth.ts';
 import { watchPaths } from './watch.ts';
 import { ClaudeBrain } from './voice/brain.ts';
+import { createJarvisServer } from './voice/tools.ts';
 import { WorkerProcess } from './voice/worker.ts';
 
 const home = process.env.HOME;
@@ -26,7 +27,13 @@ const voiceWorker = new WorkerProcess({
   env: { ...process.env },
   log: (line) => console.error(`[voz] ${line}`),
 });
-const brain = new ClaudeBrain({ model: process.env.LLM_AGENT_VOICE_MODEL || 'haiku', cwd: workspaceDir });
+let brain: ClaudeBrain | undefined;
+const makeBrain = (ctx: Parameters<typeof createJarvisServer>[0]) =>
+  (brain = new ClaudeBrain({
+    model: process.env.LLM_AGENT_VOICE_MODEL || 'haiku',
+    cwd: workspaceDir,
+    mcp: () => createJarvisServer(ctx),
+  }));
 
 const app = createApp({
   home,
@@ -39,7 +46,7 @@ const app = createApp({
   projectsDir: process.env.LLM_AGENT_PROJECTS_DIR || undefined,
   city: process.env.LLM_AGENT_UI_CITY || undefined,
   newsUrl: process.env.LLM_AGENT_UI_NEWS_RSS || undefined,
-  voice: { worker: voiceWorker, brain },
+  voice: { worker: voiceWorker, brain: makeBrain },
 });
 
 const port = await app.listen();
@@ -64,7 +71,7 @@ async function stop(): Promise<void> {
   stopWatching();
   await app.close();
   voiceWorker.stop();
-  brain.close();
+  brain?.close();
   rmSync(serverJson, { force: true });
   process.exit(0);
 }

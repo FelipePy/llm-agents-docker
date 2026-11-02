@@ -1,4 +1,6 @@
-import { query, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, type McpServerConfig, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { COMMANDS } from './commands.ts';
+import { JARVIS_TOOL_NAMES } from './tools.ts';
 
 /** Responde a uma fala do usuario, em pedacos de texto (streaming). */
 export interface Brain {
@@ -11,7 +13,11 @@ export const JARVIS_PROMPT = [
   'Você é o Jarvis, o assistente de voz do usuário, e fala português do Brasil.',
   'Suas respostas são convertidas em fala: responda em uma a três frases curtas e naturais, a menos que o usuário peça mais detalhes.',
   'Não use markdown, listas, tabelas, emojis nem blocos de código. Escreva números e siglas do jeito que devem ser falados.',
-  'Nesta versão você ainda não consegue abrir projetos, ler arquivos nem executar tarefas; se pedirem algo assim, diga em uma frase que isso chega em breve.',
+  'Você controla a interface do usuário e os projetos dele pelas ferramentas do servidor jarvis; use-as sempre que o pedido for uma ação, sem pedir confirmação para ações que só mostram coisas.',
+  'Antes de uma ferramenta demorada, diga em poucas palavras o que vai fazer. Depois, resuma o resultado em voz, sem ler listas inteiras.',
+  'Trabalho de verdade nos projetos (corrigir, implementar, investigar) vai para uma sessão com iniciar_sessao, com a tarefa completa e clara; diga que ela segue em background.',
+  'Se o usuário perguntar o que você sabe fazer, use a ferramenta comandos.',
+  `Comandos disponíveis: ${COMMANDS.map((c) => `${c.title} (ex.: "${c.examples[0]}")`).join('; ')}.`,
 ].join(' ');
 
 /** Ambiente do cerebro sem credenciais de API: ele usa sempre o login do plano. */
@@ -61,13 +67,16 @@ export class ClaudeBrain implements Brain {
   private readonly model: string;
   private readonly cwd: string;
   private readonly run: QueryFn;
+  private readonly mcp: (() => McpServerConfig) | undefined;
   private q: Query | undefined;
   private input: MessageQueue<SDKUserMessage> | undefined;
   private messages: AsyncIterator<SDKMessage> | undefined;
   /** A resposta anterior ainda nao chegou ao "result" (foi interrompida). */
   private inTurn = false;
 
-  constructor(opts: { model: string; cwd: string; query?: QueryFn }) {
+  /** `mcp`: cria o servidor de ferramentas do Jarvis (uma instancia por sessao). */
+  constructor(opts: { model: string; cwd: string; query?: QueryFn; mcp?: () => McpServerConfig }) {
+    this.mcp = opts.mcp;
     this.model = opts.model;
     this.cwd = opts.cwd;
     this.run = opts.query ?? query;
@@ -82,7 +91,8 @@ export class ClaudeBrain implements Brain {
         cwd: this.cwd,
         tools: [],
         settingSources: [],
-        mcpServers: {},
+        mcpServers: this.mcp ? { jarvis: this.mcp() } : {},
+        allowedTools: this.mcp ? JARVIS_TOOL_NAMES : [],
         strictMcpConfig: true,
         systemPrompt: JARVIS_PROMPT,
         includePartialMessages: true,

@@ -58,3 +58,35 @@ test('/ws/voice exige token e conduz a sessao de voz', async () => {
     await app.close();
   }
 });
+
+test('as ferramentas do Jarvis chegam a interface pelo /ws/voice e abrem sessoes', async () => {
+  const { buildFixture } = await import('./fixture.ts');
+  const fx = buildFixture();
+  const worker = new FakeWorker();
+  let ctx: import('../src/voice/tools.ts').JarvisContext | undefined;
+  const { app, port } = await startApp(fx.home, {
+    bin: '/bin/true',
+    voice: {
+      worker,
+      brain: (c) => {
+        ctx = c;
+        return brain;
+      },
+    },
+  });
+  try {
+    const a = open(port);
+    await a.ready;
+    assert.ok(ctx);
+    ctx!.ui({ kind: 'back' });
+    await waitFor(() => a.messages.some((m) => m.type === 'ui' && m.command.kind === 'back'));
+    assert.deepEqual((await ctx!.projects()).map((p) => p.name), ['meu-app']);
+    const s = ctx!.openSession(fx.p1, 'claude', 'corrigir os testes');
+    assert.equal(s.title, 'corrigir os testes');
+    assert.ok(ctx!.sessions().some((x) => x.id === s.id));
+    await assert.rejects(ctx!.createProject('../fora'), /inválido/);
+    a.ws.close();
+  } finally {
+    await app.close();
+  }
+});

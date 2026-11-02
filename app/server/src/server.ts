@@ -12,8 +12,11 @@ import { isFile } from './files.ts';
 import { PROJECT_NAME, TASKS, isTask, projectPrompt } from './tasks.ts';
 import { TerminalManager } from './terminals.ts';
 import type { Brain } from './voice/brain.ts';
+import type { JarvisContext } from './voice/tools.ts';
+import { shortTitle } from './conversations.ts';
+import { gitLines } from './catalog.ts';
 import { VoiceSession, type VoiceWorker } from './voice/session.ts';
-import type { VoiceClientMessage } from './types.ts';
+import type { SessionInfo, VoiceClientMessage, VoiceServerMessage } from './types.ts';
 
 export interface AppOptions {
   home: string;
@@ -33,7 +36,7 @@ export interface AppOptions {
   newsUrl?: string;
   fetch?: typeof fetch;
   /** Voz (etapa 3a): sem ela, /ws/voice responde 404. */
-  voice?: { worker: VoiceWorker; brain: Brain };
+  voice?: { worker: VoiceWorker; brain: Brain | ((ctx: JarvisContext) => Brain) };
 }
 
 export interface App {
@@ -140,6 +143,48 @@ export function createApp(opts: AppOptions): App {
     }
   });
 
+  async function openTask(name: unknown, cols: number, rows: number): Promise<SessionInfo> {
+    if (!isTask(name)) throw new Error(`tarefa desconhecida: ${String(name)}`);
+    const task = TASKS[name];
+    await mkdir(workspace, { recursive: true });
+    return terminals.open({ projectPath: workspace, agent: 'claude', prompt: task.prompt, title: task.title, cols, rows });
+  }
+
+  async function createProjectSession(name: unknown, cols: number, rows: number): Promise<SessionInfo> {
+    if (typeof name !== 'string' || !PROJECT_NAME.test(name)) {
+      throw new Error('nome de projeto inválido: use letras, números, ".", "_" ou "-"');
+    }
+    const projects = await listProjects(opts.home, await scanConversations(opts.home), hidden);
+    const path = join(projectsBase(opts.home, projects, opts.projectsDir), name);
+    if (await exists(path)) throw new Error(`já existe uma pasta em ${path}`);
+    await mkdir(path, { recursive: true });
+    return terminals.open({ projectPath: path, agent: 'claude', prompt: projectPrompt(path), title: 'projeto novo', cols, rows });
+  }
+
+  // Ferramentas do Jarvis (etapa 3b): as mesmas acoes da interface, sem shell livre.
+  let voiceUi: ((m: VoiceServerMessage) => void) | undefined;
+  const jarvis: JarvisContext = {
+    projects: async () => listProjects(opts.home, await scanConversations(opts.home), hidden),
+    projectDetail: async (path) => projectDetail(opts.home, path, await scanConversations(opts.home), hidden),
+    gitLog: (path) => gitLines(path, ['log', '-5', '--format=%h %ar %s']),
+    gitChanges: (path) => gitLines(path, ['status', '--porcelain']),
+    sessions: () => terminals.list(),
+    sessionOutput: (id) => terminals.history(id),
+    openSession: (projectPath, agent, prompt) =>
+      terminals.open({
+        projectPath,
+        agent,
+        prompt,
+        title: prompt ? shortTitle(prompt) : agent === 'shell' ? 'shell' : 'nova conversa',
+        cols: 120,
+        rows: 30,
+      }),
+    runTask: (task) => openTask(task, 120, 30),
+    createProject: (name) => createProjectSession(name, 120, 30),
+    ui: (command) => voiceUi?.({ type: 'ui', command }),
+  };
+  const voiceBrain = opts.voice ? (typeof opts.voice.brain === 'function' ? opts.voice.brain(jarvis) : opts.voice.brain) : undefined;
+
   async function handle(ws: WebSocket, msg: ClientMessage): Promise<void> {
     const reply = (m: ServerMessage) => ws.send(JSON.stringify(m));
     switch (msg.type) {
@@ -168,38 +213,10 @@ export function createApp(opts: AppOptions): App {
         });
         return reply({ type: 'opened', session });
       }
-      case 'task': {
-        if (!isTask(msg.task)) return reply({ type: 'error', message: `tarefa desconhecida: ${String(msg.task)}` });
-        const task = TASKS[msg.task];
-        await mkdir(workspace, { recursive: true });
-        const session = terminals.open({
-          projectPath: workspace,
-          agent: 'claude',
-          prompt: task.prompt,
-          title: task.title,
-          cols: size(msg.cols, 80),
-          rows: size(msg.rows, 24),
-        });
-        return reply({ type: 'opened', session });
-      }
-      case 'create-project': {
-        if (typeof msg.name !== 'string' || !PROJECT_NAME.test(msg.name)) {
-          return reply({ type: 'error', message: 'nome de projeto inválido: use letras, números, ".", "_" ou "-"' });
-        }
-        const projects = await listProjects(opts.home, await scanConversations(opts.home), hidden);
-        const path = join(projectsBase(opts.home, projects, opts.projectsDir), msg.name);
-        if (await exists(path)) return reply({ type: 'error', message: `já existe uma pasta em ${path}` });
-        await mkdir(path, { recursive: true });
-        const session = terminals.open({
-          projectPath: path,
-          agent: 'claude',
-          prompt: projectPrompt(path),
-          title: 'projeto novo',
-          cols: size(msg.cols, 80),
-          rows: size(msg.rows, 24),
-        });
-        return reply({ type: 'opened', session });
-      }
+      case 'task':
+        return reply({ type: 'opened', session: await openTask(msg.task, size(msg.cols, 80), size(msg.rows, 24)) });
+      case 'create-project':
+        return reply({ type: 'opened', session: await createProjectSession(msg.name, size(msg.cols, 80), size(msg.rows, 24)) });
       case 'attach': {
         const data = terminals.history(msg.id);
         if (data !== null) reply({ type: 'history', id: msg.id, data });
@@ -221,12 +238,14 @@ export function createApp(opts: AppOptions): App {
     const voice = opts.voice!;
     voiceSession?.stop();
     voiceSocket?.close(4000, 'substituída por outra conexão');
+    const sendVoice = (m: VoiceServerMessage) => {
+      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m));
+    };
+    voiceUi = sendVoice;
     const session = new VoiceSession(
       voice.worker,
-      voice.brain,
-      (m) => {
-        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m));
-      },
+      voiceBrain!,
+      sendVoice,
       Date.now,
       (line) => console.error(`[voz] ${line}`),
     );
