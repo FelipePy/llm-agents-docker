@@ -215,3 +215,11 @@ A pedido do usuário, o núcleo volta a ser o **buraco negro** (o átomo sai, se
 - O buraco negro é a voz do Jarvis: o mesmo sinal `{ mode, level }` vira calor (disco mais turbulento e mais rápido) e o volume da fala se projeta no disco como ondas que saem do centro.
 - Projetos voltam a orbitar como planetas e skills como cinturão de estrelas; a coluna de cartões à direita continua sendo a navegação principal. A câmera fica sempre apontada para o centro (gira e aproxima dentro de limites, sem voar até os planetas). Clicar num planeta faz o mesmo que o cartão do projeto; o projeto em foco mostra as conversas como luas (clicar retoma).
 - Configuração **Planetas** (`llm-agent-planets`, ligada por padrão): esconde planetas e estrelas.
+
+## Marco 3 implementado (Tauri)
+
+- `app/desktop`: projeto Tauri 2. A janela abre numa tela local ("Iniciando o servidor no WSL…"), executa `wsl.exe -e bash -lc "llm-agent ui"` (com `~/.local/bin` no PATH, sem console visível; `JARVIS_WSL_DISTRO` escolhe a distribuição), lê a URL da saída e navega até ela. Falha: volta à tela local com o erro e "Tentar de novo".
+- WebView2 com `--autoplay-policy=no-user-gesture-required` (a voz toca sem clique) e `--use-fake-ui-for-media-stream` (microfone liberado).
+- Bandeja (mostrar, reiniciar o servidor, sair), fechar esconde a janela, atalho global `Ctrl+Alt+J`, instância única.
+- Só a tela local tem acesso ao Tauri (capacidade `default`); a interface remota do llm-agent não.
+- `.github/workflows/desktop.yml`: compila em `windows-latest` a cada mudança em `app/desktop` (push e PR), publica artefatos e, em tags `desktop-v*`, um release com `.msi` e `.exe`. Ícones gerados de `src-tauri/app-icon.png` (`tauri icon`).

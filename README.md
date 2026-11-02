@@ -191,6 +191,18 @@ Na primeira vez, o servidor cria um ambiente Python em `app/voice/.venv` e baixa
 
 O log do servidor (`~/.config/llm-agent/ui/server.log`) mostra o tempo de cada etapa de uma resposta (`[voz] latência: transcrição … · 1º token … · 1º áudio …`), útil para ajustar o modelo do whisper.
 
+## App desktop (Windows)
+
+O **Jarvis** para Windows é a mesma interface numa janela própria (Tauri). Ao abrir, ele executa `llm-agent ui` no WSL e carrega a interface; se algo falhar, mostra o erro e um botão para tentar de novo.
+
+- **Instalação:** baixe o instalador (`.msi` ou `.exe`) do último release `desktop-v*` do repositório, ou do artefato `jarvis-windows` do workflow **desktop** no GitHub Actions. O `llm-agent` precisa estar instalado no WSL (`./install.sh`).
+- **Bandeja:** fechar a janela só a esconde; o Jarvis continua ouvindo. Pelo ícone na bandeja: mostrar, reiniciar o servidor ou sair.
+- **Atalho global:** `Ctrl+Alt+J` mostra ou esconde a janela de qualquer lugar.
+- **Voz:** no app, o áudio toca sem precisar clicar antes e o microfone é liberado direto.
+- **Outra distribuição do WSL:** defina a variável de ambiente do Windows `JARVIS_WSL_DISTRO` (por exemplo, `Ubuntu-24.04`).
+
+Para compilar à mão no Windows (com Rust e Node): `cd app/desktop && npm ci && npm run icons && npm run build`.
+
 ## O que o container enxerga
 
 | Caminho no host | No container | Acesso | Quando |
