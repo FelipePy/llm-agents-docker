@@ -1,4 +1,4 @@
-import type { ClientMessage, Overview, ProjectDetail, ServerMessage } from './types.ts';
+import type { ClientMessage, DayInfo, Overview, ProjectDetail, ServerMessage } from './types.ts';
 
 const TOKEN_KEY = 'llm-agent-token';
 
@@ -42,6 +42,12 @@ export class Api {
 
   project(id: string): Promise<ProjectDetail> {
     return this.get(`/api/projects/${id}`);
+  }
+
+  /** Clima e notícias; as coordenadas vao arredondadas (~100 m). */
+  day(coords?: { lat: number; lon: number }): Promise<DayInfo> {
+    const q = coords ? `?lat=${coords.lat.toFixed(3)}&lon=${coords.lon.toFixed(3)}` : '';
+    return this.get(`/api/day${q}`);
   }
 }
 

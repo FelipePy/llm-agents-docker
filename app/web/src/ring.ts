@@ -1,24 +1,27 @@
 import type { NavNode } from './nav.ts';
-import type { Overview, ProjectDetail, SessionAgent, SessionInfo, Skill, TextFile } from './types.ts';
+import type { Overview, ProjectDetail, SessionAgent, SessionInfo, Skill, TaskName, TextFile } from './types.ts';
 import { LABEL, formatDate } from './format.ts';
 
-/** Conteudo do painel lateral de leitura. */
+/** Conteudo do painel de leitura. */
 export type Panel =
-  | { kind: 'profile' }
   | { kind: 'skill'; skill: Skill }
-  | { kind: 'files'; title: string; files: TextFile[] };
+  | { kind: 'files'; title: string; files: TextFile[] }
+  | { kind: 'project'; detail: ProjectDetail }
+  | { kind: 'new-project' };
 
-export type Tone = 'claude' | 'codex' | 'both' | 'shell' | 'plugin' | 'accent' | 'warn' | 'muted';
+export type Tone = 'claude' | 'codex' | 'both' | 'shell' | 'plugin' | 'accent' | 'warn' | 'muted' | 'add';
 
 export type ItemAction =
   | { type: 'nav'; node: NavNode }
   | { type: 'panel'; panel: Panel }
   | { type: 'open'; projectPath: string; agent: SessionAgent; resume?: string }
-  | { type: 'tab'; sessionId: string };
+  | { type: 'tab'; sessionId: string }
+  | { type: 'task'; task: TaskName };
 
 export interface RingItem {
   key: string;
   title: string;
+  /** Usado na busca e na dica do cartao (o cartao mostra so o titulo). */
   subtitle?: string;
   badge?: string;
   tone: Tone;
@@ -38,14 +41,27 @@ const agentsTone = (agents: string[]): Tone => (agents.length > 1 ? 'both' : age
 const skillTone = (origin: string): Tone => (origin.startsWith('plugin:') ? 'plugin' : origin === 'codex' ? 'codex' : 'claude');
 const fileName = (f: TextFile): string => f.path.split('/').pop() ?? f.path;
 
+/** Nome de uma memoria: o "name" do frontmatter ou o nome do arquivo sem .md. */
+export function memoryTitle(f: TextFile): string {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(f.content)?.[1] ?? '';
+  const name = /^name:\s*(.+)$/m.exec(fm)?.[1]?.trim().replace(/^(['"])(.*)\1$/, '$2');
+  return name || fileName(f).replace(/\.md$/, '');
+}
+
+const fileItem = (f: TextFile, title: string, tone: Tone): RingItem => ({
+  key: f.path, title, subtitle: f.path, tone, action: { type: 'panel', panel: { kind: 'files', title, files: [f] } },
+});
+
 export function itemsFor(node: NavNode, { overview, sessions, detail }: RingData): RingItem[] {
   const alive = sessions.filter((s) => s.alive);
+  const { profile } = overview;
   switch (node.kind) {
     case 'home':
       return [
         {
-          key: 'profile', title: 'Você', subtitle: 'instruções e memórias', badge: String(overview.profile.memories.length),
-          tone: 'accent', action: { type: 'panel', panel: { kind: 'profile' } },
+          key: 'profile', title: 'Você', subtitle: 'instruções e memórias',
+          badge: String(profile.instructions.length + profile.memories.length), tone: 'accent',
+          action: { type: 'nav', node: { kind: 'profile' } },
         },
         {
           key: 'projects', title: 'Projetos', subtitle: 'conversas, memória e git', badge: String(overview.projects.length),
@@ -60,24 +76,36 @@ export function itemsFor(node: NavNode, { overview, sessions, detail }: RingData
           badge: String(alive.length), tone: 'shell', live: alive.length > 0, action: { type: 'nav', node: { kind: 'sessions' } },
         },
       ];
+    case 'profile':
+      return [
+        { key: 'about-me', title: '+ Sobre mim', subtitle: 'contar algo novo ao Claude', tone: 'add', action: { type: 'task', task: 'about-me' } },
+        ...profile.instructions.map((f) => fileItem(f, fileName(f), 'accent')),
+        ...profile.memories.map((f) => fileItem(f, memoryTitle(f), 'claude')),
+      ];
     case 'projects': {
       const live = new Set(alive.map((s) => s.projectPath));
-      return overview.projects.map((p) => ({
-        key: p.id, title: p.name, subtitle: formatDate(p.updatedAt), badge: String(p.conversations),
-        tone: agentsTone(p.agents), live: live.has(p.path), action: { type: 'nav', node: { kind: 'project', id: p.id } },
-      }));
+      return [
+        { key: 'new-project', title: '+ Novo projeto', tone: 'add', action: { type: 'panel', panel: { kind: 'new-project' } } },
+        ...overview.projects.map(
+          (p): RingItem => ({
+            key: p.id, title: p.name, subtitle: `${p.path} · ${formatDate(p.updatedAt)}`, tone: agentsTone(p.agents),
+            live: live.has(p.path), action: { type: 'nav', node: { kind: 'project', id: p.id } },
+          }),
+        ),
+      ];
     }
     case 'project': {
       if (!detail || detail.id !== node.id) return [];
       const items: RingItem[] = [
+        { key: 'info', title: 'Sobre o projeto', tone: 'accent', action: { type: 'panel', panel: { kind: 'project', detail } } },
         {
-          key: 'conversations', title: 'Conversas', subtitle: 'retomar uma conversa', badge: String(detail.conversationList.length),
-          tone: agentsTone(detail.agents), action: { type: 'nav', node: { kind: 'conversations', projectId: node.id } },
+          key: 'conversations', title: 'Conversas', badge: String(detail.conversationList.length), tone: agentsTone(detail.agents),
+          action: { type: 'nav', node: { kind: 'conversations', projectId: node.id } },
         },
       ];
       if (detail.memory.length) {
         items.push({
-          key: 'memory', title: 'Memória', subtitle: 'o que o Claude guardou', badge: String(detail.memory.length), tone: 'accent',
+          key: 'memory', title: 'Memória', badge: String(detail.memory.length), tone: 'accent',
           action: { type: 'panel', panel: { kind: 'files', title: `Memória · ${detail.name}`, files: detail.memory } },
         });
       }
@@ -89,7 +117,7 @@ export function itemsFor(node: NavNode, { overview, sessions, detail }: RingData
       }
       if (detail.git) {
         items.push({
-          key: 'git', title: detail.git.branch, subtitle: detail.git.dirty ? 'mudanças pendentes' : 'sem mudanças',
+          key: 'git', title: `git · ${detail.git.branch}`, subtitle: detail.git.dirty ? 'mudanças pendentes' : 'sem mudanças',
           tone: detail.git.dirty ? 'warn' : 'muted',
         });
       }
@@ -108,17 +136,27 @@ export function itemsFor(node: NavNode, { overview, sessions, detail }: RingData
         tone: c.agent, action: { type: 'open', projectPath: detail.path, agent: c.agent, resume: c.id },
       }));
     case 'skills':
-      return overview.skills.map((s) => ({
-        key: s.path, title: s.name, subtitle: s.origin, tone: skillTone(s.origin),
-        action: { type: 'panel', panel: { kind: 'skill', skill: s } },
-      }));
+      return [
+        { key: 'new-skill', title: '+ Nova skill', subtitle: 'criar com o Claude', tone: 'add', action: { type: 'task', task: 'new-skill' } },
+        ...overview.skills.map(
+          (s): RingItem => ({
+            key: s.path, title: s.name, subtitle: `${s.origin} · ${s.description}`, tone: skillTone(s.origin),
+            action: { type: 'panel', panel: { kind: 'skill', skill: s } },
+          }),
+        ),
+      ];
     case 'sessions': {
       const names = new Map(overview.projects.map((p) => [p.path, p.name]));
-      return sessions.map((s) => ({
-        key: s.id, title: `${names.get(s.projectPath) ?? s.projectPath} · ${LABEL[s.agent]}`,
-        subtitle: s.alive ? s.title : `${s.title} (encerrada)`, tone: s.agent, live: s.alive,
-        action: { type: 'tab', sessionId: s.id },
-      }));
+      return [
+        { key: 'new-session', title: '+ Nova sessão', subtitle: 'escolher o projeto', tone: 'add', action: { type: 'nav', node: { kind: 'projects' } } },
+        ...sessions.map(
+          (s): RingItem => ({
+            key: s.id,
+            title: `${names.get(s.projectPath) ?? s.projectPath.split('/').pop()} · ${LABEL[s.agent]}${s.alive ? '' : ' (encerrada)'}`,
+            subtitle: s.title, tone: s.agent, live: s.alive, action: { type: 'tab', sessionId: s.id },
+          }),
+        ),
+      ];
     }
   }
 }
@@ -127,6 +165,8 @@ export function crumbLabel(node: NavNode, overview: Overview | null): string {
   switch (node.kind) {
     case 'home':
       return 'Início';
+    case 'profile':
+      return 'Você';
     case 'projects':
       return 'Projetos';
     case 'project':
@@ -146,18 +186,29 @@ export function filterItems(items: RingItem[], filter: string): RingItem[] {
   return items.filter((i) => i.title.toLowerCase().includes(q) || (i.subtitle ?? '').toLowerCase().includes(q));
 }
 
-export const PAGE_SIZE = 12;
-
-export function paginate<T>(items: T[], page: number, size = PAGE_SIZE): { items: T[]; page: number; pages: number } {
+export function paginate<T>(items: T[], page: number, size: number): { items: T[]; page: number; pages: number } {
   const pages = Math.max(1, Math.ceil(items.length / size));
   const p = Math.min(Math.max(page, 0), pages - 1);
   return { items: items.slice(p * size, p * size + size), page: p, pages };
 }
 
-/** Pontos numa elipse, comecando no topo, no sentido horario (y para baixo). */
-export function ringPositions(n: number, rx: number, ry: number): { x: number; y: number }[] {
+/** Distancia vertical entre cartoes (px). */
+export const CARD_SPACING = 40;
+
+/**
+ * Cartoes numa coluna em arco a direita do nucleo: espacamento vertical
+ * uniforme, centrado na altura do nucleo; x segue a elipse (rx, ry).
+ */
+export function arcPositions(n: number, rx: number, ry: number, spacing = CARD_SPACING): { x: number; y: number }[] {
+  const total = (n - 1) * spacing;
   return Array.from({ length: n }, (_, i) => {
-    const a = -Math.PI / 2 + (i / n) * Math.PI * 2;
-    return { x: Math.cos(a) * rx, y: Math.sin(a) * ry };
+    const y = n === 1 ? 0 : -total / 2 + i * spacing;
+    const t = Math.min(1, Math.abs(y) / ry);
+    return { x: rx * Math.sqrt(1 - t * t), y };
   });
+}
+
+/** Quantos cartoes cabem no arco (entre 6 e 18). */
+export function pageSizeFor(ry: number, spacing = CARD_SPACING): number {
+  return Math.max(6, Math.min(18, Math.floor((2 * ry * 0.94) / spacing) + 1));
 }

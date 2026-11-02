@@ -1,18 +1,27 @@
 import { expect, it } from 'vitest';
-import { demoSignal, electronSpeed, smoothLevel, speechEnvelope } from '../src/scene/core.ts';
+import { demoSignal, electronSpeed, jitterAmplitude, smoothHeat, speechEnvelope, targetHeat, wobble } from '../src/scene/core.ts';
 
-it('smoothLevel sobe rapido, desce devagar e fica em [0, 1]', () => {
-  const up = smoothLevel(0, 1, 0.05);
-  const down = 1 - smoothLevel(1, 0, 0.05);
-  expect(up).toBeGreaterThan(down);
-  expect(smoothLevel(0.5, 2, 10)).toBe(1);
-  expect(smoothLevel(0.5, -1, 10)).toBe(0);
+it('targetHeat: frio parado, quente falando alto', () => {
+  expect(targetHeat('idle', 1)).toBe(0.05);
+  expect(targetHeat('listening', 0)).toBeGreaterThan(targetHeat('idle', 0));
+  expect(targetHeat('thinking', 0)).toBeGreaterThan(targetHeat('speaking', 0));
+  expect(targetHeat('speaking', 1)).toBe(1);
+  expect(targetHeat('speaking', 5)).toBe(1);
 });
 
-it('electronSpeed: pensando e o mais rapido; falar alto acelera', () => {
-  expect(electronSpeed('thinking', 0)).toBeGreaterThan(electronSpeed('speaking', 0.5));
-  expect(electronSpeed('speaking', 1)).toBeGreaterThan(electronSpeed('speaking', 0));
-  expect(electronSpeed('listening', 0)).toBeGreaterThan(electronSpeed('idle', 0));
+it('smoothHeat esquenta rapido, esfria devagar e fica em [0, 1]', () => {
+  const up = smoothHeat(0, 1, 0.05);
+  const down = 1 - smoothHeat(1, 0, 0.05);
+  expect(up).toBeGreaterThan(down);
+  expect(smoothHeat(0.5, 2, 10)).toBe(1);
+  expect(smoothHeat(0.5, -1, 10)).toBe(0);
+});
+
+it('agitacao cresce com o calor e e quase nula no frio', () => {
+  for (const f of [electronSpeed, jitterAmplitude, wobble]) expect(f(1)).toBeGreaterThan(f(0.3));
+  expect(jitterAmplitude(targetHeat('idle', 0))).toBeLessThan(0.03);
+  expect(wobble(targetHeat('idle', 0))).toBeLessThan(0.02);
+  expect(electronSpeed(1) / electronSpeed(0.05)).toBeGreaterThan(4);
 });
 
 it('demoSignal percorre os estados a cada 16 s', () => {

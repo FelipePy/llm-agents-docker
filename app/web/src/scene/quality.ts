@@ -1,12 +1,12 @@
 export interface Quality {
   bloom: boolean;
-  /** Subdivisoes da malha do nucleo. */
+  /** Segmentos das esferas de protons e neutrons. */
   detail: number;
   lowStreak: number;
 }
 
-export const HIGH_QUALITY: Quality = { bloom: true, detail: 64, lowStreak: 0 };
-export const LOW_DETAIL = 24;
+export const HIGH_QUALITY: Quality = { bloom: true, detail: 32, lowStreak: 0 };
+export const LOW_DETAIL = 14;
 
 /**
  * Recebe uma amostra de FPS por segundo. Tres amostras seguidas abaixo de 30

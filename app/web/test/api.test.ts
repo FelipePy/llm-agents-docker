@@ -89,3 +89,15 @@ it('LiveSocket reconecta com espera crescente e so envia aberto', () => {
   socket.stop();
   expect(timers).toHaveLength(0);
 });
+
+it('Api.day manda as coordenadas arredondadas, quando existem', async () => {
+  const urls: string[] = [];
+  const fetchImpl = (async (url: string) => {
+    urls.push(url);
+    return new Response('{"weather":null,"news":[]}', { status: 200 });
+  }) as unknown as typeof fetch;
+  const api = new Api('tok', fetchImpl);
+  await api.day({ lat: -23.55052, lon: -46.633308 });
+  await api.day();
+  expect(urls).toEqual(['/api/day?lat=-23.551&lon=-46.633', '/api/day']);
+});

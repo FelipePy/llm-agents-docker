@@ -38,6 +38,7 @@ describe('navegacao', () => {
       { kind: 'conversations', projectId: 'p' },
     ]);
     expect(pathTo({ kind: 'skills' })).toEqual([home, { kind: 'skills' }]);
+    expect(pathTo({ kind: 'profile' })).toEqual([home, { kind: 'profile' }]);
     expect(pathTo(home)).toEqual([home]);
   });
 

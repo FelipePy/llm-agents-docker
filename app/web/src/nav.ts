@@ -2,6 +2,7 @@
 
 export type NavNode =
   | { kind: 'home' }
+  | { kind: 'profile' }
   | { kind: 'projects' }
   | { kind: 'project'; id: string }
   | { kind: 'conversations'; projectId: string }
@@ -30,6 +31,7 @@ export function pathTo(node: NavNode): NavNode[] {
   switch (node.kind) {
     case 'home':
       return [home];
+    case 'profile':
     case 'projects':
     case 'skills':
     case 'sessions':
