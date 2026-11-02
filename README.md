@@ -13,6 +13,7 @@ Agentes como esses costumam ser usados em modo autônomo (`--dangerously-skip-pe
 - Usuário do container com o mesmo UID/GID do seu usuário, então os arquivos criados pertencem a você.
 - Repassa, se existirem no host: SSH agent, `~/.ssh`, `gh`, `~/.gitconfig`, `~/.zshrc`/oh-my-zsh, nvm, pyenv, bun e `~/.local/bin`.
 - Container sem capabilities (`cap_drop: ALL`) e com `no-new-privileges`.
+- **Interface gráfica** (`llm-agent ui`): perfil, skills, projetos e conversas de todos os seus projetos, com terminais embutidos para abrir, retomar e alternar sessões do Claude Code, do Codex e do shell.
 
 ## Requisitos
 
@@ -135,6 +136,27 @@ CLAUDE_CODE_VERSION=2.1.296 CODEX_VERSION=0.162.1 llm-agent --build
 
 Sem essas variáveis, o `llm-agent --build` mantém as versões já instaladas na imagem. O atualizador interno do Claude Code fica desativado no container, porque as versões são gerenciadas pela imagem.
 
+## Interface
+
+```sh
+llm-agent ui          # sobe a interface e imprime a URL
+llm-agent ui --stop   # encerra a interface e as sessões abertas nela
+```
+
+Abra a URL impressa no navegador. No WSL2, ela funciona direto no navegador do Windows. Na primeira execução, o comando instala as dependências e constrói a interface (precisa de Node.js 22.18 ou mais novo no host).
+
+A interface mostra:
+
+- **Você:** o `CLAUDE.md` e o `AGENTS.md` globais e as memórias que o Claude Code e o Codex guardaram sobre você.
+- **Skills:** as skills do Claude Code, dos plugins e do Codex.
+- **Projetos:** todos os projetos em que você já usou o Claude Code ou o Codex, com conversas, memória, instruções e branch do git.
+
+Em cada projeto, os botões **+ Claude**, **+ Codex** e **+ Shell** abrem uma sessão nova, e **Retomar** reabre uma conversa. As sessões rodam no `llm-agent` de sempre, dentro do container, em abas na parte de baixo da tela. Elas continuam rodando se você fechar a página; ao reabrir, as abas voltam com o conteúdo.
+
+Atalhos: `Ctrl+1`…`Ctrl+9` vão para uma aba, `Ctrl+Tab` e `Ctrl+Shift+Tab` alternam (no navegador, esses dois são do próprio navegador), `Ctrl+Shift+W` fecha a aba e `Ctrl+K`, fora do terminal, abre a busca.
+
+O servidor escuta só em `127.0.0.1` (porta 7777, ou `LLM_AGENT_UI_PORT`) e exige o token que vai na URL, salvo em `~/.config/llm-agent/ui/token`. Quem tem a URL pode abrir agentes autônomos nos seus projetos, então não a compartilhe.
+
 ## O que o container enxerga
 
 | Caminho no host | No container | Acesso | Quando |
@@ -185,6 +207,16 @@ Os testes do launcher usam um Docker falso e não precisam de Docker:
 
 ```sh
 tests/remote-control.test.sh
+tests/ui.test.sh                          # requer: npm --prefix app/server ci
+npm --prefix app/server test              # servidor da interface
+npm --prefix app/web test                 # lógica da interface
+```
+
+Para mexer na interface com recarga automática:
+
+```sh
+LLM_AGENT_UI_ORIGINS=http://localhost:5173 llm-agent ui   # copie o token da URL
+npm --prefix app/web run dev                              # abra http://localhost:5173/#token=<token>
 ```
 
 ## Licença
