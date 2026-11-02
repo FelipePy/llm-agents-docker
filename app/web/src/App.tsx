@@ -49,7 +49,10 @@ function Connected({ token }: { token: string }) {
   const [mode3d, setMode3d] = usePref('llm-agent-3d', true);
   const [reduceMotion, setReduceMotion] = usePref('llm-agent-reduce-motion', systemReducedMotion());
   const [voiceDemo, setVoiceDemo] = usePref('llm-agent-voice-demo', false);
-  const [voiceOn, setVoiceOn] = usePref('llm-agent-voice', false);
+  // O Jarvis ja comeca ouvindo a cada abertura do app (desligar vale so ate fechar).
+  const [voiceOn, setVoiceOn] = useState(true);
+  // Painel do dia (clima, noticias, opcoes): gaveta que comeca fechada.
+  const [dayOpen, setDayOpen] = useState(false);
   const [planets, setPlanets] = usePref('llm-agent-planets', true);
   const [sounds, setSounds] = usePref('llm-agent-sounds', true);
   const [voice, setVoice] = useState<VoiceView>(OFF_VIEW);
@@ -380,9 +383,19 @@ function Connected({ token }: { token: string }) {
     ) : null;
 
   return (
-    <div className="app">
+    <div className={use3d ? 'app full' : 'app'}>
       {use3d ? (
-        <DayPanel api={api} settings={settings} toggles={toggles} voiceStatus={voiceStatus(voice)} />
+        <div className={dayOpen ? 'day-drawer open' : 'day-drawer'}>
+          <DayPanel api={api} settings={settings} toggles={toggles} voiceStatus={voiceStatus(voice)} />
+          <button
+            className="day-toggle"
+            onClick={() => setDayOpen(!dayOpen)}
+            aria-label={dayOpen ? 'Fechar o painel do dia' : 'Abrir o painel do dia'}
+            title={dayOpen ? 'Fechar' : 'Clima, notícias e opções'}
+          >
+            {dayOpen ? '‹' : '›'}
+          </button>
+        </div>
       ) : (
         <Sidebar overview={overview} view={view} sessions={sessions} settings={settings} toggles={toggles} onSelect={setView} />
       )}

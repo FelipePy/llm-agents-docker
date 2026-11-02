@@ -12,8 +12,8 @@ interface Props {
   onActivate: (item: RingItem) => void;
 }
 
-/** Centro do atomo: 38% da largura da area central (ver .galaxy no CSS). */
-const CENTER_X = 0.38;
+/** Centro do buraco negro: meio da tela (a cena ocupa a tela toda). */
+const CENTER_X = 0.5;
 
 /** Coluna de cartoes em arco a direita do nucleo, de cima para baixo. */
 export function Ring({ items, page, animationKey, loading, onPage, onActivate }: Props) {

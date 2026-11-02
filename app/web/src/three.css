@@ -1,7 +1,7 @@
 .content.three { padding: 0; overflow: hidden; }
-.content.three .banner { position: absolute; top: 64px; left: 38%; transform: translateX(-50%); z-index: 5; }
-/* O atomo fica centrado em 38% da largura; os cartoes ocupam a direita. */
-.galaxy { position: absolute; top: 0; bottom: 0; left: 0; width: 76%; transition: filter 0.3s; }
+.content.three .banner { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); z-index: 5; }
+/* A cena ocupa a tela toda; os cartoes ficam a direita do centro. */
+.galaxy { position: absolute; inset: 0; transition: filter 0.3s; }
 .galaxy.dimmed { filter: brightness(0.45) saturate(0.8); }
 
 .navbar { position: absolute; top: 16px; left: 16px; right: 16px; z-index: 4; display: flex; align-items: center; gap: 12px; pointer-events: none; }
@@ -11,7 +11,7 @@
 .crumbs .current { border-color: #ffc94a; color: #ffc94a; }
 .crumbs .sep { color: var(--muted); }
 .navbar input { margin-left: auto; width: 220px; background: rgba(10, 14, 26, 0.7); }
-.core-caption { position: absolute; left: 38%; bottom: 56px; transform: translateX(-50%); z-index: 2; color: #e8c877; font-size: 12px; letter-spacing: 0.25em; text-transform: uppercase; pointer-events: none; }
+.core-caption { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); z-index: 2; color: #e8c877; font-size: 12px; letter-spacing: 0.25em; text-transform: uppercase; pointer-events: none; }
 
 .ring { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .ring-card {
@@ -48,7 +48,7 @@
 .card-badge { margin-left: 4px; font-size: 11px; color: var(--c); }
 .ring-pager { position: absolute; z-index: 3; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; pointer-events: auto; transform: translateY(-50%); }
 .ring-pager button { width: 28px; height: 28px; padding: 0; border-radius: 50%; background: rgba(10, 14, 26, 0.7); }
-.ring-status { position: absolute; left: 38%; bottom: 24px; transform: translateX(-50%); color: var(--muted); font-size: 12px; }
+.ring-status { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); color: var(--muted); font-size: 12px; }
 
 .panel-overlay {
   position: absolute; top: 64px; left: 16px; bottom: 16px; z-index: 6;
@@ -79,7 +79,7 @@
 .settings label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .day .hint, .sidebar .hint { margin-top: 0; }
 .voice-status { margin: -2px 0 4px 24px; color: #ffd36b; }
-.captions { position: absolute; left: 38%; bottom: 48px; transform: translateX(-50%); z-index: 3; width: min(560px, 60%); text-align: center; pointer-events: none; }
+.captions { position: absolute; left: 50%; bottom: 48px; transform: translateX(-50%); z-index: 3; width: min(560px, 60%); text-align: center; pointer-events: none; }
 .captions p { margin: 4px 0; line-height: 1.4; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9); }
 .captions .you { color: var(--muted); font-size: 13px; }
 .captions .jarvis { color: #ffe7a3; font-size: 15px; }
@@ -93,3 +93,19 @@
 .commands li { display: flex; flex-direction: column; gap: 3px; }
 .commands .example { color: #ffd98a; font-size: 13px; }
 .weather .geo { margin-top: 6px; font-size: 12px; }
+
+/* Modo 3D: sem coluna fixa; o painel do dia vira uma gaveta a esquerda. */
+.app.full { grid-template-columns: 1fr; }
+.app.full .content { grid-column: 1; }
+.day-drawer {
+  position: fixed; top: 0; bottom: 0; left: 0; z-index: 8; width: 320px;
+  transform: translateX(-100%); transition: transform 0.25s ease;
+}
+.day-drawer.open { transform: none; box-shadow: 8px 0 30px rgba(0, 0, 0, 0.5); }
+.day-drawer .day { height: 100%; border-right: 1px solid rgba(255, 209, 102, 0.18); background: rgba(10, 10, 16, 0.94); backdrop-filter: blur(8px); }
+.day-toggle {
+  position: absolute; top: 50%; left: 100%; transform: translateY(-50%);
+  width: 26px; height: 64px; padding: 0; border-radius: 0 10px 10px 0; border-left: none;
+  background: rgba(10, 10, 16, 0.85); color: #ffd36b; font-size: 18px;
+}
+.app.full .navbar { left: 40px; }
