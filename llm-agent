@@ -7,6 +7,7 @@
 #   llm-agent claude [args]   abre o Claude Code (com Remote Control)
 #   llm-agent codex [args]    abre o Codex
 #   llm-agent zsh             abre um shell no container
+#   llm-agent ui [--stop]     abre a interface (imprime a URL) ou a encerra
 #   llm-agent --build         (re)constroi a imagem
 #
 # Variaveis:
@@ -15,6 +16,7 @@
 #                             (padrao: as versoes ja instaladas na imagem)
 #   LLM_AGENT_NO_UPDATE_CHECK=1          nao procura versoes novas ao abrir
 #   LLM_AGENT_NO_REMOTE_CONTROL=1        abre o Claude Code sem Remote Control
+#   LLM_AGENT_UI_PORT         porta da interface (padrao: 7777)
 #   LLM_AGENT_DOCKER          comando do Docker (padrao: docker). Ex.: em um
 #                             servidor onde so outro usuario acessa o Docker,
 #                             "sudo -u dockeruser docker". O install.sh --docker
@@ -24,6 +26,12 @@ set -euo pipefail
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   sed -n '2,/^set -euo/{/^set -euo/d;s/^# \{0,1\}//;p}' "$(readlink -f "${BASH_SOURCE[0]}")"
   exit 0
+fi
+
+# A interface roda no host, sem Docker, e nao depende do diretorio atual.
+if [ "${1:-}" = "ui" ]; then
+  shift
+  exec "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/app/ui.sh" "$@"
 fi
 
 repo_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
