@@ -1,141 +1,165 @@
-import { useEffect, useMemo, useRef, type MutableRefObject } from 'react';
+import { useMemo, useRef, type MutableRefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Line, Trail } from '@react-three/drei';
-import { AdditiveBlending, BackSide, Color, EllipseCurve, ShaderMaterial, Vector3, type Group, type Mesh } from 'three';
-import { MODE_COLORS, electronSpeed, smoothLevel, type CoreSignal } from './core.ts';
-import { coreFragment, coreVertex, haloFragment, haloVertex } from './atomShader.ts';
+import { Color, type Group, type Mesh } from 'three';
+import type { Line2 } from 'three-stdlib';
+import {
+  MODE_COLORS, NEUTRON_COLOR, PROTON_COLOR, electronSpeed, jitterAmplitude, smoothHeat, targetHeat, wobble, type CoreSignal,
+} from './core.ts';
 
 interface Orbit {
   a: number;
   b: number;
   rotation: [number, number, number];
   phase: number;
+  /** Numero de ondas da deformacao. */
+  waves: number;
 }
 
 const ORBITS: Orbit[] = [
-  { a: 2.7, b: 1.5, rotation: [1.15, 0, 0.2], phase: 0 },
-  { a: 2.9, b: 1.3, rotation: [-0.5, 1.0, 0.4], phase: 2.1 },
-  { a: 2.5, b: 1.7, rotation: [0.3, -0.9, -0.9], phase: 4.2 },
+  { a: 2.8, b: 1.4, rotation: [1.2, 0, 0.25], phase: 0, waves: 3 },
+  { a: 3.0, b: 1.3, rotation: [-0.55, 1.05, 0.4], phase: 2.1, waves: 5 },
+  { a: 2.6, b: 1.6, rotation: [0.35, -0.95, -0.9], phase: 4.2, waves: 4 },
 ];
+const SEGMENTS = 180;
+
+/** Protons e neutrons numa esfera de Fibonacci, mais um no centro. */
+const NUCLEONS = [[0, 0, 0], ...Array.from({ length: 13 }, (_, i) => {
+  const y = 1 - (i / 12) * 2;
+  const r = Math.sqrt(1 - y * y);
+  const theta = i * 2.39996;
+  return [Math.cos(theta) * r * 0.52, y * 0.52, Math.sin(theta) * r * 0.52];
+})].map((p, i) => ({ base: p as [number, number, number], proton: i % 2 === 0, seed: i * 1.618 }));
+
+/** Ponto da orbita deformada (calor = tremor e ondulacao). */
+function orbitPoint(o: Orbit, theta: number, t: number, w: number, out: number[], k: number): void {
+  const r = 1 + w * Math.sin(o.waves * theta + t * 3.1 + o.phase) + w * 0.5 * Math.sin((o.waves + 2) * theta - t * 4.7);
+  out[k] = Math.cos(theta) * o.a * r;
+  out[k + 1] = Math.sin(theta) * o.b * r;
+  out[k + 2] = w * 1.4 * Math.sin(o.waves * 0.5 * theta + t * 2.3);
+}
 
 interface Props {
   signal: MutableRefObject<CoreSignal>;
   reducedMotion: boolean;
-  /** Subdivisoes da malha do nucleo. */
+  /** Segmentos das esferas. */
   detail: number;
 }
 
 export function Atom({ signal, reducedMotion, detail }: Props) {
-  const group = useRef<Group>(null);
-  const nucleus = useRef<Mesh>(null);
+  const nucleus = useRef<Group>(null);
+  const nucleons = useRef<(Mesh | null)[]>([]);
+  const orbitGroups = useRef<(Group | null)[]>([]);
+  const lines = useRef<(Line2 | null)[]>([]);
   const electrons = useRef<(Mesh | null)[]>([]);
-  const lines = useRef<({ material: { color: Color } } | null)[]>([]);
   const angles = useRef(ORBITS.map((o) => o.phase));
-  const level = useRef(0);
+  const heat = useRef(0.05);
   const time = useRef(0);
-
-  const colors = useMemo(
-    () => ({
-      core: new Color(MODE_COLORS.idle.core),
-      hot: new Color(MODE_COLORS.idle.hot),
-      ring: new Color(MODE_COLORS.idle.ring),
-      target: new Color(),
-    }),
-    [],
-  );
-  const core = useMemo(
-    () =>
-      new ShaderMaterial({
-        vertexShader: coreVertex,
-        fragmentShader: coreFragment,
-        uniforms: { uTime: { value: 0 }, uLevel: { value: 0 }, uColor: { value: colors.core }, uHot: { value: colors.hot } },
-      }),
-    [colors],
-  );
-  const halo = useMemo(
-    () =>
-      new ShaderMaterial({
-        vertexShader: haloVertex,
-        fragmentShader: haloFragment,
-        uniforms: { uColor: { value: colors.core }, uLevel: { value: 0 } },
-        side: BackSide,
-        blending: AdditiveBlending,
-        transparent: true,
-        depthWrite: false,
-      }),
-    [colors],
-  );
-  useEffect(
-    () => () => {
-      core.dispose();
-      halo.dispose();
-    },
-    [core, halo],
-  );
-  const curves = useMemo(
-    () => ORBITS.map((o) => new EllipseCurve(0, 0, o.a, o.b).getPoints(160).map((p) => new Vector3(p.x, p.y, 0))),
-    [],
-  );
+  const ringColor = useMemo(() => new Color(MODE_COLORS.idle.ring), []);
+  const target = useMemo(() => new Color(), []);
+  const buffers = useMemo(() => ORBITS.map(() => new Array<number>((SEGMENTS + 1) * 3).fill(0)), []);
+  const point = useMemo(() => [0, 0, 0], []);
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.1);
     const s = signal.current;
-    level.current = smoothLevel(level.current, s.mode === 'speaking' ? s.level : 0, dt);
-    // Com "reduzir movimento", a reacao a voz fica atenuada e nada gira.
-    const lv = reducedMotion ? level.current * 0.3 : level.current;
-    if (!reducedMotion) time.current += dt;
+    heat.current = smoothHeat(heat.current, targetHeat(s.mode, s.level), dt);
+    // "Reduzir movimento": quase sem agitacao e nada girando.
+    const h = reducedMotion ? heat.current * 0.25 : heat.current;
+    const motion = reducedMotion ? 0 : 1;
+    time.current += dt * (0.6 + 2.4 * h) * motion;
+    const t = time.current;
 
-    const k = 1 - Math.exp(-dt * 4);
-    const palette = MODE_COLORS[s.mode];
-    colors.core.lerp(colors.target.set(palette.core), k);
-    colors.hot.lerp(colors.target.set(palette.hot), k);
-    colors.ring.lerp(colors.target.set(palette.ring), k);
-
-    core.uniforms.uTime.value = time.current;
-    core.uniforms.uLevel.value = lv;
-    halo.uniforms.uLevel.value = lv;
-    const breathe = reducedMotion ? 1 : 1 + Math.sin(time.current * 1.2) * 0.02;
-    nucleus.current?.scale.setScalar(breathe + lv * 0.12);
-
-    const speed = reducedMotion ? 0 : electronSpeed(s.mode, level.current);
-    ORBITS.forEach((o, i) => {
-      angles.current[i] += dt * speed * (1 + i * 0.12);
-      electrons.current[i]?.position.set(Math.cos(angles.current[i]) * o.a, Math.sin(angles.current[i]) * o.b, 0);
-      lines.current[i]?.material.color.copy(colors.ring);
+    // Protons e neutrons vibram em torno da posicao de repouso.
+    const amp = jitterAmplitude(h);
+    NUCLEONS.forEach((n, i) => {
+      const m = nucleons.current[i];
+      if (!m) return;
+      m.position.set(
+        n.base[0] + Math.sin(t * 9.1 + n.seed * 12.9) * amp,
+        n.base[1] + Math.sin(t * 11.3 + n.seed * 7.1) * amp,
+        n.base[2] + Math.sin(t * 8.7 + n.seed * 3.3) * amp,
+      );
     });
-    if (group.current && !reducedMotion) group.current.rotation.y += dt * 0.08;
+    if (nucleus.current && motion) {
+      nucleus.current.rotation.y += dt * (0.15 + 1.8 * h);
+      nucleus.current.rotation.x += dt * 0.6 * h;
+    }
+
+    target.set(MODE_COLORS[s.mode].ring);
+    ringColor.lerp(target, 1 - Math.exp(-dt * 4));
+    const w = wobble(h);
+    const speed = electronSpeed(h) * motion;
+    ORBITS.forEach((o, i) => {
+      const buf = buffers[i];
+      for (let j = 0; j <= SEGMENTS; j++) orbitPoint(o, (j / SEGMENTS) * Math.PI * 2, t, w, buf, j * 3);
+      const line = lines.current[i];
+      if (line) {
+        line.geometry.setPositions(buf);
+        line.material.color.copy(ringColor);
+      }
+      angles.current[i] += dt * speed * (1 + i * 0.15);
+      orbitPoint(o, angles.current[i], t, w, point, 0);
+      electrons.current[i]?.position.set(point[0], point[1], point[2]);
+      // Com calor, os planos das orbitas precessionam.
+      const g = orbitGroups.current[i];
+      if (g && motion) g.rotation.z += dt * (0.03 + 0.7 * h) * (i % 2 ? 1 : -1);
+    });
   });
 
   return (
-    <group ref={group}>
-      <mesh ref={nucleus} material={core}>
-        <icosahedronGeometry args={[1.15, detail]} />
-      </mesh>
-      <mesh material={halo} raycast={() => null}>
-        <sphereGeometry args={[2.1, 48, 48]} />
-      </mesh>
+    <group>
+      <group ref={nucleus}>
+        {NUCLEONS.map((n, i) => (
+          <mesh
+            key={i}
+            ref={(m) => {
+              nucleons.current[i] = m;
+            }}
+            position={n.base}
+          >
+            <sphereGeometry args={[0.3, detail, detail]} />
+            <meshStandardMaterial
+              color={n.proton ? PROTON_COLOR : NEUTRON_COLOR}
+              emissive={n.proton ? PROTON_COLOR : NEUTRON_COLOR}
+              emissiveIntensity={n.proton ? 0.35 : 0.12}
+              roughness={0.35}
+              metalness={0.3}
+            />
+          </mesh>
+        ))}
+      </group>
       {ORBITS.map((o, i) => (
         <group key={i} rotation={o.rotation}>
-          <Line
-            ref={(l) => {
-              lines.current[i] = l as unknown as { material: { color: Color } } | null;
+          <group
+            ref={(g) => {
+              orbitGroups.current[i] = g;
             }}
-            points={curves[i]}
-            color={MODE_COLORS.idle.ring}
-            lineWidth={1}
-            transparent
-            opacity={0.55}
-          />
-          <Trail width={0.9} length={5} color="#bfe3ff" attenuation={(w) => w * w}>
-            <mesh
-              ref={(m) => {
-                electrons.current[i] = m;
+          >
+            <Line
+              ref={(l) => {
+                lines.current[i] = l as unknown as Line2 | null;
               }}
-            >
-              <sphereGeometry args={[0.09, 16, 16]} />
-              <meshBasicMaterial color="#e8f4ff" toneMapped={false} />
-            </mesh>
-          </Trail>
+              points={Array.from({ length: SEGMENTS + 1 }, (_, j) => {
+                const th = (j / SEGMENTS) * Math.PI * 2;
+                return [Math.cos(th) * o.a, Math.sin(th) * o.b, 0] as [number, number, number];
+              })}
+              color={MODE_COLORS.idle.ring}
+              lineWidth={1.2}
+              transparent
+              opacity={0.75}
+            />
+            <Trail width={0.7} length={4} color={MODE_COLORS.idle.electron} attenuation={(x) => x * x}>
+              <mesh
+                ref={(m) => {
+                  electrons.current[i] = m;
+                }}
+              >
+                <sphereGeometry args={[0.085, 16, 16]} />
+                <meshBasicMaterial color={MODE_COLORS.speaking.electron} toneMapped={false} />
+              </mesh>
+            </Trail>
+          </group>
         </group>
       ))}
     </group>

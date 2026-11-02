@@ -153,7 +153,13 @@ A interface mostra:
 
 Em cada projeto, os botões **+ Claude**, **+ Codex** e **+ Shell** abrem uma sessão nova, e **Retomar** reabre uma conversa. As sessões rodam no `llm-agent` de sempre, dentro do container, em abas na parte de baixo da tela. Elas continuam rodando se você fechar a página; ao reabrir, as abas voltam com o conteúdo.
 
-No centro fica o núcleo do agente, um átomo animado: ele respira devagar quando está ocioso e, na etapa de voz, muda de cor ao ouvir e ao pensar e pulsa enquanto o agente fala (ligue **Demonstração de voz** na barra lateral para ver). Em volta dele ficam os cartões: Você, Projetos, Skills e Sessões abertas. Abrir um projeto mostra as conversas, a memória, as instruções, o git e os botões de nova sessão; abrir as conversas mostra uma por cartão, e clicar retoma. A trilha no topo mostra onde você está, e `Esc` volta um nível. Na barra lateral, **Modo 3D** troca para a interface em lista e **Reduzir movimento** congela as animações. Em GPUs mais fracas, a cena reduz a qualidade sozinha.
+No modo 3D, o centro é o núcleo do agente: um átomo dourado, com prótons, nêutrons e elétrons. Parado, ele está "frio"; quando o agente fala (etapa de voz), ele "esquenta": as partículas vibram, as órbitas tremem e os elétrons aceleram. Ligue **Demonstração de voz** para ver. À direita, de cima para baixo, ficam os cartões da área em que você está: Você, Projetos, Skills e Sessões abertas no início; dentro de um projeto, Sobre o projeto, Conversas, Memória, Instruções, git e os botões de nova sessão. Clicar num cartão abre os detalhes ou entra no nível seguinte; a trilha no topo mostra onde você está, e `Esc` volta.
+
+Os botões **+ Sobre mim**, **+ Nova skill** e **+ Novo projeto** abrem uma sessão do Claude já instruída para a tarefa: registrar uma informação sobre você, criar uma skill ou preparar um projeto novo. As duas primeiras rodam numa pasta de trabalho própria (`~/.local/share/llm-agent/workspace`); o projeto novo é criado ao lado dos seus outros projetos (ou em `LLM_AGENT_PROJECTS_DIR`).
+
+À esquerda fica o painel do dia: hora, data, clima e as principais notícias. O clima vem do [Open-Meteo](https://open-meteo.com/) (sem cadastro), usando a localização do navegador; para usar uma cidade fixa, defina `LLM_AGENT_UI_CITY` (por exemplo, `LLM_AGENT_UI_CITY="São Paulo" llm-agent ui`). As notícias vêm do RSS do Google Notícias; `LLM_AGENT_UI_NEWS_RSS` troca a fonte. As coordenadas são enviadas ao Open-Meteo para buscar a previsão.
+
+Na barra da esquerda, **Modo 3D** troca para a interface em lista e **Reduzir movimento** congela as animações. Em GPUs mais fracas, a cena reduz a qualidade sozinha.
 
 Atalhos: `Ctrl+1`…`Ctrl+9` vão para uma aba, `Ctrl+Tab` e `Ctrl+Shift+Tab` alternam (no navegador, esses dois são do próprio navegador), `Ctrl+Shift+W` fecha a aba e `Ctrl+K`, fora do terminal, abre a busca.
 
