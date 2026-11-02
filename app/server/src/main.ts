@@ -6,6 +6,7 @@ import { loadOrCreateToken } from './auth.ts';
 import { watchPaths } from './watch.ts';
 import { ClaudeBrain } from './voice/brain.ts';
 import { createJarvisServer } from './voice/tools.ts';
+import { readProfile } from './catalog.ts';
 import { WorkerProcess } from './voice/worker.ts';
 
 const home = process.env.HOME;
@@ -33,6 +34,13 @@ const makeBrain = (ctx: Parameters<typeof createJarvisServer>[0]) =>
     model: process.env.LLM_AGENT_VOICE_MODEL || 'haiku',
     cwd: workspaceDir,
     mcp: () => createJarvisServer(ctx),
+    // Memorias "sobre o usuario" que os agentes ja guardaram (nome, preferencias...).
+    about: async () =>
+      (await readProfile(home)).memories
+        .map((f) => f.content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim())
+        .filter(Boolean)
+        .join('\n\n')
+        .slice(0, 3000),
   }));
 
 const app = createApp({

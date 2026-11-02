@@ -12,15 +12,19 @@ export interface Brain {
 export type QueryFn = typeof query;
 
 export const JARVIS_PROMPT = [
-  'Você é o Jarvis, o assistente de voz do usuário, e fala português do Brasil.',
-  'Suas respostas são convertidas em fala: responda em uma a três frases curtas e naturais, a menos que o usuário peça mais detalhes.',
-  'Não use markdown, listas, tabelas, emojis nem blocos de código. Escreva números e siglas do jeito que devem ser falados.',
-  'Você controla a interface do usuário e os projetos dele pelas ferramentas do servidor jarvis; use-as sempre que o pedido for uma ação, sem pedir confirmação para ações que só mostram coisas.',
+  'Você é o Jarvis, o assistente pessoal do usuário. Você conversa por voz, em português do Brasil.',
+  // Jeito de falar: orientacoes de estilo, nao frases prontas.
+  'Fale como um assistente de verdade conversando com alguém que você conhece bem: caloroso, natural e direto, com um bom humor leve quando cabe.',
+  'Use o português falado do dia a dia, sem formalidade e sem soar como manual; contrações como "tá" e "pra" são bem-vindas.',
+  'Varie o jeito de começar e de terminar as respostas; não repita fórmulas de confirmação. Reaja ao que a pessoa disse quando fizer sentido e, se algo estiver ambíguo, pergunte de volta em vez de adivinhar.',
+  'Se souber o nome do usuário, use de vez em quando, sem exagero. Lembre do que já foi dito nesta conversa.',
+  'Suas respostas viram fala: em geral, uma a três frases curtas, a menos que peçam mais. Não use markdown, listas, tabelas, emojis nem código; escreva números e siglas do jeito que se fala.',
+  // Conhecimento e ferramentas.
   'Você vive dentro do llm-agent, o app do usuário para conversar com agentes de código e acompanhar os projetos dele. Quando ele perguntar como fazer algo no app ou para que serve alguma parte dele, consulte a ferramenta manual_do_app e responda com base nela; não invente funcionalidades.',
-  'Quando for usar uma ferramenta, diga antes, com suas palavras e em poucas palavras, o que vai fazer. Depois, resuma o resultado em voz, sem ler listas inteiras.',
-  'Se o usuário se despedir, despeça-se em poucas palavras, do seu jeito.',
+  'Você controla a interface e os projetos pelas ferramentas do servidor jarvis; use-as sempre que o pedido for uma ação, sem pedir confirmação para o que só mostra coisas.',
+  'Antes de usar uma ferramenta, avise com naturalidade e em poucas palavras o que vai fazer; depois, conte o resultado como contaria a alguém, sem ler listas inteiras.',
   'Trabalho de verdade nos projetos (corrigir, implementar, investigar) vai para uma sessão com iniciar_sessao, com a tarefa completa e clara; diga que ela segue em background.',
-  'Se o usuário perguntar o que você sabe fazer, use a ferramenta comandos.',
+  'Se o usuário perguntar o que você sabe fazer, use a ferramenta comandos. Se ele se despedir, despeça-se em poucas palavras, do seu jeito.',
   `Comandos disponíveis: ${COMMANDS.map((c) => `${c.title} (ex.: "${c.examples[0]}")`).join('; ')}.`,
 ].join(' ');
 
@@ -72,6 +76,7 @@ export class ClaudeBrain implements Brain {
   private readonly cwd: string;
   private readonly run: QueryFn;
   private readonly mcp: (() => McpServerConfig) | undefined;
+  private readonly about: (() => Promise<string>) | undefined;
   private q: Query | undefined;
   private input: MessageQueue<SDKUserMessage> | undefined;
   private messages: AsyncIterator<SDKMessage> | undefined;
@@ -79,14 +84,16 @@ export class ClaudeBrain implements Brain {
   private inTurn = false;
 
   /** `mcp`: cria o servidor de ferramentas do Jarvis (uma instancia por sessao). */
-  constructor(opts: { model: string; cwd: string; query?: QueryFn; mcp?: () => McpServerConfig }) {
+  /** `about`: o que os agentes ja sabem sobre o usuario (memorias), para respostas pessoais. */
+  constructor(opts: { model: string; cwd: string; query?: QueryFn; mcp?: () => McpServerConfig; about?: () => Promise<string> }) {
     this.mcp = opts.mcp;
+    this.about = opts.about;
     this.model = opts.model;
     this.cwd = opts.cwd;
     this.run = opts.query ?? query;
   }
 
-  private open(): void {
+  private open(about = ''): void {
     this.input = new MessageQueue<SDKUserMessage>();
     this.q = this.run({
       prompt: this.input,
@@ -98,7 +105,7 @@ export class ClaudeBrain implements Brain {
         mcpServers: this.mcp ? { jarvis: this.mcp() } : {},
         allowedTools: this.mcp ? JARVIS_TOOL_NAMES : [],
         strictMcpConfig: true,
-        systemPrompt: JARVIS_PROMPT,
+        systemPrompt: about ? `${JARVIS_PROMPT}\n\nO que você já sabe sobre o usuário (das memórias dele):\n${about}` : JARVIS_PROMPT,
         includePartialMessages: true,
         resume: this.sessionId,
         effort: 'low',
@@ -112,7 +119,20 @@ export class ClaudeBrain implements Brain {
 
   /** Abre o processo do Claude ja, para a primeira fala nao esperar por ele. */
   warm(): void {
-    if (!this.q) this.open();
+    void this.ensureOpen();
+  }
+
+  private opening: Promise<void> | undefined;
+
+  private ensureOpen(): Promise<void> {
+    if (this.q) return Promise.resolve();
+    this.opening ??= (async () => {
+      const about = await this.about?.().catch(() => '');
+      if (!this.q) this.open(about ?? '');
+    })().finally(() => {
+      this.opening = undefined;
+    });
+    return this.opening;
   }
 
   /** Fecha a sessao; a proxima fala abre outra, retomando a conversa. */
@@ -138,7 +158,7 @@ export class ClaudeBrain implements Brain {
 
   async *reply(text: string, signal: AbortSignal): AsyncGenerator<string> {
     if (signal.aborted) return;
-    if (!this.q) this.open();
+    await this.ensureOpen();
     // Descarta o resto de uma resposta interrompida antes de comecar outra.
     while (this.inTurn) {
       if ((await this.next()).type === 'result') this.inTurn = false;

@@ -93,8 +93,17 @@ test('warm abre a sessao antes da primeira fala', async () => {
   const q = fakeQuery([[delta('oi'), ok]]);
   const brain = new ClaudeBrain({ model: 'haiku', cwd: '/w', query: q.fn });
   brain.warm();
+  await new Promise((r) => setImmediate(r));
   assert.equal(q.calls.length, 1);
   assert.deepEqual(await collect(brain, 'oi'), ['oi']);
   assert.equal(q.calls.length, 1);
+  brain.close();
+});
+
+test('as memorias sobre o usuario entram nas instrucoes', async () => {
+  const q = fakeQuery([[delta('Oi, Felipe!'), ok]]);
+  const brain = new ClaudeBrain({ model: 'haiku', cwd: '/w', query: q.fn, about: async () => 'Chama-se Felipe; prefere respostas curtas.' });
+  assert.deepEqual(await collect(brain, 'oi'), ['Oi, Felipe!']);
+  assert.match(q.calls[0].options.systemPrompt, /O que você já sabe sobre o usuário[\s\S]*Felipe/);
   brain.close();
 });

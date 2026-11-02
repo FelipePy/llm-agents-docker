@@ -7,6 +7,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -58,6 +59,10 @@ def main() -> None:
     vad = VAD()
     whisper = load_whisper(os.environ.get("LLM_AGENT_VOICE_STT_MODEL", "small"))
     voice = os.environ.get("LLM_AGENT_VOICE", "pt-BR-AntonioNeural")
+    rate = os.environ.get("LLM_AGENT_VOICE_RATE", "+0%")
+    if not re.fullmatch(r"[+-]\d{1,2}%", rate):
+        log(f"LLM_AGENT_VOICE_RATE invalido ({rate!r}); usando +0%")
+        rate = "+0%"
     threshold = float(os.environ.get("LLM_AGENT_VOICE_WAKE_THRESHOLD", "0.5"))
 
     stt_pool = ThreadPoolExecutor(max_workers=1)
@@ -98,7 +103,7 @@ def main() -> None:
             started = time.monotonic()
             first = True
             buf = b""
-            async for chunk in edge_tts.Communicate(text, voice).stream():
+            async for chunk in edge_tts.Communicate(text, voice, rate=rate).stream():
                 if generation != state["generation"]:
                     return
                 if chunk.get("type") != "audio":
