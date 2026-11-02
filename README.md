@@ -165,6 +165,21 @@ Atalhos: `Ctrl+1`…`Ctrl+9` vão para uma aba, `Ctrl+Tab` e `Ctrl+Shift+Tab` al
 
 O servidor escuta só em `127.0.0.1` (porta 7777, ou `LLM_AGENT_UI_PORT`) e exige o token que vai na URL, salvo em `~/.config/llm-agent/ui/token`. Quem tem a URL pode abrir agentes autônomos nos seus projetos, então não a compartilhe.
 
+### Voz ("Hey Jarvis")
+
+Ligue **Escuta ativa** no painel da esquerda e permita o microfone. Diga "Hey Jarvis": o átomo acende e o Jarvis passa a ouvir. Fale normalmente; ele responde em voz e volta a ouvir sozinho, sem precisar repetir "Hey Jarvis". Se você ficar em silêncio, ele espera. Para encerrar, diga "tchau" (ou "tchau, Jarvis", "até mais"). Dizer "Hey Jarvis" ou apertar `Esc` enquanto ele fala interrompe a resposta.
+
+Tudo é gratuito: a palavra de ativação ([openWakeWord](https://github.com/dscripka/openWakeWord)) e a transcrição ([faster-whisper](https://github.com/SYSTRAN/faster-whisper)) rodam na sua máquina, e a voz usa o [edge-tts](https://github.com/rany2/edge-tts) (vozes neurais da Microsoft, sem cadastro; precisa de internet). As respostas vêm do Claude pelo Agent SDK, com o seu login: com o plano Pro/Max, isso consome os limites normais da assinatura. Nesta versão o Jarvis só conversa; abrir projetos e executar tarefas por voz vem depois.
+
+Na primeira vez, o servidor cria um ambiente Python em `app/voice/.venv` e baixa os modelos (algumas centenas de MB); isso exige Python 3.10 ou mais novo com `venv` (no Ubuntu/Debian: `sudo apt install python3-venv`). Configurações:
+
+| Variável | Padrão | Para quê |
+| --- | --- | --- |
+| `LLM_AGENT_VOICE_MODEL` | `haiku` | modelo do Claude que responde |
+| `LLM_AGENT_VOICE` | `pt-BR-AntonioNeural` | voz do edge-tts (`pt-BR-FranciscaNeural`, `pt-BR-ThalitaMultilingualNeural`…) |
+| `LLM_AGENT_VOICE_STT_MODEL` | `small` | modelo do whisper (`base` é mais rápido; `medium` transcreve melhor) |
+| `LLM_AGENT_VOICE_WAKE_THRESHOLD` | `0.5` | sensibilidade do "Hey Jarvis" (maior = menos ativações falsas) |
+
 ## O que o container enxerga
 
 | Caminho no host | No container | Acesso | Quando |
@@ -218,6 +233,7 @@ tests/remote-control.test.sh
 tests/ui.test.sh                          # requer: npm --prefix app/server ci
 npm --prefix app/server test              # servidor da interface
 npm --prefix app/web test                 # lógica da interface
+python3 -m unittest discover -s app/voice/tests -t app/voice   # worker de voz
 ```
 
 Para mexer na interface com recarga automática:

@@ -7,6 +7,7 @@ interface Props {
   api: Api;
   settings: SettingsState;
   toggles: SettingsToggles;
+  voiceStatus?: string;
 }
 
 function useNow(ms: number): Date {
@@ -19,7 +20,7 @@ function useNow(ms: number): Date {
 }
 
 /** Coluna esquerda no modo 3D: hora, data, clima e notícias. */
-export function DayPanel({ api, settings, toggles }: Props) {
+export function DayPanel({ api, settings, toggles, voiceStatus }: Props) {
   const now = useNow(1000);
   const [day, setDay] = useState<DayInfo | null>(null);
   // undefined: ainda perguntando ao navegador; null: sem localizacao.
@@ -101,7 +102,7 @@ export function DayPanel({ api, settings, toggles }: Props) {
           <p className="muted">{day?.newsError ?? 'Carregando…'}</p>
         )}
       </section>
-      <Settings settings={settings} toggles={toggles} />
+      <Settings settings={settings} toggles={toggles} voiceStatus={voiceStatus} />
       <div className="hint">Ctrl+K busca · Esc volta · Ctrl+Tab alterna terminais</div>
     </aside>
   );

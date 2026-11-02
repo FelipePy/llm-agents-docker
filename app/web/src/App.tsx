@@ -19,6 +19,7 @@ import { Sidebar } from './components/Sidebar.tsx';
 import { SkillDetail } from './components/SkillDetail.tsx';
 import { SkillsPanel } from './components/SkillsPanel.tsx';
 import { TerminalDrawer } from './components/TerminalDrawer.tsx';
+import { OFF_VIEW, VoiceClient, voiceStatus, type VoiceView } from './voice/client.ts';
 
 // A cena 3D (three.js) so e baixada quando o modo 3D esta ligado.
 const CoreScene = lazy(() => import('./scene/CoreScene.tsx').then((m) => ({ default: m.CoreScene })));
@@ -46,12 +47,16 @@ function Connected({ token }: { token: string }) {
   const [mode3d, setMode3d] = usePref('llm-agent-3d', true);
   const [reduceMotion, setReduceMotion] = usePref('llm-agent-reduce-motion', systemReducedMotion());
   const [voiceDemo, setVoiceDemo] = usePref('llm-agent-voice-demo', false);
+  const [voiceOn, setVoiceOn] = usePref('llm-agent-voice', false);
+  const [voice, setVoice] = useState<VoiceView>(OFF_VIEW);
+  const voiceRef = useRef<VoiceClient | null>(null);
   const use3d = webgl && mode3d;
-  const settings = { webgl, mode3d, reduceMotion, voiceDemo };
+  const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn };
   const toggles = {
     on3d: () => setMode3d(!mode3d),
     onReduceMotion: () => setReduceMotion(!reduceMotion),
     onVoiceDemo: () => setVoiceDemo(!voiceDemo),
+    onVoice: () => setVoiceOn(!voiceOn),
   };
 
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -101,8 +106,38 @@ function Connected({ token }: { token: string }) {
     };
   }, [api, projectId, revision]);
 
+  // Conversa por voz: liga e desliga o cliente junto com a "Escuta ativa".
   useEffect(() => {
-    if (!voiceDemo || !use3d) {
+    if (!voiceOn) return;
+    const client = new VoiceClient(
+      token,
+      (patch) => setVoice((v) => ({ ...v, ...patch })),
+      (message) => setError(message),
+    );
+    voiceRef.current = client;
+    client.start().catch((err: Error) => {
+      setError(err.message);
+      setVoiceOn(false);
+    });
+    return () => {
+      client.stop();
+      voiceRef.current = null;
+      setVoice(OFF_VIEW);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceOn, token]);
+
+  // Legendas somem 8 s depois que a conversa volta a esperar "Hey Jarvis".
+  useEffect(() => {
+    if (voice.state !== 'sleeping' || (!voice.user && !voice.jarvis)) return;
+    const id = setTimeout(() => setVoice((v) => ({ ...v, user: '', jarvis: '' })), 8000);
+    return () => clearTimeout(id);
+  }, [voice.state, voice.user, voice.jarvis]);
+
+  // Sinal do nucleo: voz real, demonstracao ou parado.
+  useEffect(() => {
+    const demo = voiceDemo && use3d && !voiceOn;
+    if (!voiceOn && !demo) {
       signal.current = { mode: 'idle', level: 0 };
       setCoreMode('idle');
       return;
@@ -110,14 +145,14 @@ function Connected({ token }: { token: string }) {
     let frame = 0;
     const start = performance.now();
     const tick = (now: number) => {
-      const s = demoSignal((now - start) / 1000);
+      const s = demo ? demoSignal((now - start) / 1000) : (voiceRef.current?.signal() ?? { mode: 'idle' as const, level: 0 });
       signal.current = s;
       setCoreMode((m) => (m === s.mode ? m : s.mode));
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [voiceDemo, use3d]);
+  }, [voiceDemo, use3d, voiceOn]);
 
   useEffect(() => {
     // Depois de (re)conectar, o primeiro "sessions" pede o historico de todas.
@@ -252,6 +287,11 @@ function Connected({ token }: { token: string }) {
         setSearchOpen(true);
         return;
       }
+      const talking = voiceRef.current?.state === 'thinking' || voiceRef.current?.state === 'speaking';
+      if (e.key === 'Escape' && !inTerminal && talking) {
+        voiceRef.current?.interrupt();
+        return;
+      }
       if (e.key === 'Escape' && !inTerminal && !refs.current.searchOpen && refs.current.use3d) {
         if (refs.current.panel) setPanel(null);
         else if (target?.tagName !== 'INPUT') dispatch({ type: 'back' });
@@ -304,7 +344,7 @@ function Connected({ token }: { token: string }) {
   return (
     <div className="app">
       {use3d ? (
-        <DayPanel api={api} settings={settings} toggles={toggles} />
+        <DayPanel api={api} settings={settings} toggles={toggles} voiceStatus={voiceStatus(voice)} />
       ) : (
         <Sidebar overview={overview} view={view} sessions={sessions} settings={settings} toggles={toggles} onSelect={setView} />
       )}
@@ -350,7 +390,14 @@ function Connected({ token }: { token: string }) {
               onPage={(delta) => dispatch({ type: 'page', delta })}
               onActivate={activate}
             />
-            {coreMode !== 'idle' && <div className="core-caption">{MODE_LABEL[coreMode]}</div>}
+            {(voice.user || voice.jarvis) ? (
+              <div className="captions">
+                {voice.user && <p className="you">você: {voice.user}</p>}
+                {voice.jarvis && <p className="jarvis">{voice.jarvis}</p>}
+              </div>
+            ) : (
+              coreMode !== 'idle' && <div className="core-caption">{MODE_LABEL[coreMode]}</div>
+            )}
             {readingPanel && (
               <aside className="panel-overlay">
                 <button className="panel-close" onClick={() => setPanel(null)} aria-label="Fechar painel">
