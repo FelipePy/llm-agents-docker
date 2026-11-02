@@ -1,15 +1,13 @@
 name: desktop
 
-# Instaladores do Jarvis para Windows e Linux (Tauri). Compila a cada mudanca em
-# app/desktop e publica um release nas tags desktop-v*.
+# Instaladores do Jarvis para Windows e Linux (Tauri).
+# - push em qualquer branch (versao de desenvolvimento) e merge na main:
+#   instaladores como artefatos da execucao;
+# - tag desktop-v*: tambem publica um release com os instaladores.
 on:
   push:
     branches: ['**']
     tags: ['desktop-v*']
-    # (nas tags, o GitHub ignora o filtro de caminhos e sempre compila)
-    paths: ['app/desktop/**', '.github/workflows/desktop.yml']
-  pull_request:
-    paths: ['app/desktop/**', '.github/workflows/desktop.yml']
   workflow_dispatch:
 
 permissions:
