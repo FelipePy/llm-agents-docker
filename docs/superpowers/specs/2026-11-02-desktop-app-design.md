@@ -75,7 +75,7 @@ Todos os caminhos partem de `$HOME` do usuário. Linhas inválidas em `.jsonl` s
 - `id`: nome do arquivo sem `.jsonl`.
 - `cwd`: o campo `cwd` do primeiro registro que o tiver. É ele que define o projeto, porque o nome da pasta é uma codificação ambígua (`-home-a-b` pode ser `/home/a/b` ou `/home/a-b`).
 - `title`: o `aiTitle` do último registro `type: "ai-title"`. Sem ele, o primeiro registro `type: "user"` com `origin.kind == "human"` e `message.content` em texto que não comece com `<`, cortado em 80 caracteres. Sem nenhum dos dois, "(sem título)".
-- `updatedAt`: mtime do arquivo. `prompts`: número de registros `user` com `origin.kind == "human"`.
+- `updatedAt`: mtime do arquivo. `prompts`: número de registros `user` com `origin.kind == "human"`. Registros de versões antigas, sem `origin`, contam como humanos quando `message.content` é texto e `isMeta` não é verdadeiro.
 - A memória do projeto fica em `~/.claude/projects/<pasta>/memory/*.md`, na pasta que contém conversas daquele `cwd`.
 
 **Conversas do Codex** (`~/.codex/sessions/AAAA/MM/DD/rollout-*.jsonl`)
@@ -97,7 +97,7 @@ Todas as rotas `/api/*`, exceto `/api/health`, exigem `Authorization: Bearer <to
 | Rota | Resposta |
 | --- | --- |
 | `GET /api/health` | `{ "ok": true }` |
-| `GET /api/overview` | `{ profile, skills, projects }` (projetos em resumo: `id`, `name`, `path`, `updatedAt`, `conversations`, `agents`) |
+| `GET /api/overview` | `{ profile, skills, projects, conversations }` (projetos em resumo: `id`, `name`, `path`, `updatedAt`, `conversations`, `agents`; `conversations` são todas as conversas, mais recentes primeiro, usadas pela busca global) |
 | `GET /api/projects/:id` | detalhe do projeto (ver "Projetos") |
 | qualquer outra rota | arquivos estáticos de `app/web/dist`, com fallback para `index.html` |
 
@@ -108,7 +108,7 @@ WebSocket em `/ws?token=<token>` (navegadores não mandam cabeçalhos no WebSock
 | cliente → servidor | `open { projectPath, agent: "claude" \| "codex" \| "shell", resume?, cols, rows }` |
 | | `attach { id }`, `input { id, data }`, `resize { id, cols, rows }`, `close { id }` |
 | servidor → cliente | `sessions { sessions: [{ id, projectPath, agent, resume?, title, startedAt, alive }] }`, enviado na conexão e a cada mudança |
-| | `opened { session }`, `output { id, data }`, `exit { id, code }`, `changed {}`, `error { message }` |
+| | `opened { session }`, `output { id, data }`, `history { id, data }` (resposta ao `attach`), `exit { id, code }`, `changed {}`, `error { message }` |
 
 ## Terminais
 
@@ -122,7 +122,7 @@ WebSocket em `/ws?token=<token>` (navegadores não mandam cabeçalhos no WebSock
 | shell | `zsh` | — |
 
 - O Claude sobe com Remote Control porque o `llm-agent` acrescenta a flag (etapa 1).
-- O servidor guarda os últimos 1 MB de saída de cada sessão. No `attach`, envia esse histórico antes da saída nova. Assim as sessões sobrevivem a fechar e reabrir a janela.
+- O servidor guarda os últimos 1 MB de saída de cada sessão. No `attach`, responde com `history`, e a UI limpa o terminal antes de escrevê-lo. Assim as sessões sobrevivem a fechar e reabrir a janela.
 - Quando o processo termina, a sessão fica marcada como `alive: false` até o usuário fechar a aba.
 - `llm-agent ui --stop` ou o fim do servidor encerram os PTYs. As conversas continuam retomáveis por `--resume`.
 - `LLM_AGENT_BIN` substitui o caminho do `llm-agent` (usado nos testes).
@@ -135,7 +135,7 @@ WebSocket em `/ws?token=<token>` (navegadores não mandam cabeçalhos no WebSock
 - Painel "Skills": lista com filtro por origem e busca. Clicar mostra a descrição.
 - Painel do projeto: caminho, branch e estado do git; botões "Claude", "Codex" e "Shell" para nova sessão; conversas com ícone do agente, título, data e botão "Retomar"; memória e instruções do projeto.
 - Gaveta de terminais na parte de baixo, redimensionável, com abas (`projeto · agente · título`). Atalhos: `Ctrl+Tab` e `Ctrl+Shift+Tab` alternam, `Ctrl+1..9` vão para a aba N e `Ctrl+Shift+W` fecha. Sessões encerradas mostram "encerrada" e a opção de reabrir.
-- `Ctrl+K`: busca global por projetos, conversas e skills.
+- `Ctrl+K` (com o foco fora do terminal, onde o atalho apaga a linha no shell): busca global por projetos, conversas e skills.
 - Sem conexão, aparece "reconectando" e a UI tenta de novo com espera crescente até 10 s.
 
 **Marco 2: buraco negro**
@@ -164,6 +164,7 @@ O servidor consegue abrir agentes autônomos, então:
 - `llm-agent` falhando (Docker parado, imagem ausente): a saída aparece no terminal da aba e a sessão fica "encerrada".
 - `.jsonl` corrompido ou arquivo ilegível: ignorado.
 - `projectPath` de um `open` que não está na lista de projetos conhecidos: `error`. Isso impede abrir agentes em pastas arbitrárias, como a home.
+- `resume` de um `open` que não é uma conversa conhecida do mesmo agente e do mesmo projeto: `error`. Isso impede injetar argumentos no `llm-agent`.
 - Porta ocupada por outro programa: `llm-agent ui` mostra o erro do log e sugere `LLM_AGENT_UI_PORT`.
 
 ## Testes
