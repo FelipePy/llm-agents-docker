@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "types": []
   },
-  "include": ["src", "test", "../server/src/types.ts"]
+  "include": ["src", "test", "../server/src/types.ts", "../server/src/voice/commands.ts"]
 }

@@ -7,7 +7,8 @@ export type Panel =
   | { kind: 'skill'; skill: Skill }
   | { kind: 'files'; title: string; files: TextFile[] }
   | { kind: 'project'; detail: ProjectDetail }
-  | { kind: 'new-project' };
+  | { kind: 'new-project' }
+  | { kind: 'commands' };
 
 export type Tone = 'claude' | 'codex' | 'both' | 'shell' | 'plugin' | 'accent' | 'warn' | 'muted' | 'add';
 
@@ -74,6 +75,10 @@ export function itemsFor(node: NavNode, { overview, sessions, detail }: RingData
         {
           key: 'sessions', title: 'Sessões abertas', subtitle: alive.length ? 'em execução agora' : 'nenhuma em execução',
           badge: String(alive.length), tone: 'shell', live: alive.length > 0, action: { type: 'nav', node: { kind: 'sessions' } },
+        },
+        {
+          key: 'commands', title: 'Comandos de voz', subtitle: 'o que dá para pedir ao Jarvis', tone: 'muted',
+          action: { type: 'panel', panel: { kind: 'commands' } },
         },
       ];
     case 'profile':

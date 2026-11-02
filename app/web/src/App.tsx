@@ -6,7 +6,8 @@ import { hasWebGL, systemReducedMotion, usePref } from './prefs.ts';
 import { crumbLabel, filterItems, itemsFor, type Panel, type RingItem } from './ring.ts';
 import { demoSignal, MODE_LABEL, type CoreSignal } from './scene/core.ts';
 import { addTab, applyAction, closeTab, emptyTabs, shortcut, syncTabs, type TabsState } from './tabs.ts';
-import type { Conversation, Overview, ProjectDetail, ServerMessage, SessionAgent, SessionInfo, TaskName, View } from './types.ts';
+import type { Conversation, Overview, ProjectDetail, ServerMessage, SessionAgent, SessionInfo, TaskName, UiCommand, View } from './types.ts';
+import { CommandsPanel } from './components/CommandsPanel.tsx';
 import { DayPanel } from './components/DayPanel.tsx';
 import { FileCard } from './components/FileCard.tsx';
 import { NewProjectPanel } from './components/NewProjectPanel.tsx';
@@ -51,6 +52,8 @@ function Connected({ token }: { token: string }) {
   const [planets, setPlanets] = usePref('llm-agent-planets', true);
   const [voice, setVoice] = useState<VoiceView>(OFF_VIEW);
   const voiceRef = useRef<VoiceClient | null>(null);
+  // Ordens do Jarvis para a interface; atualizada a cada render (ver mais abaixo).
+  const onUiRef = useRef<(command: UiCommand) => void>(() => {});
   const use3d = webgl && mode3d;
   const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn, planets };
   const toggles = {
@@ -115,6 +118,7 @@ function Connected({ token }: { token: string }) {
       token,
       (patch) => setVoice((v) => ({ ...v, ...patch })),
       (message) => setError(message),
+      (command) => onUiRef.current(command),
     );
     voiceRef.current = client;
     client.start().catch((err: Error) => {
@@ -280,6 +284,21 @@ function Connected({ token }: { token: string }) {
     [openSession, runTask, focusTab],
   );
 
+  onUiRef.current = (command: UiCommand) => {
+    if (command.kind === 'back') return dispatch({ type: 'back' });
+    if (command.kind === 'focus-session') return focusTab(command.id);
+    if (command.kind === 'commands') return setPanel({ kind: 'commands' });
+    const node = command.node;
+    if (refs.current.use3d) {
+      setPanel(null);
+      return dispatch({ type: 'jump', node });
+    }
+    // Modo lista: os niveis equivalentes da barra lateral.
+    if (node.kind === 'project' || node.kind === 'conversations') setView({ kind: 'project', id: node.kind === 'project' ? node.id : node.projectId });
+    else if (node.kind === 'skills') setView({ kind: 'skills' });
+    else if (node.kind === 'profile') setView({ kind: 'profile' });
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -332,6 +351,8 @@ function Connected({ token }: { token: string }) {
       <SkillDetail skill={panel.skill} />
     ) : panel?.kind === 'project' ? (
       <ProjectInfo detail={panel.detail} />
+    ) : panel?.kind === 'commands' ? (
+      <CommandsPanel />
     ) : panel?.kind === 'new-project' ? (
       <NewProjectPanel base={overview?.projectsDir ?? ''} onCreate={createProject} />
     ) : panel?.kind === 'files' ? (

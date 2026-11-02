@@ -89,3 +89,6 @@
   color: var(--text); font-size: 12px; white-space: nowrap; pointer-events: none;
 }
 .label span { color: var(--muted); }
+.commands { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.commands li { display: flex; flex-direction: column; gap: 3px; }
+.commands .example { color: #ffd98a; font-size: 13px; }

@@ -1,13 +1,8 @@
 // Navegacao radial: uma pilha de niveis. A etapa 3 (voz) usa as mesmas acoes.
 
-export type NavNode =
-  | { kind: 'home' }
-  | { kind: 'profile' }
-  | { kind: 'projects' }
-  | { kind: 'project'; id: string }
-  | { kind: 'conversations'; projectId: string }
-  | { kind: 'skills' }
-  | { kind: 'sessions' };
+import type { NavNode } from './types.ts';
+
+export type { NavNode };
 
 export interface NavState {
   stack: NavNode[];

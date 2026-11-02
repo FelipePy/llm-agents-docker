@@ -1,5 +1,5 @@
 import type { CoreMode, CoreSignal } from '../scene/core.ts';
-import type { VoiceClientMessage, VoiceServerMessage, VoiceState } from '../types.ts';
+import type { UiCommand, VoiceClientMessage, VoiceServerMessage, VoiceState } from '../types.ts';
 import { startCapture } from './capture.ts';
 import { Player } from './player.ts';
 
@@ -44,12 +44,19 @@ export class VoiceClient {
   private readonly token: string;
   private readonly onView: (patch: Partial<VoiceView>) => void;
   private readonly onError: (message: string) => void;
+  private readonly onUi: (command: UiCommand) => void;
   private ws: WebSocket | undefined;
   private player: Player | undefined;
   private stopCapture: (() => void) | undefined;
   private stopped = false;
 
-  constructor(token: string, onView: (patch: Partial<VoiceView>) => void, onError: (message: string) => void) {
+  constructor(
+    token: string,
+    onView: (patch: Partial<VoiceView>) => void,
+    onError: (message: string) => void,
+    onUi: (command: UiCommand) => void,
+  ) {
+    this.onUi = onUi;
     this.token = token;
     this.onView = onView;
     this.onError = onError;
@@ -123,6 +130,9 @@ export class VoiceClient {
         return;
       case 'error':
         this.onError(m.message);
+        return;
+      case 'ui':
+        this.onUi(m.command);
         return;
     }
   }
