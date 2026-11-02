@@ -1,6 +1,6 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import type { NavNode, ProjectDetail, ProjectSummary, SessionAgent, SessionInfo, TaskName, UiCommand } from '../types.ts';
+import type { DayInfo, NavNode, ProjectDetail, ProjectSummary, SessionAgent, SessionInfo, TaskName, UiCommand } from '../types.ts';
 import { COMMANDS } from './commands.ts';
 import { normalize } from './text.ts';
 
@@ -24,6 +24,9 @@ export interface JarvisContext {
   sendToSession(id: string, text: string): boolean;
   /** Liga (ou desliga, com null) a conversa direta: a voz do usuario vai para a sessao. */
   relay(target: { id: string; label: string } | null): void;
+  /** Clima e notícias (o mesmo servico do painel do dia, na localizacao do usuario). */
+  day(): Promise<DayInfo>;
+  now(): Date;
 }
 
 const LABEL: Record<SessionAgent, string> = { claude: 'Claude', codex: 'Codex', shell: 'Shell' };
@@ -287,6 +290,23 @@ export function jarvisHandlers(ctx: JarvisContext) {
       ctx.ui({ kind: 'focus-session', id: s.id });
       return `Criei a pasta do projeto ${nome} e abri o Claude nela para prepará-lo com você.`;
     },
+    async clima_agora(_args: Record<string, never>) {
+      const d = await ctx.day();
+      const w = d.weather;
+      if (!w) return `Não consegui o clima agora: ${d.weatherError ?? 'sem localização'}.`;
+      return `Agora faz ${w.temperature} graus, ${w.description}${w.place ? `, em ${w.place}` : ''}. Hoje a máxima é ${w.max} e a mínima ${w.min} graus.`;
+    },
+    async noticias_do_dia(_args: Record<string, never>) {
+      const d = await ctx.day();
+      if (!d.news.length) return `Não consegui as notícias agora${d.newsError ? `: ${d.newsError}` : ''}.`;
+      return `Principais notícias de agora:\n${d.news.map((n) => `- ${n.title}${n.source ? ` (${n.source})` : ''}`).join('\n')}`;
+    },
+    async data_e_hora(_args: Record<string, never>) {
+      const now = ctx.now();
+      const date = now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      const time = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      return `Agora são ${time} de ${date}.`;
+    },
     async manual_do_app({ assunto }: { assunto?: string }) {
       return searchManual(await ctx.manual(), assunto ?? '');
     },
@@ -369,6 +389,9 @@ export function createJarvisServer(ctx: JarvisContext) {
         { nome: z.string().describe('Nome da pasta: letras, números, ".", "_" ou "-".') },
         run(h.criar_projeto),
       ),
+      tool('clima_agora', 'Temperatura e condição do tempo agora, com máxima e mínima de hoje, na localização do usuário.', {}, run(h.clima_agora)),
+      tool('noticias_do_dia', 'Principais manchetes de agora (Google Notícias). Conte as mais relevantes em poucas frases.', {}, run(h.noticias_do_dia)),
+      tool('data_e_hora', 'Data e hora atuais do usuário. Use sempre que precisar saber que dia ou que horas são.', {}, run(h.data_e_hora)),
       tool(
         'manual_do_app',
         'Procura no manual do llm-agent (o app em que você vive: interface, buraco negro, cartões, planetas, painel do dia, terminais, voz, botões "+", atalhos, configurações) como fazer algo ou para que serve algo. Consulte antes de responder dúvidas sobre o app.',

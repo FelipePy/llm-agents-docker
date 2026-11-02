@@ -48,6 +48,11 @@ function ctx(over: Partial<JarvisContext> = {}) {
       return id === 's1';
     },
     relay: (target) => relays.push(target),
+    day: async () => ({
+      weather: { temperature: 24, code: 2, description: 'parcialmente nublado', max: 29, min: 18, place: 'São Paulo' },
+      news: [{ title: 'Chuva forte em SP', source: 'G1', link: '', published: '' }],
+    }),
+    now: () => new Date(2026, 10, 2, 14, 5),
     ...over,
   };
   return { c, ui, opened, sent, relays, h: jarvisHandlers(c) };
@@ -159,4 +164,13 @@ test('nome ambiguo: a ferramenta pede para perguntar qual projeto', async () => 
   });
   assert.match(await h.abrir_projeto({ nome: 'geoserver' }), /mais de um projeto parecido.*Nowcasting-Geoserver.*Pergunte/);
   assert.deepEqual(ui, []);
+});
+
+test('clima, noticias e hora vem das ferramentas', async () => {
+  const { h } = ctx();
+  assert.equal(await h.clima_agora({}), 'Agora faz 24 graus, parcialmente nublado, em São Paulo. Hoje a máxima é 29 e a mínima 18 graus.');
+  assert.match(await h.noticias_do_dia({}), /Chuva forte em SP \(G1\)/);
+  assert.match(await h.data_e_hora({}), /^Agora são 14:05 de segunda-feira, 2 de novembro de 2026\.$/);
+  const off = ctx({ day: async () => ({ weather: null, weatherError: 'Permita a localização', news: [] }) });
+  assert.match(await off.h.clima_agora({}), /Não consegui o clima agora: Permita a localização/);
 });

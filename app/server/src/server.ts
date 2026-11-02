@@ -201,7 +201,11 @@ export function createApp(opts: AppOptions): App {
       return true;
     },
     relay: (target) => voiceSession?.setRelay(target),
+    day: () => day.day(voiceCoords.lat, voiceCoords.lon),
+    now: () => new Date(),
   };
+  /** Localizacao enviada pelo navegador ao ligar a voz (para clima por voz e saudacao). */
+  let voiceCoords: { lat?: number; lon?: number } = {};
   const voiceBrain = opts.voice ? (typeof opts.voice.brain === 'function' ? opts.voice.brain(jarvis) : opts.voice.brain) : undefined;
 
   async function handle(ws: WebSocket, msg: ClientMessage): Promise<void> {
@@ -300,6 +304,7 @@ export function createApp(opts: AppOptions): App {
       if (msg.type === 'start') {
         const ok = (v: unknown, max: number) => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= max ? v : undefined);
         coords = { lat: ok(msg.lat, 90), lon: ok(msg.lon, 180) };
+        voiceCoords = coords;
       }
       session.client(msg);
     });
