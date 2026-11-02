@@ -1,21 +1,74 @@
 import { rmsLevel } from './pcm.ts';
 
-function base64ToArrayBuffer(b64: string): ArrayBuffer {
+function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes.buffer;
+  return bytes;
 }
 
-/** Toca as frases do Jarvis em ordem e mede o volume para o nucleo. */
+const STREAMING = typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported('audio/mpeg');
+
+/** Uma frase: o MP3 chega em pedacos e comeca a tocar com o primeiro. */
+class Utterance {
+  readonly id: number;
+  readonly audio = new Audio();
+  private readonly chunks: Uint8Array<ArrayBuffer>[] = [];
+  private source: MediaSource | undefined;
+  private buffer: SourceBuffer | undefined;
+  private ended = false;
+  private url = '';
+
+  constructor(id: number) {
+    this.id = id;
+    if (STREAMING) {
+      const source = new MediaSource();
+      this.source = source;
+      this.url = URL.createObjectURL(source);
+      this.audio.src = this.url;
+      source.addEventListener('sourceopen', () => {
+        this.buffer = source.addSourceBuffer('audio/mpeg');
+        this.buffer.addEventListener('updateend', () => this.pump());
+        this.pump();
+      });
+    }
+  }
+
+  push(bytes: Uint8Array<ArrayBuffer>, last: boolean): void {
+    if (bytes.length) this.chunks.push(bytes);
+    if (last) this.ended = true;
+    if (STREAMING) this.pump();
+    else if (last) {
+      // Sem MediaSource para MP3: toca quando a frase chegar inteira.
+      this.url = URL.createObjectURL(new Blob(this.chunks, { type: 'audio/mpeg' }));
+      this.audio.src = this.url;
+    }
+  }
+
+  private pump(): void {
+    const sb = this.buffer;
+    if (!sb || sb.updating || this.source?.readyState !== 'open') return;
+    const next = this.chunks.shift();
+    if (next) sb.appendBuffer(next);
+    else if (this.ended) this.source.endOfStream();
+  }
+
+  dispose(): void {
+    this.audio.pause();
+    this.audio.removeAttribute('src');
+    if (this.url) URL.revokeObjectURL(this.url);
+  }
+}
+
+/** Toca as frases do Jarvis em ordem, ja enquanto chegam, e mede o volume para o nucleo. */
 export class Player {
   private readonly ctx = new AudioContext();
   private readonly analyser: AnalyserNode;
   private readonly samples: Float32Array<ArrayBuffer>;
   private readonly onPlayed: (id: number) => void;
-  private queue: Promise<void> = Promise.resolve();
-  private current: AudioBufferSourceNode | undefined;
-  private epoch = 0;
+  private readonly queue: Utterance[] = [];
+  private readonly byId = new Map<number, Utterance>();
+  private current: Utterance | undefined;
 
   constructor(onPlayed: (id: number) => void) {
     this.onPlayed = onPlayed;
@@ -33,41 +86,42 @@ export class Player {
     return this.ctx.resume();
   }
 
-  enqueue(id: number, base64Mp3: string): void {
-    const epoch = this.epoch;
-    const decoded = this.ctx.decodeAudioData(base64ToArrayBuffer(base64Mp3));
-    this.queue = this.queue.then(async () => {
-      let buffer: AudioBuffer;
-      try {
-        buffer = await decoded;
-      } catch {
-        if (epoch === this.epoch) this.onPlayed(id);
-        return;
-      }
-      if (epoch !== this.epoch) return;
-      await new Promise<void>((resolve) => {
-        const src = this.ctx.createBufferSource();
-        src.buffer = buffer;
-        src.connect(this.analyser);
-        src.onended = () => resolve();
-        this.current = src;
-        src.start();
-      });
-      this.current = undefined;
-      if (epoch === this.epoch) this.onPlayed(id);
-    });
+  /** Pedaco de MP3 da frase `id`; `last` marca o fim dela. */
+  append(id: number, base64Mp3: string, last: boolean): void {
+    let u = this.byId.get(id);
+    if (!u) {
+      u = new Utterance(id);
+      this.ctx.createMediaElementSource(u.audio).connect(this.analyser);
+      this.byId.set(id, u);
+      this.queue.push(u);
+    }
+    u.push(base64ToBytes(base64Mp3), last);
+    if (!this.current) this.playNext();
+  }
+
+  private playNext(): void {
+    const u = this.queue.shift();
+    this.current = u;
+    if (!u) return;
+    const finish = () => {
+      if (this.current !== u) return;
+      this.byId.delete(u.id);
+      u.dispose();
+      this.onPlayed(u.id);
+      this.playNext();
+    };
+    u.audio.onended = finish;
+    u.audio.onerror = finish;
+    void u.audio.play().catch(finish);
   }
 
   /** Corta a fala atual e descarta a fila. */
   stop(): void {
-    this.epoch++;
-    try {
-      this.current?.stop();
-    } catch {
-      // ja parado
-    }
+    const all = [...this.queue, ...(this.current ? [this.current] : [])];
     this.current = undefined;
-    this.queue = Promise.resolve();
+    this.queue.length = 0;
+    this.byId.clear();
+    for (const u of all) u.dispose();
   }
 
   level(): number {

@@ -113,7 +113,7 @@ export class VoiceClient {
         this.onView(m.who === 'user' ? { user: m.text, jarvis: '' } : { jarvis: m.text });
         return;
       case 'audio':
-        this.player?.enqueue(m.id, m.data);
+        this.player?.append(m.id, m.data, m.last);
         return;
       case 'stop-audio':
         this.player?.stop();

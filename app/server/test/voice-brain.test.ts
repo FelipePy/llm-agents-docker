@@ -2,51 +2,86 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ClaudeBrain, brainEnv, type QueryFn } from '../src/voice/brain.ts';
 
-function fakeQuery(script: unknown[][]) {
+const delta = (text: string) => ({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } } });
+const ok = { type: 'result', subtype: 'success', session_id: 's1' };
+
+/** query falso em modo streaming: uma "rodada" do roteiro por mensagem do usuario. */
+function fakeQuery(turns: unknown[][]) {
   const calls: any[] = [];
+  let interrupts = 0;
   const fn = ((params: any) => {
     calls.push(params);
-    const messages = script.shift() ?? [];
-    return (async function* () {
-      for (const m of messages) yield m;
+    let interrupted = false;
+    const gen = (async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 's1' };
+      for await (const user of params.prompt) {
+        void user;
+        for (const m of turns.shift() ?? [ok]) {
+          await new Promise((r) => setImmediate(r));
+          if (interrupted) {
+            interrupted = false;
+            yield { type: 'result', subtype: 'error_during_execution', session_id: 's1' };
+            break;
+          }
+          yield m;
+        }
+      }
     })();
+    return Object.assign(gen, {
+      interrupt: async () => {
+        interrupted = true;
+        interrupts++;
+      },
+      close: () => {},
+    });
   }) as unknown as QueryFn;
-  return { fn, calls };
+  return { fn, calls, interrupts: () => interrupts };
 }
 
-const delta = (text: string) => ({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } } });
-
-test('ClaudeBrain transmite o texto e retoma a sessao na fala seguinte', async () => {
-  const q = fakeQuery([
-    [{ type: 'system', subtype: 'init', session_id: 's1' }, delta('Olá, '), delta('tudo bem?'), { type: 'result', subtype: 'success', session_id: 's1' }],
-    [delta('Sim.'), { type: 'result', subtype: 'success', session_id: 's1' }],
-  ]);
-  const brain = new ClaudeBrain({ model: 'haiku', cwd: '/w', query: q.fn });
+async function collect(brain: ClaudeBrain, text: string, signal = new AbortController().signal) {
   const out: string[] = [];
-  for await (const t of brain.reply('oi', new AbortController().signal)) out.push(t);
-  assert.deepEqual(out, ['Olá, ', 'tudo bem?']);
-  for await (const t of brain.reply('e você?', new AbortController().signal)) out.push(t);
-  assert.equal(q.calls[0].options.resume, undefined);
-  assert.equal(q.calls[1].options.resume, 's1');
+  for await (const t of brain.reply(text, signal)) out.push(t);
+  return out;
+}
+
+test('ClaudeBrain usa uma sessao aberta para todas as falas', async () => {
+  const q = fakeQuery([[delta('Olá, '), delta('tudo bem?'), ok], [delta('Sim.'), ok]]);
+  const brain = new ClaudeBrain({ model: 'haiku', cwd: '/w', query: q.fn });
+  assert.deepEqual(await collect(brain, 'oi'), ['Olá, ', 'tudo bem?']);
+  assert.deepEqual(await collect(brain, 'e você?'), ['Sim.']);
+  assert.equal(q.calls.length, 1, 'um processo so');
   const o = q.calls[0].options;
   assert.deepEqual([o.model, o.cwd, o.tools, o.settingSources, o.includePartialMessages], ['haiku', '/w', [], [], true]);
   assert.match(o.systemPrompt, /Jarvis/);
+  brain.close();
 });
 
-test('ClaudeBrain falha quando o resultado nao e sucesso e para ao abortar', async () => {
-  const q = fakeQuery([[{ type: 'result', subtype: 'error_during_execution', session_id: 's' }], [delta('a'), delta('b')]]);
+test('interromper corta a resposta e a seguinte nao recebe restos dela', async () => {
+  const q = fakeQuery([[delta('a'), delta('b'), delta('c'), ok], [delta('x'), ok]]);
   const brain = new ClaudeBrain({ model: 'haiku', cwd: '/w', query: q.fn });
-  await assert.rejects(async () => {
-    for await (const _ of brain.reply('x', new AbortController().signal));
-  }, /error_during_execution/);
   const abort = new AbortController();
   const got: string[] = [];
-  for await (const t of brain.reply('y', abort.signal)) {
+  for await (const t of brain.reply('longa', abort.signal)) {
     got.push(t);
     abort.abort();
+    break;
   }
   assert.deepEqual(got, ['a']);
-  assert.equal(q.calls[1].options.abortController.signal.aborted, true);
+  assert.equal(q.interrupts(), 1);
+  assert.deepEqual(await collect(brain, 'outra'), ['x']);
+  brain.close();
+});
+
+test('erro na resposta fecha a sessao; a proxima fala retoma a conversa', async () => {
+  const q = fakeQuery([[{ type: 'result', subtype: 'error_max_turns', session_id: 's1' }]]);
+  const brain = new ClaudeBrain({ model: 'haiku', cwd: '/w', query: q.fn });
+  await assert.rejects(collect(brain, 'x'), /error_max_turns/);
+  q.calls.length = 0;
+  const q2 = fakeQuery([[delta('ok'), ok]]);
+  (brain as unknown as { run: QueryFn }).run = q2.fn;
+  assert.deepEqual(await collect(brain, 'y'), ['ok']);
+  assert.equal(q2.calls[0].options.resume, 's1');
+  brain.close();
 });
 
 test('brainEnv remove credenciais de API do ambiente', () => {

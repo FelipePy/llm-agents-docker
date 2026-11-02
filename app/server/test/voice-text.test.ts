@@ -18,12 +18,20 @@ test('stripMarkdown deixa so o texto falavel', () => {
 });
 
 test('SentenceSplitter corta frases conforme o texto chega', () => {
-  const s = new SentenceSplitter();
+  const s = new SentenceSplitter(0);
   assert.deepEqual(s.push('Olá! Tudo'), ['Olá!']);
   assert.deepEqual(s.push(' bem? A temperatura é 3.5 graus'), ['Tudo bem?']);
   assert.deepEqual(s.push('.\nFim'), ['A temperatura é 3.5 graus.']);
   assert.equal(s.flush(), 'Fim');
   assert.equal(s.flush(), null);
+});
+
+test('SentenceSplitter solta o primeiro trecho na primeira virgula longa o bastante', () => {
+  const s = new SentenceSplitter(20);
+  assert.deepEqual(s.push('Oi, '), [], 'curto demais para cortar na virgula');
+  assert.deepEqual(s.push('tudo certo por aqui, e com você'), ['Oi, tudo certo por aqui,']);
+  assert.deepEqual(s.push(', como foi o dia? Bom'), ['e com você, como foi o dia?'], 'depois do primeiro trecho, so frases inteiras');
+  assert.equal(s.flush(), 'Bom');
 });
 
 test('FrameDecoder junta pedacos e separa mensagens', () => {

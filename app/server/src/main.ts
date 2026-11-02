@@ -64,6 +64,7 @@ async function stop(): Promise<void> {
   stopWatching();
   await app.close();
   voiceWorker.stop();
+  brain.close();
   rmSync(serverJson, { force: true });
   process.exit(0);
 }

@@ -117,7 +117,7 @@ export type VoiceState = 'off' | 'preparing' | 'sleeping' | 'listening' | 'think
 export type VoiceServerMessage =
   | { type: 'state'; state: VoiceState; detail?: string }
   | { type: 'caption'; who: 'user' | 'jarvis'; text: string }
-  | { type: 'audio'; id: number; data: string }
+  | { type: 'audio'; id: number; data: string; last: boolean }
   | { type: 'stop-audio' }
   | { type: 'chime' }
   | { type: 'error'; message: string };

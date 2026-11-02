@@ -221,9 +221,15 @@ export function createApp(opts: AppOptions): App {
     const voice = opts.voice!;
     voiceSession?.stop();
     voiceSocket?.close(4000, 'substituída por outra conexão');
-    const session = new VoiceSession(voice.worker, voice.brain, (m) => {
-      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m));
-    });
+    const session = new VoiceSession(
+      voice.worker,
+      voice.brain,
+      (m) => {
+        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m));
+      },
+      Date.now,
+      (line) => console.error(`[voz] ${line}`),
+    );
     voiceSocket = ws;
     voiceSession = session;
     ws.on('message', (raw, isBinary) => {

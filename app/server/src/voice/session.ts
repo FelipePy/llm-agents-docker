@@ -9,8 +9,9 @@ export type WorkerEvent =
   | { event: 'status'; message: string }
   | { event: 'wake'; score: number }
   | { event: 'speech-start' }
-  | { event: 'transcript'; id: number; text: string }
-  | { event: 'audio'; id: number; data: string }
+  | { event: 'partial'; text: string }
+  | { event: 'transcript'; id: number; text: string; ms?: number }
+  | { event: 'audio'; id: number; data: string; last: boolean }
   | { event: 'speak-error'; id: number; message: string }
   | { event: 'error'; message: string; fatal?: boolean }
   | { event: 'exit'; code: number | null };
@@ -35,6 +36,9 @@ export class VoiceSession {
   private readonly brain: Brain;
   private readonly send: (m: VoiceServerMessage) => void;
   private readonly now: () => number;
+  private readonly log: (line: string) => void;
+  /** Marcas de tempo da fala atual, para o log de latencia. */
+  private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number } | undefined;
   private readonly listener = (e: WorkerEvent) => this.onWorker(e);
   private abort: AbortController | undefined;
   private pending = new Set<number>();
@@ -43,7 +47,14 @@ export class VoiceSession {
   private farewell = false;
   private lastRestart = -Infinity;
 
-  constructor(worker: VoiceWorker, brain: Brain, send: (m: VoiceServerMessage) => void, now: () => number = Date.now) {
+  constructor(
+    worker: VoiceWorker,
+    brain: Brain,
+    send: (m: VoiceServerMessage) => void,
+    now: () => number = Date.now,
+    log: (line: string) => void = () => {},
+  ) {
+    this.log = log;
     this.worker = worker;
     this.brain = brain;
     this.send = send;
@@ -115,9 +126,14 @@ export class VoiceSession {
           this.interrupt();
         }
         return;
+      case 'partial':
+        // Legenda ao vivo enquanto o usuario ainda fala.
+        if (this.state === 'listening' && e.text.trim()) this.send({ type: 'caption', who: 'user', text: e.text.trim() });
+        return;
       case 'transcript': {
         const text = e.text.trim();
         if (this.state !== 'listening' || !text) return;
+        this.timing = { heard: this.now(), stt: e.ms };
         this.send({ type: 'caption', who: 'user', text });
         if (isGoodbye(text)) {
           this.farewell = true;
@@ -129,7 +145,12 @@ export class VoiceSession {
         return;
       }
       case 'audio':
-        if (this.pending.has(e.id)) this.send({ type: 'audio', id: e.id, data: e.data });
+        if (!this.pending.has(e.id)) return;
+        if (this.timing && this.timing.firstAudio === undefined) {
+          this.timing.firstAudio = this.now();
+          this.logTiming();
+        }
+        this.send({ type: 'audio', id: e.id, data: e.data, last: e.last });
         return;
       case 'speak-error':
         if (this.pending.delete(e.id)) {
@@ -169,6 +190,7 @@ export class VoiceSession {
     try {
       for await (const delta of this.brain.reply(text, abort.signal)) {
         if (abort.signal.aborted) return;
+        if (this.timing && this.timing.firstToken === undefined) this.timing.firstToken = this.now();
         said += delta;
         this.send({ type: 'caption', who: 'jarvis', text: said });
         for (const sentence of splitter.push(delta)) this.speak(sentence);
@@ -187,6 +209,13 @@ export class VoiceSession {
         this.maybeFinish();
       }
     }
+  }
+
+  private logTiming(): void {
+    const t = this.timing;
+    if (!t) return;
+    const since = (v?: number) => (v === undefined ? '?' : `${v - t.heard} ms`);
+    this.log(`latência: transcrição ${t.stt ?? '?'} ms · 1º token ${since(t.firstToken)} · 1º áudio ${since(t.firstAudio)}`);
   }
 
   private speak(text: string): void {

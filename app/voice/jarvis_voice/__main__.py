@@ -19,6 +19,8 @@ from .segmenter import Segmenter
 FRAME_SAMPLES = 1280  # 80 ms a 16 kHz
 FRAME_BYTES = FRAME_SAMPLES * 2
 WAKE_DEBOUNCE_S = 2.0
+PARTIAL_EVERY_FRAMES = 6  # legenda parcial a cada ~0,5 s de fala
+AUDIO_CHUNK_BYTES = 4096  # envia a voz em pedacos, enquanto o edge-tts gera
 
 _lock = threading.Lock()
 
@@ -60,31 +62,58 @@ def main() -> None:
 
     stt_pool = ThreadPoolExecutor(max_workers=1)
     tts_pool = ThreadPoolExecutor(max_workers=1)
-    state = {"listen": False, "generation": 0, "transcript": 0, "last_wake": 0.0}
-    segmenter = Segmenter()
+    state = {"listen": False, "generation": 0, "transcript": 0, "last_wake": 0.0, "since_partial": 0}
+    segmenter = Segmenter(end_ms=int(os.environ.get("LLM_AGENT_VOICE_END_MS", "500")))
+    stt_busy = threading.Event()
+
+    def run_whisper(segment: bytes) -> str:
+        audio = np.frombuffer(segment, dtype=np.int16).astype(np.float32) / 32768.0
+        parts, _ = whisper.transcribe(audio, language="pt", beam_size=1, condition_on_previous_text=False)
+        return " ".join(p.text.strip() for p in parts).strip()
 
     def transcribe(segment: bytes, tid: int) -> None:
         try:
-            audio = np.frombuffer(segment, dtype=np.int16).astype(np.float32) / 32768.0
-            parts, _ = whisper.transcribe(audio, language="pt", beam_size=1, condition_on_previous_text=False)
-            text = " ".join(p.text.strip() for p in parts).strip()
-            send({"event": "transcript", "id": tid, "text": text})
+            started = time.monotonic()
+            text = run_whisper(segment)
+            ms = int((time.monotonic() - started) * 1000)
+            log(f"transcricao final: {ms} ms para {len(segment) / 32000:.1f} s de fala")
+            send({"event": "transcript", "id": tid, "text": text, "ms": ms})
         except Exception as err:
             log(traceback.format_exc())
             send({"event": "error", "message": f"falha na transcrição: {err}"})
 
+    def transcribe_partial(segment: bytes) -> None:
+        try:
+            text = run_whisper(segment)
+            if text:
+                send({"event": "partial", "text": text})
+        except Exception:
+            log(traceback.format_exc())
+        finally:
+            stt_busy.clear()
+
     def speak(sid: int, text: str, generation: int) -> None:
-        async def synth() -> bytes:
-            chunks = []
+        async def synth() -> None:
+            started = time.monotonic()
+            first = True
+            buf = b""
             async for chunk in edge_tts.Communicate(text, voice).stream():
-                if chunk.get("type") == "audio":
-                    chunks.append(chunk["data"])
-            return b"".join(chunks)
+                if generation != state["generation"]:
+                    return
+                if chunk.get("type") != "audio":
+                    continue
+                buf += chunk["data"]
+                if len(buf) >= AUDIO_CHUNK_BYTES:
+                    if first:
+                        log(f"voz: primeiro pedaco em {int((time.monotonic() - started) * 1000)} ms")
+                        first = False
+                    send({"event": "audio", "id": sid, "data": base64.b64encode(buf).decode("ascii"), "last": False})
+                    buf = b""
+            if generation == state["generation"]:
+                send({"event": "audio", "id": sid, "data": base64.b64encode(buf).decode("ascii"), "last": True})
 
         try:
-            audio = asyncio.run(synth())
-            if generation == state["generation"]:
-                send({"event": "audio", "id": sid, "data": base64.b64encode(audio).decode("ascii")})
+            asyncio.run(synth())
         except Exception as err:
             log(traceback.format_exc())
             send({"event": "speak-error", "id": sid, "message": str(err)})
@@ -127,10 +156,18 @@ def main() -> None:
             if state["listen"]:
                 started, segment = segmenter.feed(frame, float(vad.predict(samples, frame_size=640)))
                 if started:
+                    state["since_partial"] = 0
                     send({"event": "speech-start"})
                 if segment is not None:
                     state["transcript"] += 1
                     stt_pool.submit(transcribe, segment, state["transcript"])
+                elif segmenter.active:
+                    state["since_partial"] += 1
+                    # Legenda ao vivo: so transcreve de novo quando a anterior terminou.
+                    if state["since_partial"] >= PARTIAL_EVERY_FRAMES and not stt_busy.is_set():
+                        state["since_partial"] = 0
+                        stt_busy.set()
+                        stt_pool.submit(transcribe_partial, segmenter.current())
 
 
 if __name__ == "__main__":

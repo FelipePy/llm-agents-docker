@@ -111,3 +111,13 @@ Estados: `off` (escuta desligada), `sleeping` (só palavra de ativação), `list
 - Ferramentas do cérebro e comandos de interface (3b).
 - Atalho global de teclado e microfone com a janela fechada (marco 3, Tauri).
 - Palavra de ativação personalizada ("Ei, Claude").
+
+## Revisão: latência (após o primeiro teste do usuário)
+
+O usuário achou a transcrição e a resposta lentas. Mudanças:
+
+- **Fim da fala:** 0,5 s de silêncio (antes 0,8 s), configurável por `LLM_AGENT_VOICE_END_MS`.
+- **Legenda ao vivo:** enquanto o usuário fala, o worker transcreve o trecho em andamento a cada ~0,5 s de fala (só quando a transcrição anterior terminou) e emite `partial`; a legenda "você: …" se atualiza a cada pedaço.
+- **Cérebro em sessão contínua:** o Agent SDK roda em modo de entrada em streaming (`prompt` como fila assíncrona), com um único processo para todas as falas; interromper usa `interrupt()` e o resto da resposta interrompida é descartado antes da próxima. Erro fecha a sessão; a próxima fala abre outra com `resume`.
+- **Voz mais cedo:** o primeiro trecho de cada resposta sai na primeira vírgula, ";" ou ":" depois de 20 caracteres (o resto, por frases). O edge-tts envia o MP3 em pedacos de 4 KB (`audio` com `last`) e o navegador toca com `MediaSource` enquanto chega (sem `MediaSource` para MP3, toca quando a frase chega inteira).
+- **Medição:** o servidor registra, por resposta, o tempo de transcrição, do primeiro token e do primeiro áudio.

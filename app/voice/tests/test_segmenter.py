@@ -53,6 +53,12 @@ class SegmenterTest(unittest.TestCase):
         self.assertEqual(cut, [9])
         self.assertEqual(len(events[9][1]), 10 * 4)
 
+    def test_current_audio_while_speaking(self):
+        seg = Segmenter(preroll_ms=0)
+        self.assertIsNone(seg.current())
+        self.feed(seg, [LOUD] * 4)
+        self.assertEqual(seg.current(), b"".join(frame(i) for i in range(4)))
+
     def test_reset(self):
         seg = Segmenter()
         self.feed(seg, [LOUD] * 3)

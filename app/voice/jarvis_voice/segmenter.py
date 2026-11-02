@@ -23,6 +23,10 @@ class Segmenter:
         self._lead = 0
         self.active = False
 
+    def current(self) -> Optional[bytes]:
+        """Audio da fala em andamento (para a legenda parcial), ou None."""
+        return b"".join(self._speech) if self.active else None
+
     def feed(self, frame: bytes, score: float) -> Tuple[bool, Optional[bytes]]:
         """Devolve (a fala comecou agora, segmento terminado ou None)."""
         loud = score >= self.threshold

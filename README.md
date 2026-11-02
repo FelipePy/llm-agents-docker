@@ -179,6 +179,9 @@ Na primeira vez, o servidor cria um ambiente Python em `app/voice/.venv` e baixa
 | `LLM_AGENT_VOICE` | `pt-BR-AntonioNeural` | voz do edge-tts (`pt-BR-FranciscaNeural`, `pt-BR-ThalitaMultilingualNeural`…) |
 | `LLM_AGENT_VOICE_STT_MODEL` | `small` | modelo do whisper (`base` é mais rápido; `medium` transcreve melhor) |
 | `LLM_AGENT_VOICE_WAKE_THRESHOLD` | `0.5` | sensibilidade do "Hey Jarvis" (maior = menos ativações falsas) |
+| `LLM_AGENT_VOICE_END_MS` | `500` | silêncio (ms) que marca o fim da sua fala |
+
+O log do servidor (`~/.config/llm-agent/ui/server.log`) mostra o tempo de cada etapa de uma resposta (`[voz] latência: transcrição … · 1º token … · 1º áudio …`), útil para ajustar o modelo do whisper.
 
 ## O que o container enxerga
 

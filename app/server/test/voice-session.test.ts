@@ -60,9 +60,10 @@ function setup(script: Step[] = [], now = () => 0) {
   const worker = new FakeWorker();
   const brain = new FakeBrain(script);
   const sent: VoiceServerMessage[] = [];
-  const session = new VoiceSession(worker, brain, (m) => sent.push(m), now);
+  const logs: string[] = [];
+  const session = new VoiceSession(worker, brain, (m) => sent.push(m), now, (l) => logs.push(l));
   const states = () => sent.filter((m) => m.type === 'state').map((m) => (m as { state: string }).state);
-  return { worker, brain, sent, session, states };
+  return { worker, brain, sent, session, states, logs };
 }
 
 async function started(script: Step[] = [], now?: () => number) {
@@ -100,8 +101,9 @@ test('ciclo completo: ativa, ouve, pensa, fala frase a frase e volta a ouvir', a
   assert.ok(s.worker.commands.some((c) => c.cmd === 'sleep'), 'falando: worker so escuta a palavra de ativacao');
 
   const [a, b] = s.worker.speaks();
-  s.worker.fire({ event: 'audio', id: a.id, data: 'QQ==' });
-  assert.ok(s.sent.some((m) => m.type === 'audio' && m.id === a.id));
+  s.worker.fire({ event: 'audio', id: a.id, data: 'QQ==', last: false });
+  s.worker.fire({ event: 'audio', id: a.id, data: 'Qg==', last: true });
+  assert.deepEqual(s.sent.filter((m) => m.type === 'audio').map((m) => (m as { last: boolean }).last), [false, true]);
   s.session.client({ type: 'played', id: a.id });
   assert.equal(s.session.state, 'speaking');
   s.session.client({ type: 'played', id: b.id });
@@ -138,7 +140,7 @@ test('palavra de ativacao durante a fala interrompe e volta a ouvir', async () =
   assert.equal(s.session.state, 'listening');
   assert.ok(s.worker.commands.some((c) => c.cmd === 'cancel'));
   assert.ok(s.sent.some((m) => m.type === 'stop-audio'));
-  s.worker.fire({ event: 'audio', id: old, data: 'QQ==' });
+  s.worker.fire({ event: 'audio', id: old, data: 'QQ==', last: true });
   assert.equal(s.sent.filter((m) => m.type === 'audio').length, 0, 'audio antigo e descartado');
 });
 
@@ -201,4 +203,28 @@ test('worker cai: reinicia uma vez; caindo de novo em 60 s, desliga', async () =
   s.worker.fire({ event: 'exit', code: 1 });
   await waitFor(() => s.session.state === 'off');
   assert.ok(s.sent.some((m) => m.type === 'error' && m.message.includes('parou')));
+});
+
+test('legenda parcial enquanto o usuario fala e log de latencia', async () => {
+  let clock = 0;
+  const s = await started([['Oi.']], () => clock);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'partial', text: 'qual o' });
+  s.worker.fire({ event: 'partial', text: 'qual o tempo' });
+  assert.deepEqual(
+    s.sent.filter((m) => m.type === 'caption').map((m) => (m as { text: string }).text),
+    ['qual o', 'qual o tempo'],
+  );
+  clock = 1000;
+  s.worker.fire({ event: 'transcript', id: 1, text: 'qual o tempo hoje', ms: 420 });
+  await waitFor(() => s.worker.speaks().length === 1);
+  clock = 1900;
+  s.worker.fire({ event: 'audio', id: s.worker.speaks()[0].id, data: 'QQ==', last: true });
+  assert.match(s.logs[0], /transcrição 420 ms .* 1º token 0 ms .* 1º áudio 900 ms/);
+});
+
+test('legenda parcial e ignorada fora do estado ouvindo', async () => {
+  const s = await started();
+  s.worker.fire({ event: 'partial', text: 'barulho' });
+  assert.equal(s.sent.filter((m) => m.type === 'caption').length, 0);
 });

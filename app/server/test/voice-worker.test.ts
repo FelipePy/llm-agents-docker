@@ -19,7 +19,7 @@ process.stdin.on('data', (c) => {
     const kind = String.fromCharCode(buf[0]), payload = buf.subarray(5, 5 + size);
     buf = buf.subarray(5 + size);
     if (kind === 'A') { audio += payload.length; if (audio >= 2560) { send({ event: 'wake', score: 1 }); audio = 0; } }
-    else { const cmd = JSON.parse(payload); if (cmd.cmd === 'speak') send({ event: 'audio', id: cmd.id, data: 'QQ==' }); if (cmd.cmd === 'die') process.exit(7); }
+    else { const cmd = JSON.parse(payload); if (cmd.cmd === 'speak') send({ event: 'audio', id: cmd.id, data: 'QQ==', last: true }); if (cmd.cmd === 'die') process.exit(7); }
   }
 });
 `;
@@ -43,7 +43,7 @@ test('WorkerProcess prepara, inicia e troca mensagens com o worker', async () =>
     await w.ensureReady();
     w.command({ cmd: 'speak', id: 3, text: 'oi' });
     await waitFor(() => events.some((e) => e.event === 'audio'));
-    assert.deepEqual(events.find((e) => e.event === 'audio'), { event: 'audio', id: 3, data: 'QQ==' });
+    assert.deepEqual(events.find((e) => e.event === 'audio'), { event: 'audio', id: 3, data: 'QQ==', last: true });
     w.sendAudio(Buffer.alloc(2560));
     await waitFor(() => events.some((e) => e.event === 'wake'));
     w.command({ cmd: 'die' } as never);
