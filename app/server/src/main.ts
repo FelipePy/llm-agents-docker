@@ -14,6 +14,7 @@ if (!home) {
 const repo = resolve(import.meta.dirname, '..', '..', '..');
 const stateDir =
   process.env.LLM_AGENT_UI_STATE_DIR ?? join(process.env.XDG_CONFIG_HOME ?? join(home, '.config'), 'llm-agent', 'ui');
+const workspaceDir = join(process.env.XDG_DATA_HOME ?? join(home, '.local', 'share'), 'llm-agent', 'workspace');
 const token = loadOrCreateToken(stateDir);
 
 const app = createApp({
@@ -23,6 +24,10 @@ const app = createApp({
   webDir: join(repo, 'app', 'web', 'dist'),
   bin: process.env.LLM_AGENT_BIN ?? join(repo, 'llm-agent'),
   extraOrigins: (process.env.LLM_AGENT_UI_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+  workspaceDir,
+  projectsDir: process.env.LLM_AGENT_PROJECTS_DIR || undefined,
+  city: process.env.LLM_AGENT_UI_CITY || undefined,
+  newsUrl: process.env.LLM_AGENT_UI_NEWS_RSS || undefined,
 });
 
 const port = await app.listen();

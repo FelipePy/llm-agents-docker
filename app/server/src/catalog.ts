@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { Agent, Conversation, Overview, Profile, ProjectDetail, ProjectSummary, Skill, TextFile } from './types.ts';
 import { scanConversations } from './conversations.ts';
@@ -13,8 +13,9 @@ export const projectPathFromId = (id: string): string => Buffer.from(id, 'base64
 
 const present = <T>(x: T | null): x is T => x !== null;
 
-function groupByProject(home: string, convs: Conversation[]): Map<string, Conversation[]> {
-  const excluded = new Set([resolve(home), '/']);
+/** Conversas por projeto, sem a home, a raiz e as pastas ocultas. */
+function groupByProject(home: string, convs: Conversation[], hidden: string[]): Map<string, Conversation[]> {
+  const excluded = new Set([resolve(home), '/', ...hidden.map((h) => resolve(h))]);
   const groups = new Map<string, Conversation[]>();
   for (const c of convs) {
     if (excluded.has(c.cwd)) continue;
@@ -31,12 +32,28 @@ function summarize(path: string, list: Conversation[]): ProjectSummary {
   return { id: projectId(path), name: basename(path), path, updatedAt, conversations: list.length, agents };
 }
 
-export async function listProjects(home: string, convs: Conversation[]): Promise<ProjectSummary[]> {
+export async function listProjects(home: string, convs: Conversation[], hidden: string[] = []): Promise<ProjectSummary[]> {
   const out: ProjectSummary[] = [];
-  for (const [path, list] of groupByProject(home, convs)) {
+  for (const [path, list] of groupByProject(home, convs, hidden)) {
     if (await isDir(path)) out.push(summarize(path, list));
   }
   return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+/** Pasta onde "+ Novo projeto" cria pastas: a configurada ou a pasta-mae mais comum. */
+export function projectsBase(home: string, projects: ProjectSummary[], configured?: string): string {
+  if (configured) return resolve(configured);
+  const counts = new Map<string, number>();
+  for (const p of projects) counts.set(dirname(p.path), (counts.get(dirname(p.path)) ?? 0) + 1);
+  let best = '';
+  let most = 0;
+  for (const [dir, n] of counts) {
+    if (n > most) {
+      best = dir;
+      most = n;
+    }
+  }
+  return best || join(home, 'projetos');
 }
 
 export async function gitInfo(path: string): Promise<{ branch: string; dirty: boolean } | null> {
@@ -55,8 +72,13 @@ async function markdownFiles(dir: string): Promise<TextFile[]> {
   return (await Promise.all(names.map((n) => readTextFile(join(dir, n))))).filter(present);
 }
 
-export async function projectDetail(home: string, path: string, convs: Conversation[]): Promise<ProjectDetail | null> {
-  const list = groupByProject(home, convs).get(path);
+export async function projectDetail(
+  home: string,
+  path: string,
+  convs: Conversation[],
+  hidden: string[] = [],
+): Promise<ProjectDetail | null> {
+  const list = groupByProject(home, convs, hidden).get(path);
   if (!list || !(await isDir(path))) return null;
   const claudeDirs = [...new Set(list.map((c) => c.claudeDir).filter((d): d is string => !!d))];
   const memory = (await Promise.all(claudeDirs.map((d) => markdownFiles(join(d, 'memory'))))).flat();
@@ -115,9 +137,19 @@ export async function listSkills(home: string): Promise<Skill[]> {
   return lists.flat().sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export async function buildOverview(home: string): Promise<Overview> {
+export async function buildOverview(home: string, opts: { hidden?: string[]; projectsDir?: string } = {}): Promise<Overview> {
   const all = await scanConversations(home);
-  const [profile, skills, projects] = await Promise.all([readProfile(home), listSkills(home), listProjects(home, all)]);
+  const [profile, skills, projects] = await Promise.all([
+    readProfile(home),
+    listSkills(home),
+    listProjects(home, all, opts.hidden),
+  ]);
   const known = new Set(projects.map((p) => p.path));
-  return { profile, skills, projects, conversations: all.filter((c) => known.has(c.cwd)) };
+  return {
+    profile,
+    skills,
+    projects,
+    conversations: all.filter((c) => known.has(c.cwd)),
+    projectsDir: projectsBase(home, projects, opts.projectsDir),
+  };
 }

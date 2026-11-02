@@ -2,6 +2,7 @@
 
 export type Agent = 'claude' | 'codex';
 export type SessionAgent = Agent | 'shell';
+export type TaskName = 'new-skill' | 'about-me';
 
 export interface Conversation {
   agent: Agent;
@@ -53,6 +54,32 @@ export interface Overview {
   skills: Skill[];
   projects: ProjectSummary[];
   conversations: Conversation[];
+  /** Onde "+ Novo projeto" cria a pasta. */
+  projectsDir: string;
+}
+
+export interface Weather {
+  temperature: number;
+  code: number;
+  description: string;
+  max: number;
+  min: number;
+  /** Nome da cidade (vazio quando veio da geolocalização). */
+  place: string;
+}
+
+export interface NewsItem {
+  title: string;
+  source: string;
+  link: string;
+  published: string;
+}
+
+export interface DayInfo {
+  weather: Weather | null;
+  weatherError?: string;
+  news: NewsItem[];
+  newsError?: string;
 }
 
 export interface SessionInfo {
@@ -68,6 +95,8 @@ export interface SessionInfo {
 
 export type ClientMessage =
   | { type: 'open'; projectPath: string; agent: SessionAgent; resume?: string; cols: number; rows: number }
+  | { type: 'task'; task: TaskName; cols: number; rows: number }
+  | { type: 'create-project'; name: string; cols: number; rows: number }
   | { type: 'attach'; id: string }
   | { type: 'input'; id: string; data: string }
   | { type: 'resize'; id: string; cols: number; rows: number }

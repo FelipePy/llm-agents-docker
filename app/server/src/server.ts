@@ -1,13 +1,15 @@
 import { createServer, type ServerResponse } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import { extname, join, resolve, sep } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMessage, ServerMessage, SessionAgent } from './types.ts';
 import { bearer, originAllowed, tokenMatches } from './auth.ts';
-import { buildOverview, listProjects, projectDetail, projectPathFromId } from './catalog.ts';
+import { buildOverview, listProjects, projectDetail, projectPathFromId, projectsBase } from './catalog.ts';
 import { scanConversations } from './conversations.ts';
+import { NEWS_DEFAULT, createDayService } from './day.ts';
 import { isFile } from './files.ts';
+import { PROJECT_NAME, TASKS, isTask, projectPrompt } from './tasks.ts';
 import { TerminalManager } from './terminals.ts';
 
 export interface AppOptions {
@@ -19,6 +21,14 @@ export interface AppOptions {
   /** Caminho do llm-agent executado pelos terminais. */
   bin: string;
   extraOrigins: string[];
+  /** Pasta das sessoes de tarefa ("+ Nova skill", "+ Sobre mim"); fica fora da lista de projetos. */
+  workspaceDir: string;
+  /** Onde "+ Novo projeto" cria pastas (padrao: a pasta-mae mais comum dos projetos). */
+  projectsDir?: string;
+  /** Cidade do clima quando o navegador nao manda coordenadas. */
+  city?: string;
+  newsUrl?: string;
+  fetch?: typeof fetch;
 }
 
 export interface App {
@@ -48,10 +58,28 @@ function send(res: ServerResponse, status: number, body: unknown, type = 'applic
 const size = (v: unknown, fallback: number): number =>
   Number.isInteger(v) && (v as number) > 0 && (v as number) < 1000 ? (v as number) : fallback;
 
+const coord = (v: string | null, max: number): number | undefined => {
+  if (v === null || v === '') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) && Math.abs(n) <= max ? n : undefined;
+};
+
+const exists = async (path: string): Promise<boolean> => {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export function createApp(opts: AppOptions): App {
   let port = opts.port;
   const webRoot = resolve(opts.webDir);
+  const workspace = resolve(opts.workspaceDir);
+  const hidden = [workspace];
   const terminals = new TerminalManager(opts.bin);
+  const day = createDayService({ fetch: opts.fetch ?? fetch, city: opts.city, newsUrl: opts.newsUrl ?? NEWS_DEFAULT });
   const clients = new Set<WebSocket>();
 
   const broadcast = (msg: ServerMessage): void => {
@@ -62,11 +90,18 @@ export function createApp(opts: AppOptions): App {
   terminals.on('exit', (id: string, code: number) => broadcast({ type: 'exit', id, code }));
   terminals.on('sessions', () => broadcast({ type: 'sessions', sessions: terminals.list() }));
 
-  async function api(res: ServerResponse, pathname: string): Promise<void> {
-    if (pathname === '/api/overview') return send(res, 200, await buildOverview(opts.home));
-    const m = /^\/api\/projects\/([A-Za-z0-9_-]+)$/.exec(pathname);
+  async function api(res: ServerResponse, url: URL): Promise<void> {
+    if (url.pathname === '/api/overview') {
+      return send(res, 200, await buildOverview(opts.home, { hidden, projectsDir: opts.projectsDir }));
+    }
+    if (url.pathname === '/api/day') {
+      const lat = coord(url.searchParams.get('lat'), 90);
+      const lon = coord(url.searchParams.get('lon'), 180);
+      return send(res, 200, await day.day(lat !== undefined && lon !== undefined ? lat : undefined, lat !== undefined ? lon : undefined));
+    }
+    const m = /^\/api\/projects\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
     if (m) {
-      const detail = await projectDetail(opts.home, projectPathFromId(m[1]), await scanConversations(opts.home));
+      const detail = await projectDetail(opts.home, projectPathFromId(m[1]), await scanConversations(opts.home), hidden);
       return detail ? send(res, 200, detail) : send(res, 404, { error: 'projeto não encontrado' });
     }
     send(res, 404, { error: 'rota desconhecida' });
@@ -92,7 +127,7 @@ export function createApp(opts: AppOptions): App {
       if (url.pathname.startsWith('/api/')) {
         if (!originAllowed(req.headers.origin, port, opts.extraOrigins)) return send(res, 403, { error: 'origem não permitida' });
         if (!tokenMatches(bearer(req.headers.authorization), opts.token)) return send(res, 401, { error: 'token inválido' });
-        return await api(res, url.pathname);
+        return await api(res, url);
       }
       await serveStatic(res, url.pathname);
     } catch (err) {
@@ -106,8 +141,9 @@ export function createApp(opts: AppOptions): App {
       case 'open': {
         if (!AGENTS.includes(msg.agent)) return reply({ type: 'error', message: 'agente inválido' });
         const convs = await scanConversations(opts.home);
-        const projects = await listProjects(opts.home, convs);
-        if (!projects.some((p) => p.path === msg.projectPath)) {
+        const projects = await listProjects(opts.home, convs, hidden);
+        const isWorkspace = msg.projectPath === workspace && msg.resume === undefined;
+        if (!isWorkspace && !projects.some((p) => p.path === msg.projectPath)) {
           return reply({ type: 'error', message: `projeto desconhecido: ${msg.projectPath}` });
         }
         let title = msg.agent === 'shell' ? 'shell' : 'nova conversa';
@@ -116,11 +152,44 @@ export function createApp(opts: AppOptions): App {
           if (!conv) return reply({ type: 'error', message: `conversa desconhecida: ${msg.resume}` });
           title = conv.title;
         }
+        if (isWorkspace) await mkdir(workspace, { recursive: true });
         const session = terminals.open({
           projectPath: msg.projectPath,
           agent: msg.agent,
           resume: msg.resume,
           title,
+          cols: size(msg.cols, 80),
+          rows: size(msg.rows, 24),
+        });
+        return reply({ type: 'opened', session });
+      }
+      case 'task': {
+        if (!isTask(msg.task)) return reply({ type: 'error', message: `tarefa desconhecida: ${String(msg.task)}` });
+        const task = TASKS[msg.task];
+        await mkdir(workspace, { recursive: true });
+        const session = terminals.open({
+          projectPath: workspace,
+          agent: 'claude',
+          prompt: task.prompt,
+          title: task.title,
+          cols: size(msg.cols, 80),
+          rows: size(msg.rows, 24),
+        });
+        return reply({ type: 'opened', session });
+      }
+      case 'create-project': {
+        if (typeof msg.name !== 'string' || !PROJECT_NAME.test(msg.name)) {
+          return reply({ type: 'error', message: 'nome de projeto inválido: use letras, números, ".", "_" ou "-"' });
+        }
+        const projects = await listProjects(opts.home, await scanConversations(opts.home), hidden);
+        const path = join(projectsBase(opts.home, projects, opts.projectsDir), msg.name);
+        if (await exists(path)) return reply({ type: 'error', message: `já existe uma pasta em ${path}` });
+        await mkdir(path, { recursive: true });
+        const session = terminals.open({
+          projectPath: path,
+          agent: 'claude',
+          prompt: projectPrompt(path),
+          title: 'projeto novo',
           cols: size(msg.cols, 80),
           rows: size(msg.rows, 24),
         });

@@ -17,7 +17,14 @@ export function httpGet(url: string, headers: Record<string, string> = {}) {
 
 export async function startApp(home: string, extra: Partial<AppOptions> = {}) {
   const app = createApp({
-    home, port: 0, token: 'tok', webDir: join(home, 'web'), bin: '/bin/false', extraOrigins: ['http://dev:5173'], ...extra,
+    home,
+    port: 0,
+    token: 'tok',
+    webDir: join(home, 'web'),
+    bin: '/bin/false',
+    extraOrigins: ['http://dev:5173'],
+    workspaceDir: join(home, 'workspace'),
+    ...extra,
   });
   const port = await app.listen();
   return { app, port, base: `http://127.0.0.1:${port}` };

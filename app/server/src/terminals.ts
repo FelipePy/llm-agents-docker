@@ -4,15 +4,19 @@ import nodePty from '@lydell/node-pty';
 import type { IPty } from '@lydell/node-pty';
 import type { SessionAgent, SessionInfo } from './types.ts';
 
-/** Argumentos do llm-agent para cada agente, no modo autonomo do menu. */
-export function agentArgs(agent: SessionAgent, resume?: string): string[] {
+/**
+ * Argumentos do llm-agent para cada agente, no modo autonomo do menu. A
+ * instrucao inicial (prompt) vai como ultimo argumento; o shell a ignora.
+ */
+export function agentArgs(agent: SessionAgent, resume?: string, prompt?: string): string[] {
+  const tail = prompt ? [prompt] : [];
   switch (agent) {
     case 'claude':
-      return ['claude', '--dangerously-skip-permissions', ...(resume ? ['--resume', resume] : [])];
+      return ['claude', '--dangerously-skip-permissions', ...(resume ? ['--resume', resume] : []), ...tail];
     case 'codex':
       return resume
         ? ['codex', 'resume', '--dangerously-bypass-approvals-and-sandbox', resume]
-        : ['codex', '--dangerously-bypass-approvals-and-sandbox'];
+        : ['codex', '--dangerously-bypass-approvals-and-sandbox', ...tail];
     case 'shell':
       return ['zsh'];
   }
@@ -22,6 +26,7 @@ export interface OpenRequest {
   projectPath: string;
   agent: SessionAgent;
   resume?: string;
+  prompt?: string;
   title: string;
   cols: number;
   rows: number;
@@ -45,7 +50,7 @@ export class TerminalManager extends EventEmitter {
   }
 
   open(req: OpenRequest): SessionInfo {
-    const proc = nodePty.spawn(this.bin, agentArgs(req.agent, req.resume), {
+    const proc = nodePty.spawn(this.bin, agentArgs(req.agent, req.resume, req.prompt), {
       name: 'xterm-256color',
       cols: req.cols,
       rows: req.rows,

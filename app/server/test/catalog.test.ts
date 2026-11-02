@@ -4,11 +4,11 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  buildOverview, gitInfo, listProjects, listSkills, projectDetail, projectId, projectPathFromId, readProfile,
+  buildOverview, gitInfo, listProjects, listSkills, projectDetail, projectId, projectPathFromId, projectsBase, readProfile,
 } from '../src/catalog.ts';
 import { scanConversations } from '../src/conversations.ts';
 import { buildFixture } from './fixture.ts';
-import { tempHome, write } from './helpers.ts';
+import { jsonl, tempHome, write } from './helpers.ts';
 
 test('projectId e reversivel', () => {
   assert.equal(projectPathFromId(projectId('/home/a-b/c')), '/home/a-b/c');
@@ -82,4 +82,20 @@ test('buildOverview so lista conversas de projetos existentes', async () => {
   assert.deepEqual(o.conversations.map((c) => c.id), ['cdx-1', 'bbb', 'aaa']);
   assert.equal(o.projects.length, 1);
   assert.equal(o.skills.length, 4);
+});
+
+test('buildOverview esconde pastas ocultas e informa a pasta de projetos', async () => {
+  const fx = buildFixture();
+  const ws = join(fx.home, 'ws');
+  mkdirSync(ws);
+  write(join(fx.home, '.claude', 'projects', '-ws', 'w1.jsonl'), jsonl({ type: 'user', cwd: ws, message: { content: 'oi' } }));
+  assert.equal((await buildOverview(fx.home)).projects.length, 2);
+  const o = await buildOverview(fx.home, { hidden: [ws] });
+  assert.deepEqual(o.projects.map((p) => p.name), ['meu-app']);
+  assert.equal(o.projectsDir, join(fx.home, 'dev'));
+  assert.equal((await buildOverview(fx.home, { projectsDir: '/x/y' })).projectsDir, '/x/y');
+});
+
+test('projectsBase sem projetos usa ~/projetos', () => {
+  assert.equal(projectsBase('/h', []), '/h/projetos');
 });

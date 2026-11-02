@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { loadOrCreateToken, originAllowed, tokenMatches } from '../src/auth.ts';
 import { projectId } from '../src/catalog.ts';
 import { httpGet, startApp } from './app.ts';
+import { fakeFetch } from './fakes.ts';
 import { buildFixture } from './fixture.ts';
 import { tempHome, write } from './helpers.ts';
 
@@ -42,6 +43,7 @@ test('API exige token e Origin permitido', async () => {
     const o = JSON.parse((await httpGet(`${base}/api/overview`, auth)).body);
     assert.equal(o.projects[0].name, 'meu-app');
     assert.equal(o.conversations.length, 3);
+    assert.equal(o.projectsDir, join(fx.home, 'dev'));
   } finally {
     await app.close();
   }
@@ -56,6 +58,20 @@ test('detalhe do projeto e 404 para projeto desconhecido', async () => {
     assert.equal(JSON.parse(ok.body).conversationList.length, 3);
     assert.equal((await httpGet(`${base}/api/projects/${projectId(fx.p2)}`, auth)).status, 404);
     assert.equal((await httpGet(`${base}/api/nada`, auth)).status, 404);
+  } finally {
+    await app.close();
+  }
+});
+
+test('/api/day devolve clima e noticias', async () => {
+  const { app, base } = await startApp(tempHome(), { fetch: fakeFetch().impl, newsUrl: 'https://news.example/rss' });
+  try {
+    assert.equal((await httpGet(`${base}/api/day?lat=1&lon=2`)).status, 401);
+    const d = JSON.parse((await httpGet(`${base}/api/day?lat=1&lon=2`, auth)).body);
+    assert.equal(d.weather.temperature, 25);
+    assert.equal(d.news.length, 2);
+    const bad = JSON.parse((await httpGet(`${base}/api/day?lat=999&lon=2`, auth)).body);
+    assert.equal(bad.weather, null, 'coordenada invalida conta como ausente');
   } finally {
     await app.close();
   }

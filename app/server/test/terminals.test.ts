@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { TerminalManager, agentArgs } from '../src/terminals.ts';
@@ -19,9 +19,11 @@ function fakeAgent(dir: string): string {
 test('agentArgs monta os comandos de cada agente', () => {
   assert.deepEqual(agentArgs('claude'), ['claude', '--dangerously-skip-permissions']);
   assert.deepEqual(agentArgs('claude', 'abc'), ['claude', '--dangerously-skip-permissions', '--resume', 'abc']);
+  assert.deepEqual(agentArgs('claude', undefined, 'oi'), ['claude', '--dangerously-skip-permissions', 'oi']);
   assert.deepEqual(agentArgs('codex'), ['codex', '--dangerously-bypass-approvals-and-sandbox']);
   assert.deepEqual(agentArgs('codex', 'xyz'), ['codex', 'resume', '--dangerously-bypass-approvals-and-sandbox', 'xyz']);
-  assert.deepEqual(agentArgs('shell'), ['zsh']);
+  assert.deepEqual(agentArgs('codex', undefined, 'oi'), ['codex', '--dangerously-bypass-approvals-and-sandbox', 'oi']);
+  assert.deepEqual(agentArgs('shell', undefined, 'oi'), ['zsh']);
 });
 
 test('TerminalManager executa o llm-agent no projeto e guarda o historico', async () => {
@@ -116,6 +118,56 @@ test('WebSocket abre, retoma, anexa e encerra sessoes', async () => {
 
     c.send({ type: 'close', id });
     await waitFor(() => c.messages.at(-1)?.type === 'sessions' && c.messages.at(-1).sessions.length === 0);
+  } finally {
+    c.ws.close();
+    await app.close();
+  }
+});
+
+test('WebSocket: tarefas abrem o Claude na pasta de trabalho com a instrucao', async () => {
+  const fx = buildFixture();
+  const workspace = join(fx.home, 'workspace');
+  const { app, port } = await startApp(fx.home, { bin: fakeAgent(fx.home) });
+  const c = await connect(port);
+  try {
+    c.send({ type: 'task', task: 'toString', cols: 80, rows: 24 });
+    await waitFor(() => c.messages.find((m) => m.type === 'error' && m.message.includes('tarefa desconhecida')));
+
+    c.send({ type: 'task', task: 'new-skill', cols: 80, rows: 24 });
+    const opened = await waitFor(() => c.messages.find((m) => m.type === 'opened'));
+    assert.equal(opened.session.title, 'nova skill');
+    assert.equal(opened.session.projectPath, workspace);
+    assert.ok(existsSync(workspace));
+    await waitFor(() =>
+      c.messages.some((m) => m.type === 'output' && m.data.includes('ARGS:claude --dangerously-skip-permissions Quero criar uma skill')),
+    );
+
+    // Reabrir uma sessao de tarefa: a pasta de trabalho e aceita.
+    c.send({ type: 'open', projectPath: workspace, agent: 'claude', cols: 80, rows: 24 });
+    await waitFor(() => c.messages.filter((m) => m.type === 'opened').length === 2);
+  } finally {
+    c.ws.close();
+    await app.close();
+  }
+});
+
+test('WebSocket: create-project cria a pasta na pasta-base e abre o Claude', async () => {
+  const fx = buildFixture();
+  const { app, port } = await startApp(fx.home, { bin: fakeAgent(fx.home) });
+  const c = await connect(port);
+  try {
+    c.send({ type: 'create-project', name: '../fora', cols: 80, rows: 24 });
+    await waitFor(() => c.messages.find((m) => m.type === 'error' && m.message.includes('nome de projeto inválido')));
+
+    c.send({ type: 'create-project', name: 'novo-app', cols: 80, rows: 24 });
+    const opened = await waitFor(() => c.messages.find((m) => m.type === 'opened'));
+    const path = join(fx.home, 'dev', 'novo-app');
+    assert.equal(opened.session.projectPath, path);
+    assert.ok(existsSync(path));
+    await waitFor(() => c.messages.some((m) => m.type === 'output' && m.data.includes('Este é um projeto novo')));
+
+    c.send({ type: 'create-project', name: 'novo-app', cols: 80, rows: 24 });
+    await waitFor(() => c.messages.find((m) => m.type === 'error' && m.message.includes('já existe')));
   } finally {
     c.ws.close();
     await app.close();
