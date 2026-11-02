@@ -1,18 +1,24 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Api, LiveSocket, takeToken, wsUrl, type Status } from './api.ts';
 import { bus } from './bus.ts';
+import { currentNode, initialNav, navReducer, projectIdOf } from './nav.ts';
 import { hasWebGL, systemReducedMotion, usePref } from './prefs.ts';
+import { crumbLabel, filterItems, itemsFor, paginate, type Panel, type RingItem } from './ring.ts';
+import { demoSignal, MODE_LABEL, type CoreSignal } from './scene/core.ts';
 import { addTab, applyAction, closeTab, emptyTabs, shortcut, syncTabs, type TabsState } from './tabs.ts';
-import type { Conversation, Overview, ServerMessage, SessionAgent, SessionInfo, View } from './types.ts';
-import { Sidebar } from './components/Sidebar.tsx';
+import type { Conversation, Overview, ProjectDetail, ServerMessage, SessionAgent, SessionInfo, View } from './types.ts';
+import { FileCard } from './components/FileCard.tsx';
 import { ProfilePanel } from './components/ProfilePanel.tsx';
-import { SkillsPanel } from './components/SkillsPanel.tsx';
 import { ProjectPanel } from './components/ProjectPanel.tsx';
-import { TerminalDrawer } from './components/TerminalDrawer.tsx';
+import { Ring } from './components/Ring.tsx';
 import { SearchDialog } from './components/SearchDialog.tsx';
+import { Sidebar } from './components/Sidebar.tsx';
+import { SkillDetail } from './components/SkillDetail.tsx';
+import { SkillsPanel } from './components/SkillsPanel.tsx';
+import { TerminalDrawer } from './components/TerminalDrawer.tsx';
 
 // A cena 3D (three.js) so e baixada quando o modo 3D esta ligado.
-const Galaxy = lazy(() => import('./scene/Galaxy.tsx').then((m) => ({ default: m.Galaxy })));
+const CoreScene = lazy(() => import('./scene/CoreScene.tsx').then((m) => ({ default: m.CoreScene })));
 
 export function App() {
   const token = useMemo(
@@ -34,6 +40,7 @@ function Connected({ token }: { token: string }) {
   const webgl = useMemo(hasWebGL, []);
   const [mode3d, setMode3d] = usePref('llm-agent-3d', true);
   const [reduceMotion, setReduceMotion] = usePref('llm-agent-reduce-motion', systemReducedMotion());
+  const [voiceDemo, setVoiceDemo] = usePref('llm-agent-voice-demo', false);
   const use3d = webgl && mode3d;
 
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -41,22 +48,25 @@ function Connected({ token }: { token: string }) {
   const [status, setStatus] = useState<Status>('connecting');
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [tabs, setTabs] = useState<TabsState>(emptyTabs);
-  const [view, setView] = useState<View>(use3d ? { kind: 'none' } : { kind: 'profile' });
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
   const [revision, setRevision] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const [socket, setSocket] = useState<LiveSocket | null>(null);
-  const tabsRef = useRef(tabs);
-  tabsRef.current = tabs;
-  const searchOpenRef = useRef(searchOpen);
-  searchOpenRef.current = searchOpen;
-  const use3dRef = useRef(use3d);
-  use3dRef.current = use3d;
 
-  // Sem a cena, sempre ha um painel aberto.
-  useEffect(() => {
-    if (!use3d && view.kind === 'none') setView({ kind: 'profile' });
-  }, [use3d, view.kind]);
+  // Modo 3D: navegacao radial + painel de leitura. Modo lista: "view" do marco 1.
+  const [nav, dispatch] = useReducer(navReducer, initialNav);
+  const [panel, setPanel] = useState<Panel | null>(null);
+  const [view, setView] = useState<View>({ kind: 'profile' });
+  const [detail, setDetail] = useState<ProjectDetail | null>(null);
+  const node = currentNode(nav);
+  const projectId = projectIdOf(node);
+
+  // Sinal do nucleo, lido a cada quadro pela cena (sem re-render).
+  const signal = useRef<CoreSignal>({ mode: 'idle', level: 0 });
+  const [coreMode, setCoreMode] = useState<CoreSignal['mode']>('idle');
+
+  const refs = useRef({ tabs, panel, searchOpen, use3d });
+  refs.current = { tabs, panel, searchOpen, use3d };
 
   useEffect(() => {
     api.overview().then(
@@ -67,6 +77,36 @@ function Connected({ token }: { token: string }) {
       (e: Error) => setError(e.message),
     );
   }, [api, revision]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    let current = true;
+    api.project(projectId).then(
+      (d) => current && setDetail(d),
+      (e: Error) => current && setError(e.message),
+    );
+    return () => {
+      current = false;
+    };
+  }, [api, projectId, revision]);
+
+  useEffect(() => {
+    if (!voiceDemo || !use3d) {
+      signal.current = { mode: 'idle', level: 0 };
+      setCoreMode('idle');
+      return;
+    }
+    let frame = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const s = demoSignal((now - start) / 1000);
+      signal.current = s;
+      setCoreMode((m) => (m === s.mode ? m : s.mode));
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [voiceDemo, use3d]);
 
   useEffect(() => {
     // Depois de (re)conectar, o primeiro "sessions" pede o historico de todas.
@@ -130,32 +170,69 @@ function Connected({ token }: { token: string }) {
     [socket],
   );
 
+  const focusTab = useCallback((id: string) => {
+    setTabs((t) => ({ ...t, active: id }));
+    setDrawerCollapsed(false);
+  }, []);
+
+  const showProject = useCallback((id: string) => {
+    if (refs.current.use3d) dispatch({ type: 'jump', node: { kind: 'project', id } });
+    else setView({ kind: 'project', id });
+  }, []);
+
   const resumeConversation = useCallback(
     (c: Conversation) => {
       const project = overview?.projects.find((p) => p.path === c.cwd);
-      if (project) setView({ kind: 'project', id: project.id });
+      if (project) {
+        if (refs.current.use3d) dispatch({ type: 'jump', node: { kind: 'conversations', projectId: project.id } });
+        else setView({ kind: 'project', id: project.id });
+      }
       openSession(c.cwd, c.agent, c.id);
     },
     [overview, openSession],
   );
 
+  const showSkill = useCallback(
+    (path: string) => {
+      if (!refs.current.use3d) return setView({ kind: 'skills', focus: path });
+      dispatch({ type: 'jump', node: { kind: 'skills' } });
+      const skill = overview?.skills.find((s) => s.path === path);
+      if (skill) setPanel({ kind: 'skill', skill });
+    },
+    [overview],
+  );
+
+  const activate = useCallback(
+    (item: RingItem) => {
+      const a = item.action;
+      if (!a) return;
+      if (a.type === 'nav') dispatch({ type: 'push', node: a.node });
+      else if (a.type === 'panel') setPanel(a.panel);
+      else if (a.type === 'open') openSession(a.projectPath, a.agent, a.resume);
+      else focusTab(a.sessionId);
+    },
+    [openSession, focusTab],
+  );
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const inTerminal = (e.target as HTMLElement | null)?.closest?.('.terminal') != null;
+      const target = e.target as HTMLElement | null;
+      const inTerminal = target?.closest?.('.terminal') != null;
       if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k' && !inTerminal) {
         e.preventDefault();
         setSearchOpen(true);
         return;
       }
-      if (e.key === 'Escape' && !inTerminal && !searchOpenRef.current && use3dRef.current) {
-        setView({ kind: 'none' });
+      if (e.key === 'Escape' && !inTerminal && !refs.current.searchOpen && refs.current.use3d) {
+        if (refs.current.panel) setPanel(null);
+        else if (target?.tagName !== 'INPUT') dispatch({ type: 'back' });
         return;
       }
       const action = shortcut(e);
       if (!action) return;
       e.preventDefault();
       e.stopPropagation();
-      const { state, closed } = applyAction(tabsRef.current, action);
+      const { state, closed } = applyAction(refs.current.tabs, action);
       if (closed) socket?.send({ type: 'close', id: closed });
       setTabs(state);
     };
@@ -163,25 +240,64 @@ function Connected({ token }: { token: string }) {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [socket]);
 
-  const panel =
-    view.kind === 'profile' ? (
-      <ProfilePanel profile={overview?.profile} />
-    ) : view.kind === 'skills' ? (
+  const ring = useMemo(() => {
+    if (!overview) return { items: [], page: 0, pages: 1 };
+    return paginate(filterItems(itemsFor(node, { overview, sessions, detail }), nav.filter), nav.page);
+  }, [overview, sessions, detail, node, nav.filter, nav.page]);
+  const ringLoading = !overview || (projectId !== null && detail?.id !== projectId);
+  const showFilter = node.kind !== 'home' && node.kind !== 'project';
+
+  // Barra lateral: no modo 3D, reflete e comanda a navegacao radial.
+  const sidebarView: View = !use3d
+    ? view
+    : projectId
+      ? { kind: 'project', id: projectId }
+      : node.kind === 'skills'
+        ? { kind: 'skills' }
+        : panel?.kind === 'profile'
+          ? { kind: 'profile' }
+          : { kind: 'none' };
+  const selectFromSidebar = (v: View) => {
+    if (!use3d) return setView(v);
+    if (v.kind === 'profile') setPanel({ kind: 'profile' });
+    else if (v.kind === 'skills') dispatch({ type: 'jump', node: { kind: 'skills' } });
+    else if (v.kind === 'project') dispatch({ type: 'jump', node: { kind: 'project', id: v.id } });
+  };
+
+  const listPanel =
+    view.kind === 'skills' ? (
       <SkillsPanel skills={overview?.skills ?? []} focus={view.focus} />
     ) : view.kind === 'project' ? (
       <ProjectPanel api={api} id={view.id} revision={revision} onOpen={openSession} />
+    ) : (
+      <ProfilePanel profile={overview?.profile} />
+    );
+
+  const readingPanel =
+    panel?.kind === 'profile' ? (
+      <ProfilePanel profile={overview?.profile} />
+    ) : panel?.kind === 'skill' ? (
+      <SkillDetail skill={panel.skill} />
+    ) : panel?.kind === 'files' ? (
+      <section className="panel">
+        <h1>{panel.title}</h1>
+        {panel.files.map((f, i) => (
+          <FileCard key={f.path} file={f} open={i === 0} />
+        ))}
+      </section>
     ) : null;
 
   return (
     <div className="app">
       <Sidebar
         overview={overview}
-        view={view}
+        view={sidebarView}
         sessions={sessions}
-        settings={{ webgl, mode3d, reduceMotion }}
-        onSelect={setView}
+        settings={{ webgl, mode3d, reduceMotion, voiceDemo }}
+        onSelect={selectFromSidebar}
         onToggle3d={() => setMode3d(!mode3d)}
         onToggleReduceMotion={() => setReduceMotion(!reduceMotion)}
+        onToggleVoiceDemo={() => setVoiceDemo(!voiceDemo)}
       />
       <main className={use3d ? 'content three' : 'content'}>
         {status !== 'open' && <div className="banner">Reconectando ao servidor…</div>}
@@ -192,32 +308,52 @@ function Connected({ token }: { token: string }) {
         )}
         {use3d ? (
           <>
-            {overview && (
-              <Suspense fallback={null}>
-                <Galaxy
-                  overview={overview}
-                  sessions={sessions}
-                  focusId={view.kind === 'project' ? view.id : null}
-                  reducedMotion={reduceMotion}
-                  dimmed={tabs.order.length > 0 && !drawerCollapsed}
-                  onSelectProject={(id) => setView({ kind: 'project', id })}
-                  onSelectProfile={() => setView({ kind: 'profile' })}
-                  onSelectSkill={(path) => setView({ kind: 'skills', focus: path })}
-                  onResume={resumeConversation}
+            <Suspense fallback={null}>
+              <CoreScene signal={signal} reducedMotion={reduceMotion} dimmed={tabs.order.length > 0 && !drawerCollapsed} />
+            </Suspense>
+            <div className="navbar">
+              <div className="crumbs">
+                {nav.stack.map((n, depth) => (
+                  <Fragment key={depth}>
+                    {depth > 0 && <span className="sep">›</span>}
+                    <button
+                      className={depth === nav.stack.length - 1 ? 'current' : ''}
+                      onClick={() => dispatch({ type: 'goto', depth })}
+                    >
+                      {crumbLabel(n, overview)}
+                    </button>
+                  </Fragment>
+                ))}
+              </div>
+              {showFilter && (
+                <input
+                  placeholder="Filtrar"
+                  value={nav.filter}
+                  onChange={(e) => dispatch({ type: 'filter', value: e.target.value })}
                 />
-              </Suspense>
-            )}
-            {panel && (
+              )}
+            </div>
+            <Ring
+              items={ring.items}
+              page={ring.page}
+              pages={ring.pages}
+              animationKey={`${nav.stack.length}:${JSON.stringify(node)}:${ring.page}`}
+              loading={ringLoading}
+              onPage={(delta) => dispatch({ type: 'page', delta })}
+              onActivate={activate}
+            />
+            {coreMode !== 'idle' && <div className="core-caption">{MODE_LABEL[coreMode]}</div>}
+            {readingPanel && (
               <aside className="panel-overlay">
-                <button className="panel-close" onClick={() => setView({ kind: 'none' })} aria-label="Fechar painel">
+                <button className="panel-close" onClick={() => setPanel(null)} aria-label="Fechar painel">
                   ×
                 </button>
-                {panel}
+                {readingPanel}
               </aside>
             )}
           </>
         ) : (
-          panel
+          listPanel
         )}
       </main>
       <TerminalDrawer
@@ -227,7 +363,7 @@ function Connected({ token }: { token: string }) {
         socket={socket}
         collapsed={drawerCollapsed}
         onCollapsedChange={setDrawerCollapsed}
-        onActivate={(id) => setTabs((t) => ({ ...t, active: id }))}
+        onActivate={focusTab}
         onClose={closeSession}
         onReopen={(s) => {
           closeSession(s.id);
@@ -238,8 +374,8 @@ function Connected({ token }: { token: string }) {
         <SearchDialog
           overview={overview}
           onClose={() => setSearchOpen(false)}
-          onProject={(id) => setView({ kind: 'project', id })}
-          onSkill={(path) => setView({ kind: 'skills', focus: path })}
+          onProject={showProject}
+          onSkill={showSkill}
           onConversation={resumeConversation}
         />
       )}

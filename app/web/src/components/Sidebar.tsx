@@ -1,22 +1,32 @@
 import { useState } from 'react';
 import type { Overview, SessionInfo, View } from '../types.ts';
 
+interface Settings {
+  webgl: boolean;
+  mode3d: boolean;
+  reduceMotion: boolean;
+  voiceDemo: boolean;
+}
+
 interface Props {
   overview: Overview | null;
   view: View;
   sessions: SessionInfo[];
-  settings: { webgl: boolean; mode3d: boolean; reduceMotion: boolean };
+  settings: Settings;
   onSelect: (v: View) => void;
   onToggle3d: () => void;
   onToggleReduceMotion: () => void;
+  onToggleVoiceDemo: () => void;
 }
 
-export function Sidebar({ overview, view, sessions, settings, onSelect, onToggle3d, onToggleReduceMotion }: Props) {
+export function Sidebar(props: Props) {
+  const { overview, view, sessions, settings, onSelect } = props;
   const [filter, setFilter] = useState('');
   const q = filter.trim().toLowerCase();
   const projects = (overview?.projects ?? []).filter((p) => p.name.toLowerCase().includes(q));
   const live = new Set(sessions.filter((s) => s.alive).map((s) => s.projectPath));
   const cls = (active: boolean) => (active ? 'nav active' : 'nav');
+  const use3d = settings.webgl && settings.mode3d;
   return (
     <nav className="sidebar">
       <div className="brand">llm-agent</div>
@@ -44,12 +54,16 @@ export function Sidebar({ overview, view, sessions, settings, onSelect, onToggle
       </ul>
       <div className="settings">
         <label title={settings.webgl ? '' : 'Este navegador não tem WebGL 2'}>
-          <input type="checkbox" checked={settings.webgl && settings.mode3d} disabled={!settings.webgl} onChange={onToggle3d} />
+          <input type="checkbox" checked={use3d} disabled={!settings.webgl} onChange={props.onToggle3d} />
           Modo 3D
         </label>
         <label>
-          <input type="checkbox" checked={settings.reduceMotion} onChange={onToggleReduceMotion} />
+          <input type="checkbox" checked={settings.reduceMotion} onChange={props.onToggleReduceMotion} />
           Reduzir movimento
+        </label>
+        <label title="Simula a voz do agente para ver o núcleo reagir">
+          <input type="checkbox" checked={settings.voiceDemo} disabled={!use3d} onChange={props.onToggleVoiceDemo} />
+          Demonstração de voz
         </label>
       </div>
       <div className="hint">Ctrl+K busca · Esc volta · Ctrl+Tab alterna terminais</div>
