@@ -1,6 +1,7 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Api, LiveSocket, takeToken, wsUrl, type Status } from './api.ts';
 import { bus } from './bus.ts';
+import { playSound } from './sound.ts';
 import { currentNode, initialNav, navReducer, projectIdOf } from './nav.ts';
 import { hasWebGL, systemReducedMotion, usePref } from './prefs.ts';
 import { crumbLabel, filterItems, itemsFor, type Panel, type RingItem } from './ring.ts';
@@ -50,18 +51,20 @@ function Connected({ token }: { token: string }) {
   const [voiceDemo, setVoiceDemo] = usePref('llm-agent-voice-demo', false);
   const [voiceOn, setVoiceOn] = usePref('llm-agent-voice', false);
   const [planets, setPlanets] = usePref('llm-agent-planets', true);
+  const [sounds, setSounds] = usePref('llm-agent-sounds', true);
   const [voice, setVoice] = useState<VoiceView>(OFF_VIEW);
   const voiceRef = useRef<VoiceClient | null>(null);
   // Ordens do Jarvis para a interface; atualizada a cada render (ver mais abaixo).
   const onUiRef = useRef<(command: UiCommand) => void>(() => {});
   const use3d = webgl && mode3d;
-  const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn, planets };
+  const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn, planets, sounds };
   const toggles = {
     on3d: () => setMode3d(!mode3d),
     onReduceMotion: () => setReduceMotion(!reduceMotion),
     onVoiceDemo: () => setVoiceDemo(!voiceDemo),
     onVoice: () => setVoiceOn(!voiceOn),
     onPlanets: () => setPlanets(!planets),
+    onSounds: () => setSounds(!sounds),
   };
 
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -284,6 +287,18 @@ function Connected({ token }: { token: string }) {
     [openSession, runTask, focusTab],
   );
 
+  // Som de clique em botoes, cartoes e abas (fora do terminal).
+  useEffect(() => {
+    if (!sounds) return;
+    const onDown = (e: PointerEvent) => {
+      const el = (e.target as HTMLElement | null)?.closest?.('button, .ring-card, .tab, a, input[type="checkbox"]');
+      if (!el || el.closest('.terminal') || (el as HTMLButtonElement).disabled) return;
+      playSound(el.classList.contains('ring-card') ? 'open' : 'tap');
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    return () => window.removeEventListener('pointerdown', onDown, true);
+  }, [sounds]);
+
   onUiRef.current = (command: UiCommand) => {
     if (command.kind === 'back') return dispatch({ type: 'back' });
     if (command.kind === 'focus-session') return focusTab(command.id);
@@ -389,9 +404,15 @@ function Connected({ token }: { token: string }) {
                 sessions={sessions}
                 focusId={projectId}
                 planets={planets}
-                onSelectProject={showProject}
+                onSelectProject={(id) => {
+                  if (sounds) playSound('open');
+                  showProject(id);
+                }}
                 onSelectProfile={() => dispatch({ type: 'jump', node: { kind: 'profile' } })}
-                onSelectSkill={showSkill}
+                onSelectSkill={(path) => {
+                  if (sounds) playSound('open');
+                  showSkill(path);
+                }}
                 onResume={resumeConversation}
               />
             </Suspense>

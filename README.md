@@ -159,7 +159,7 @@ Os botões **+ Sobre mim**, **+ Nova skill** e **+ Novo projeto** abrem uma sess
 
 À esquerda fica o painel do dia: hora, data, clima e as principais notícias. O clima vem do [Open-Meteo](https://open-meteo.com/) (sem cadastro), usando a localização do navegador; para usar uma cidade fixa, defina `LLM_AGENT_UI_CITY` (por exemplo, `LLM_AGENT_UI_CITY="São Paulo" llm-agent ui`). As notícias vêm do RSS do Google Notícias; `LLM_AGENT_UI_NEWS_RSS` troca a fonte. As coordenadas são enviadas ao Open-Meteo para buscar a previsão.
 
-Na barra da esquerda, **Modo 3D** troca para a interface em lista e **Reduzir movimento** congela as animações. Em GPUs mais fracas, a cena reduz a qualidade sozinha.
+Na barra da esquerda, **Modo 3D** troca para a interface em lista, **Sons** liga os efeitos de clique e **Reduzir movimento** congela as animações. Em GPUs mais fracas, a cena reduz a qualidade sozinha.
 
 Atalhos: `Ctrl+1`…`Ctrl+9` vão para uma aba, `Ctrl+Tab` e `Ctrl+Shift+Tab` alternam (no navegador, esses dois são do próprio navegador), `Ctrl+Shift+W` fecha a aba e `Ctrl+K`, fora do terminal, abre a busca.
 
@@ -167,7 +167,9 @@ O servidor escuta só em `127.0.0.1` (porta 7777, ou `LLM_AGENT_UI_PORT`) e exig
 
 ### Voz ("Hey Jarvis")
 
-Ligue **Escuta ativa** no painel da esquerda e permita o microfone. Diga "Hey Jarvis": o átomo acende e o Jarvis passa a ouvir. Fale normalmente; ele responde em voz e volta a ouvir sozinho, sem precisar repetir "Hey Jarvis". Se você ficar em silêncio, ele espera. Para encerrar, diga "tchau" (ou "tchau, Jarvis", "até mais"). Dizer "Hey Jarvis" ou apertar `Esc` enquanto ele fala interrompe a resposta.
+Ligue **Escuta ativa** no painel da esquerda e permita o microfone. Diga "Hey Jarvis": o buraco negro se agita e o Jarvis passa a ouvir (sua fala aparece na legenda enquanto você fala). Ele responde em voz e volta a ouvir sozinho, sem precisar repetir "Hey Jarvis"; se você ficar em silêncio, ele espera. Para encerrar, despeça-se ("tchau", "até mais"). Para interromper, é só começar a falar (ou dizer "Hey Jarvis", ou apertar `Esc`): ele para a frase e responde ao que você disse; o que ele estava fazendo antes continua em background.
+
+O Jarvis controla o app por voz: abre projetos e áreas, conta o estado de um projeto (git, commits, conversas recentes), abre sessões do Claude Code, do Codex ou do shell em background com uma tarefa, acompanha essas sessões e cria skills, projetos e anotações sobre você. Ele também conhece o app: perguntas como "como eu crio um projeto novo?" são respondidas a partir deste README. O cartão **Comandos de voz** (no início) lista o que dá para pedir, com exemplos; pergunte também "o que você sabe fazer?". Por segurança, ele só age por essas ferramentas: não tem shell nem escrita livre no seu computador, e o trabalho nos projetos vai para as sessões isoladas no container.
 
 Tudo é gratuito: a palavra de ativação ([openWakeWord](https://github.com/dscripka/openWakeWord)) e a transcrição ([faster-whisper](https://github.com/SYSTRAN/faster-whisper)) rodam na sua máquina, e a voz usa o [edge-tts](https://github.com/rany2/edge-tts) (vozes neurais da Microsoft, sem cadastro; precisa de internet). As respostas vêm do Claude pelo Agent SDK, com o seu login: com o plano Pro/Max, isso consome os limites normais da assinatura. Nesta versão o Jarvis só conversa; abrir projetos e executar tarefas por voz vem depois.
 
@@ -180,6 +182,7 @@ Na primeira vez, o servidor cria um ambiente Python em `app/voice/.venv` e baixa
 | `LLM_AGENT_VOICE_STT_MODEL` | `small` | modelo do whisper (`base` é mais rápido; `medium` transcreve melhor) |
 | `LLM_AGENT_VOICE_WAKE_THRESHOLD` | `0.5` | sensibilidade do "Hey Jarvis" (maior = menos ativações falsas) |
 | `LLM_AGENT_VOICE_END_MS` | `500` | silêncio (ms) que marca o fim da sua fala |
+| `LLM_AGENT_VOICE_BARGE_IN` | `1` | `0` desliga a interrupção falando por cima |
 
 O log do servidor (`~/.config/llm-agent/ui/server.log`) mostra o tempo de cada etapa de uma resposta (`[voz] latência: transcrição … · 1º token … · 1º áudio …`), útil para ajustar o modelo do whisper.
 

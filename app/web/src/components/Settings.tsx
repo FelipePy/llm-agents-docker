@@ -5,6 +5,7 @@ export interface SettingsState {
   voiceDemo: boolean;
   voice: boolean;
   planets: boolean;
+  sounds: boolean;
 }
 
 export interface SettingsToggles {
@@ -13,6 +14,7 @@ export interface SettingsToggles {
   onVoiceDemo: () => void;
   onVoice: () => void;
   onPlanets: () => void;
+  onSounds: () => void;
 }
 
 export function Settings({ settings, toggles, voiceStatus }: { settings: SettingsState; toggles: SettingsToggles; voiceStatus?: string }) {
@@ -31,6 +33,10 @@ export function Settings({ settings, toggles, voiceStatus }: { settings: Setting
       <label title="Projetos como planetas e skills como estrelas em volta do buraco negro">
         <input type="checkbox" checked={settings.planets} disabled={!use3d} onChange={toggles.onPlanets} />
         Planetas
+      </label>
+      <label title="Sons curtos ao clicar">
+        <input type="checkbox" checked={settings.sounds} onChange={toggles.onSounds} />
+        Sons
       </label>
       <label>
         <input type="checkbox" checked={settings.reduceMotion} onChange={toggles.onReduceMotion} />
