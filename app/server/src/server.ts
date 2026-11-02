@@ -13,6 +13,7 @@ import { PROJECT_NAME, TASKS, isTask, projectPrompt } from './tasks.ts';
 import { TerminalManager } from './terminals.ts';
 import type { Brain } from './voice/brain.ts';
 import type { JarvisContext } from './voice/tools.ts';
+import { Announcer } from './voice/announcer.ts';
 import { shortTitle } from './conversations.ts';
 import { gitLines } from './catalog.ts';
 import { VoiceSession, type VoiceWorker } from './voice/session.ts';
@@ -36,7 +37,14 @@ export interface AppOptions {
   newsUrl?: string;
   fetch?: typeof fetch;
   /** Voz (etapa 3a): sem ela, /ws/voice responde 404. */
-  voice?: { worker: VoiceWorker; brain: Brain | ((ctx: JarvisContext) => Brain); bargeIn?: boolean; greetings?: string[] };
+  voice?: {
+    worker: VoiceWorker;
+    brain: Brain | ((ctx: JarvisContext) => Brain);
+    bargeIn?: boolean;
+    greetings?: string[];
+    /** Falas espontaneas (inicio, periodo do dia, notícias); minutos entre rodadas de notícias. */
+    announce?: { newsEveryMin: number };
+  };
   /** Manual do app consultado pelo Jarvis (o README do projeto). */
   manualPath?: string;
 }
@@ -253,7 +261,10 @@ export function createApp(opts: AppOptions): App {
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m));
     };
     voiceUi = sendVoice;
-    const session = new VoiceSession(
+    // Coordenadas do navegador (mensagem "start"), para o clima da saudacao.
+    let coords: { lat?: number; lon?: number } = {};
+    let announcer: Announcer | undefined;
+    const session: VoiceSession = new VoiceSession(
       voice.worker,
       voiceBrain!,
       sendVoice,
@@ -265,6 +276,15 @@ export function createApp(opts: AppOptions): App {
         relaySend: (id, text) => jarvis.sendToSession(id, text),
         // Nomes que o whisper deve acertar: projetos e os agentes.
         vocabulary: async () => ['Jarvis', 'Claude', 'Codex', ...(await jarvis.projects()).map((p) => p.name)],
+        onReady: () => {
+          if (!voice.announce || announcer) return;
+          announcer = new Announcer({
+            day: () => day.day(coords.lat, coords.lon),
+            say: (text) => session.announce(text),
+            newsEveryMs: voice.announce.newsEveryMin * 60e3,
+          });
+          void announcer.start();
+        },
       },
     );
     voiceSocket = ws;
@@ -277,9 +297,14 @@ export function createApp(opts: AppOptions): App {
       } catch {
         return;
       }
+      if (msg.type === 'start') {
+        const ok = (v: unknown, max: number) => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= max ? v : undefined);
+        coords = { lat: ok(msg.lat, 90), lon: ok(msg.lon, 180) };
+      }
       session.client(msg);
     });
     ws.on('close', () => {
+      announcer?.stop();
       session.stop();
       if (voiceSession === session) {
         voiceSession = undefined;

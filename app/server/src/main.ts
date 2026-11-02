@@ -72,6 +72,10 @@ const app = createApp({
     bargeIn: process.env.LLM_AGENT_VOICE_BARGE_IN !== '0',
     // Saudacoes ao ser chamado sem pedido ("|" separa; vazio desliga).
     greetings: (process.env.LLM_AGENT_VOICE_GREETINGS ?? DEFAULT_GREETINGS.join('|')).split('|'),
+    announce:
+      process.env.LLM_AGENT_VOICE_ANNOUNCE === '0'
+        ? undefined
+        : { newsEveryMin: Math.max(15, Number(process.env.LLM_AGENT_VOICE_NEWS_EVERY_MIN) || 90) },
   },
   manualPath: join(repo, 'README.md'),
 });

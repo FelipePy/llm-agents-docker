@@ -57,6 +57,7 @@ export class VoiceSession {
   private readonly greetings: string[];
   private lastGreeting = -1;
   private readonly random: () => number;
+  private readonly onReady: (() => void) | undefined;
   /** Conversa direta: a voz do usuario vai para esta sessao, sem passar pelo cerebro. */
   private relay: { id: string; label: string } | null = null;
   private readonly listener = (e: WorkerEvent) => this.onWorker(e);
@@ -85,8 +86,11 @@ export class VoiceSession {
       /** Frases ditas quando o usuario chama sem pedir nada (vazio: so o som). */
       greetings?: string[];
       random?: () => number;
+      /** Chamado quando a escuta fica pronta (para o anunciador comecar). */
+      onReady?: () => void;
     } = {},
   ) {
+    this.onReady = opts.onReady;
     this.greetings = (opts.greetings ?? []).map((g) => g.trim()).filter(Boolean);
     this.random = opts.random ?? Math.random;
     this.relaySend = opts.relaySend ?? (() => false);
@@ -153,6 +157,21 @@ export class VoiceSession {
     this.brain.warm?.();
     void this.sendVocabulary();
     if (this.greetings.length) this.worker.command({ cmd: 'prefetch', texts: this.greetings });
+    this.onReady?.();
+  }
+
+  /**
+   * Fala espontanea (anuncios: hora do dia, notícias). So fala se o Jarvis
+   * estiver esperando ser chamado; depois volta a esperar. Falso se ocupado.
+   */
+  announce(text: string): boolean {
+    if (this.state !== 'sleeping' || this.relay) return false;
+    this.turn++;
+    this.brainDone = true;
+    this.farewell = true;
+    this.send({ type: 'caption', who: 'jarvis', text });
+    this.speak(text);
+    return true;
   }
 
   /** Liga ou desliga a conversa direta com uma sessao. */

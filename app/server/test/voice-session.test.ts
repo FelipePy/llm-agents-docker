@@ -333,3 +333,18 @@ test('chamado sem pedido: responde com uma saudacao sorteada, sem repetir', asyn
   await waitFor(() => worker.speaks().length > before);
   assert.equal(worker.speaks().at(-1)?.text, 'Abrindo.', 'com pedido, vai direto ao pedido');
 });
+
+test('anuncio so fala quando o Jarvis esta esperando, e volta a esperar', async () => {
+  let ready = 0;
+  const worker = new FakeWorker();
+  const session = new VoiceSession(worker, new FakeBrain([]), () => {}, () => 0, () => {}, { onReady: () => ready++ });
+  await session.start();
+  assert.equal(ready, 1);
+  assert.equal(session.announce('Já está à tarde, senhor.'), true);
+  assert.equal(session.state, 'speaking');
+  assert.equal(session.announce('outra'), false, 'ocupado');
+  session.client({ type: 'played', id: worker.speaks()[0].id });
+  assert.equal(session.state, 'sleeping');
+  worker.fire({ event: 'wake', score: 0.9 });
+  assert.equal(session.announce('x'), false, 'conversando: nao interrompe');
+});

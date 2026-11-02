@@ -126,7 +126,7 @@ export type VoiceServerMessage =
   | { type: 'error'; message: string };
 
 export type VoiceClientMessage =
-  | { type: 'start' }
+  | { type: 'start'; lat?: number; lon?: number }
   | { type: 'stop' }
   | { type: 'interrupt' }
   | { type: 'played'; id: number };

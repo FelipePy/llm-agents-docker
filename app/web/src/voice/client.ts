@@ -95,7 +95,12 @@ export class VoiceClient {
       this.stop();
       throw new Error(`Não consegui usar o microfone: ${(err as Error).message ?? err}`);
     }
-    this.send({ type: 'start' });
+    const coords = await new Promise<GeolocationCoordinates | null>((resolve) => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition((p) => resolve(p.coords), () => resolve(null), { timeout: 3000, maximumAge: 3600e3 });
+    });
+    // A localizacao (se permitida) serve para o clima da saudacao inicial.
+    this.send(coords ? { type: 'start', lat: coords.latitude, lon: coords.longitude } : { type: 'start' });
   }
 
   stop(): void {
