@@ -2058,7 +2058,7 @@ git commit -m "Add llm-agent ui to start, reuse and stop the UI server"
     "skipLibCheck": true,
     "types": []
   },
-  "include": ["src", "test", "vite.config.ts", "../server/src/types.ts"]
+  "include": ["src", "test", "../server/src/types.ts"]
 }
 ```
 
