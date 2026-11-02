@@ -9,6 +9,7 @@ Agentes como esses costumam ser usados em modo autônomo (`--dangerously-skip-pe
 - Imagem única com Claude Code e Codex (versões fixadas e configuráveis).
 - Usa o **mesmo login e configuração** dos CLIs no host (`~/.claude`, `~/.claude.json`, `~/.codex`) — nada de logar de novo.
 - **Histórico de chats compartilhado** com o host: um chat iniciado fora do container pode ser retomado dentro dele (e vice-versa) com `claude --resume`.
+- **Remote Control ligado por padrão**: toda sessão do Claude Code aparece no app Claude do celular e em claude.ai/code.
 - Usuário do container com o mesmo UID/GID do seu usuário, então os arquivos criados pertencem a você.
 - Repassa, se existirem no host: SSH agent, `~/.ssh`, `gh`, `~/.gitconfig`, `~/.zshrc`/oh-my-zsh, nvm, pyenv, bun e `~/.local/bin`.
 - Container sem capabilities (`cap_drop: ALL`) e com `no-new-privileges`.
@@ -102,6 +103,19 @@ llm-agent claude --resume     # escolhe entre os chats deste projeto
 
 Evite continuar o mesmo chat no host e no container ao mesmo tempo.
 
+### Usando pelo celular (Remote Control)
+
+Ao abrir o Claude Code, o `llm-agent` liga o Remote Control: a sessão aparece no app Claude do celular e em [claude.ai/code](https://claude.ai/code), e você pode continuar a conversa por lá enquanto o agente roda no seu computador.
+
+A sessão recebe o nome do container sem o prefixo `llm-agent-`, como `claude-meu-app` (ou `claude-meu-app-2` numa segunda sessão no mesmo projeto).
+
+```sh
+llm-agent claude --remote-control outro-nome   # escolhe outro nome
+LLM_AGENT_NO_REMOTE_CONTROL=1 llm-agent claude # abre sem Remote Control
+```
+
+O Remote Control exige login com uma conta claude.ai; ele não funciona com API key. Se não conseguir ligar, o Claude Code mostra o aviso e a sessão local continua funcionando.
+
 ### Atualizando os agentes
 
 Sempre que você abre o Claude Code ou o Codex, o `llm-agent` consulta a última versão publicada no npm. Se houver uma mais nova, ele pergunta antes de atualizar:
@@ -164,6 +178,14 @@ O usuário do Docker não consegue ler a pasta do repositório. Mova o clone par
 
 **`the input device is not a TTY`.**
 O `llm-agent` precisa de um terminal interativo; não o chame a partir de pipes ou scripts sem TTY.
+
+## Desenvolvimento
+
+Os testes do launcher usam um Docker falso e não precisam de Docker:
+
+```sh
+tests/remote-control.test.sh
+```
 
 ## Licença
 
