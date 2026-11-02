@@ -110,3 +110,20 @@ export type ServerMessage =
   | { type: 'exit'; id: string; code: number }
   | { type: 'changed' }
   | { type: 'error'; message: string };
+
+// Voz (etapa 3a). "off": escuta desligada; "preparing": instalando/carregando.
+export type VoiceState = 'off' | 'preparing' | 'sleeping' | 'listening' | 'thinking' | 'speaking';
+
+export type VoiceServerMessage =
+  | { type: 'state'; state: VoiceState; detail?: string }
+  | { type: 'caption'; who: 'user' | 'jarvis'; text: string }
+  | { type: 'audio'; id: number; data: string }
+  | { type: 'stop-audio' }
+  | { type: 'chime' }
+  | { type: 'error'; message: string };
+
+export type VoiceClientMessage =
+  | { type: 'start' }
+  | { type: 'stop' }
+  | { type: 'interrupt' }
+  | { type: 'played'; id: number };
