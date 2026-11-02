@@ -1,4 +1,4 @@
-# App desktop: buraco negro, agentes e conversas
+# App desktop: núcleo de voz, agentes e conversas
 
 Data: 2026-11-02
 Status: aprovado
@@ -11,7 +11,7 @@ Este é o segundo de três subprojetos rumo a um assistente estilo "Jarvis" sobr
 2. **App desktop** (este spec).
 3. Voz: palavra de ativação, conversa contínua até "tchau" e tarefas em background.
 
-O app é um ponto central para todos os projetos. Ele mostra o que os agentes sabem sobre o usuário (instruções globais e memórias), as skills instaladas, os projetos e as conversas de cada um, num visual interativo de buraco negro. Ele também abre, retoma e alterna sessões do Claude Code, do Codex e de um shell, em terminais embutidos que rodam o `llm-agent` de sempre.
+O app é um ponto central para todos os projetos. Ele mostra o que os agentes sabem sobre o usuário (instruções globais e memórias), as skills instaladas, os projetos e as conversas de cada um, em cartões dispostos em volta de um núcleo animado que representa a voz do agente. Ele também abre, retoma e alterna sessões do Claude Code, do Codex e de um shell, em terminais embutidos que rodam o `llm-agent` de sempre.
 
 ## Decisões
 
@@ -138,13 +138,18 @@ WebSocket em `/ws?token=<token>` (navegadores não mandam cabeçalhos no WebSock
 - `Ctrl+K` (com o foco fora do terminal, onde o atalho apaga a linha no shell): busca global por projetos, conversas e skills.
 - Sem conexão, aparece "reconectando" e a UI tenta de novo com espera crescente até 10 s.
 
-**Marco 2: buraco negro**
-- Centro: buraco negro com lente gravitacional e disco de acreção em shader, com bloom. O horizonte de eventos representa o usuário e, ao ser clicado, abre o painel "Você".
-- Projetos orbitam no disco. Os mais recentes ficam mais perto, o tamanho cresce com o número de conversas e projetos com sessão aberta pulsam. Passar o mouse mostra nome e última atividade. Clicar aproxima a câmera, abre o painel do projeto e mostra as conversas como luas, com cor por agente (Claude laranja, Codex verde). Clicar numa lua retoma a conversa.
-- Skills formam um cinturão de estrelas no anel externo, com cor por origem. Passar o mouse mostra o nome e clicar abre os detalhes.
-- Navegação: arrastar gira, scroll aproxima, `Ctrl+K` voa até o item e `Esc` volta.
-- Com a gaveta aberta, a cena fica ao fundo, escurecida.
-- Fallbacks: modo "reduzir movimento" (respeita `prefers-reduced-motion`), qualidade automática que desliga o bloom se o FPS cair abaixo de 30 e, sem WebGL, a interface do marco 1.
+**Marco 2: núcleo de voz e navegação radial**
+
+Revisado depois de avaliar a primeira versão (buraco negro com projetos em órbita): clicar em corpos pequenos e em movimento era ruim de usar, e o centro precisa representar o agente.
+
+- **Núcleo (átomo), sempre no centro:** esfera brilhante com a superfície deformada por ruído animado, brilho de borda e halo; três órbitas elípticas inclinadas com um elétron e rastro de luz cada. A câmera fica fixa nele (dá para girar levemente; sem zoom nem deslocamento).
+- **Estados do núcleo**, alimentados por `{ mode, level }`: `idle` (respiração lenta, azul), `listening` (órbitas acesas, ciano), `thinking` (elétrons rápidos, violeta), `speaking` (o núcleo pulsa e se deforma conforme `level` de 0 a 1, e os elétrons aceleram). O nível é suavizado: sobe rápido e desce devagar. A etapa 3 alimenta esse sinal com a voz real; até lá, a opção "Demonstração de voz" na barra lateral percorre os estados com um sinal sintético.
+- **Cartões radiais:** o conteúdo fica em cartões HTML dispostos numa elipse em volta do núcleo (até 12 por página, com setas e indicador de página; campo de filtro nos níveis com listas). Ao navegar, os cartões entram com animação radial; o núcleo não muda.
+- **Níveis:** Início (Você · Projetos · Skills · Sessões abertas) → Projetos (um cartão por projeto) → Projeto (Conversas · Memória · Instruções · Git · + Claude · + Codex · + Shell) → Conversas (um cartão por conversa; clicar retoma). Skills (um cartão por skill) e Sessões abertas (clicar foca a aba) saem do Início.
+- **Leitura:** "Você", memória, instruções e skills abrem no painel lateral, sem esconder o anel.
+- **Trilha** no topo (`Início › Projetos › meu-app › Conversas`), clicável; `Esc` fecha o painel ou sobe um nível. `Ctrl+K` salta direto para projetos, conversas e skills.
+- **Modelo de navegação puro** (`push`, `back`, `goto`, `jump`, `page`, `filter`), para que a etapa 3 controle a interface por voz ("abra o projeto X") com as mesmas ações.
+- Com a gaveta de terminais aberta, a cena escurece. "Reduzir movimento" congela rotação e órbitas e atenua a reação à voz. "Modo 3D" desligado ou sem WebGL 2: interface do marco 1. Qualidade automática: 3 segundos abaixo de 30 FPS desligam o bloom; mais 3 reduzem a malha do núcleo.
 
 **Marco 3: Tauri**
 - Ao abrir, o app executa `wsl.exe -e bash -lc "llm-agent ui"`, lê a URL da última linha da saída e carrega essa URL na janela.
@@ -177,7 +182,7 @@ O servidor consegue abrir agentes autônomos, então:
 ## Ordem de entrega
 
 1. **Marco 1:** servidor, `llm-agent ui` e UI funcional sem 3D. Já é usável no navegador.
-2. **Marco 2:** cena do buraco negro.
+2. **Marco 2:** núcleo de voz (átomo) e navegação radial.
 3. **Marco 3:** app Tauri e build no GitHub Actions.
 
 Cada marco tem o seu plano de implementação, escrito quando o anterior terminar.
