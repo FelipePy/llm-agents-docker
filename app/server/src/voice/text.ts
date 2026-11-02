@@ -14,6 +14,26 @@ export function normalize(text: string): string {
 
 export const isGoodbye = (text: string): boolean => GOODBYES.has(normalize(text));
 
+const GREETINGS = new Set(['hey', 'hei', 'ei', 'oi', 'ola', 'fala', 'ok', 'okay', 'alo']);
+// Grafias que o whisper costuma produzir para "Jarvis".
+const JARVIS = new Set(['jarvis', 'javis', 'jarvas', 'jarves', 'jarbas', 'jarviz', 'djarvis', 'jarvi', 'garvis']);
+
+/**
+ * Fala que comeca chamando o Jarvis ("Jarvis", "Ei, Jarvis, abre o meu-app").
+ * Devolve o pedido que veio junto (vazio se foi so o chamado), ou null.
+ */
+export function matchWake(text: string): { rest: string } | null {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  let i = 0;
+  if (words.length > 1 && normalize(words[0]) === 'e' && normalize(words[1]) === 'ai') i = 2;
+  else if (words.length && GREETINGS.has(normalize(words[0]))) i = 1;
+  if (i >= words.length || !JARVIS.has(normalize(words[i]))) return null;
+  return { rest: words.slice(i + 1).join(' ').replace(/^[\s,.:;!?-]+/, '').trim() };
+}
+
+/** "volta", "voltar", "sair": pedido para sair da conversa direta com uma sessao. */
+export const isReturn = (text: string): boolean => /^(volta|voltar|volte|sai|sair|pode voltar|para)\b/.test(normalize(text));
+
 export function stripMarkdown(text: string): string {
   return text
     .replace(/```[\s\S]*?```/g, ' ')

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SentenceSplitter, isGoodbye, normalize, stripMarkdown } from '../src/voice/text.ts';
+import { SentenceSplitter, isGoodbye, isReturn, matchWake, normalize, stripMarkdown } from '../src/voice/text.ts';
 import { AUDIO, FrameDecoder, JSON_KIND, encodeFrame, encodeJson } from '../src/voice/protocol.ts';
 
 test('normalize tira acentos, pontuacao e caixa', () => {
@@ -44,4 +44,20 @@ test('FrameDecoder junta pedacos e separa mensagens', () => {
   assert.deepEqual([...frames[0].payload], [1, 2, 3]);
   assert.equal(frames[1].kind, JSON_KIND);
   assert.deepEqual(JSON.parse(frames[1].payload.toString()), { event: 'ready' });
+});
+
+test('matchWake reconhece o chamado e separa o pedido', () => {
+  assert.deepEqual(matchWake('Jarvis'), { rest: '' });
+  assert.deepEqual(matchWake('Jarvis, abre o projeto meu-app.'), { rest: 'abre o projeto meu-app.' });
+  assert.deepEqual(matchWake('Ei Jarvis abre as skills'), { rest: 'abre as skills' });
+  assert.deepEqual(matchWake('E aí, Jarbas!'), { rest: '' });
+  assert.deepEqual(matchWake('Hey Jarvis, tudo bem?'), { rest: 'tudo bem?' });
+  assert.equal(matchWake('o jarvis é legal'), null);
+  assert.equal(matchWake('abre o meu-app'), null);
+});
+
+test('isReturn reconhece o pedido para voltar ao Jarvis', () => {
+  assert.equal(isReturn('volta'), true);
+  assert.equal(isReturn('pode voltar'), true);
+  assert.equal(isReturn('abre o projeto'), false);
 });

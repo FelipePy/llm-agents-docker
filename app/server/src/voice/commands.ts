@@ -18,6 +18,8 @@ export const COMMANDS: VoiceCommand[] = [
   { name: 'iniciar_sessao', title: 'Trabalhar num projeto em background', examples: ['abre um Claude no meu-app para corrigir os testes', 'abre um shell no meu-app'] },
   { name: 'sessoes_abertas', title: 'Listar as sessões abertas', examples: ['quais sessões estão abertas?'] },
   { name: 'estado_da_sessao', title: 'Acompanhar uma sessão', examples: ['como está a sessão do meu-app?'] },
+  { name: 'enviar_para_sessao', title: 'Mandar um recado para uma sessão', examples: ['manda pro Claude do meu-app: roda os testes'] },
+  { name: 'falar_direto_com_sessao', title: 'Falar direto com uma sessão', examples: ['quero falar direto com o Claude do meu-app', 'Jarvis, volta (para sair)'] },
   { name: 'criar_skill', title: 'Criar uma skill', examples: ['cria uma skill nova'] },
   { name: 'registrar_sobre_mim', title: 'Registrar algo sobre você', examples: ['anota uma coisa sobre mim'] },
   { name: 'criar_projeto', title: 'Criar um projeto', examples: ['cria um projeto chamado site-novo'] },

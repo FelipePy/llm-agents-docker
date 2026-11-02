@@ -12,6 +12,8 @@ const projects = [p('meu-app'), p('nowcasting-api'), p('Nowcasting'), p('agendar
 function ctx(over: Partial<JarvisContext> = {}) {
   const ui: UiCommand[] = [];
   const opened: { path: string; agent: string; prompt?: string }[] = [];
+  const sent: { id: string; text: string }[] = [];
+  const relays: ({ id: string; label: string } | null)[] = [];
   const session = (id: string, projectPath: string, alive = true): SessionInfo => ({
     id, projectPath, agent: 'claude', title: 't', startedAt: '2026-11-02T10:00:00Z', alive,
   });
@@ -41,9 +43,14 @@ function ctx(over: Partial<JarvisContext> = {}) {
     createProject: async (name) => session(`proj-${name}`, `/w/${name}`),
     ui: (cmd) => ui.push(cmd),
     manual: async () => '# Manual',
+    sendToSession: (id, text) => {
+      sent.push({ id, text });
+      return id === 's1';
+    },
+    relay: (target) => relays.push(target),
     ...over,
   };
-  return { c, ui, opened, h: jarvisHandlers(c) };
+  return { c, ui, opened, sent, relays, h: jarvisHandlers(c) };
 }
 
 test('findProject: exato, prefixo, parte do nome e sem acento/caixa', () => {
@@ -134,4 +141,22 @@ test('manual_do_app procura no README as secoes do assunto', async () => {
   assert.match(searchManual(md, 'banana'), /Nada no manual/);
   const { h } = ctx({ manual: async () => md });
   assert.match(await h.manual_do_app({ assunto: 'cartões' }), /à direita/);
+});
+
+test('enviar_para_sessao digita na sessao do projeto; falar_direto liga a conversa direta', async () => {
+  const { h, sent, relays, ui } = ctx();
+  assert.match(await h.enviar_para_sessao({ projeto: 'meu app', mensagem: 'roda os testes' }), /Enviei para o Claude de meu-app/);
+  assert.deepEqual(sent, [{ id: 's1', text: 'roda os testes' }]);
+  assert.match(await h.enviar_para_sessao({ projeto: 'agendarse', mensagem: 'x' }), /encerrada/);
+  assert.match(await h.falar_direto_com_sessao({ projeto: 'meu-app' }), /Jarvis, volta/);
+  assert.deepEqual(relays, [{ id: 's1', label: 'Claude de meu-app' }]);
+  assert.deepEqual(ui.at(-1), { kind: 'focus-session', id: 's1' });
+});
+
+test('nome ambiguo: a ferramenta pede para perguntar qual projeto', async () => {
+  const { h, ui } = ctx({
+    projects: async () => ['Nowcasting-Geoserver', 'Nowcasting-Geoserver-API'].map((n) => p(n)),
+  });
+  assert.match(await h.abrir_projeto({ nome: 'geoserver' }), /mais de um projeto parecido.*Nowcasting-Geoserver.*Pergunte/);
+  assert.deepEqual(ui, []);
 });

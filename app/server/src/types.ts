@@ -121,6 +121,8 @@ export type VoiceServerMessage =
   | { type: 'stop-audio' }
   | { type: 'chime' }
   | { type: 'ui'; command: UiCommand }
+  /** Conversa direta com uma sessao (null: de volta ao Jarvis). */
+  | { type: 'relay'; target: string | null }
   | { type: 'error'; message: string };
 
 export type VoiceClientMessage =

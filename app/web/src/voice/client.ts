@@ -8,6 +8,8 @@ export interface VoiceView {
   detail?: string;
   user: string;
   jarvis: string;
+  /** Conversa direta com uma sessao (nome dela), ou null. */
+  relay?: string | null;
 }
 
 export const OFF_VIEW: VoiceView = { state: 'off', user: '', jarvis: '' };
@@ -22,13 +24,14 @@ const MODE: Record<VoiceState, CoreMode> = {
 };
 
 export function voiceStatus(v: VoiceView): string {
+  if (v.relay && v.state !== 'off') return `falando direto com o ${v.relay} — diga “Jarvis, volta”`;
   switch (v.state) {
     case 'off':
       return '';
     case 'preparing':
       return v.detail ? `${v.detail}…` : 'preparando a voz…';
     case 'sleeping':
-      return 'diga “Hey Jarvis”';
+      return 'diga “Jarvis”';
     case 'listening':
       return 'ouvindo…';
     case 'thinking':
@@ -133,6 +136,9 @@ export class VoiceClient {
         return;
       case 'ui':
         this.onUi(m.command);
+        return;
+      case 'relay':
+        this.onView({ relay: m.target });
         return;
     }
   }

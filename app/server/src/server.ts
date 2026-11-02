@@ -185,6 +185,14 @@ export function createApp(opts: AppOptions): App {
     createProject: (name) => createProjectSession(name, 120, 30),
     ui: (command) => voiceUi?.({ type: 'ui', command }),
     manual: async () => (opts.manualPath ? readFile(opts.manualPath, 'utf8').catch(() => '') : ''),
+    sendToSession: (id, text) => {
+      if (!terminals.list().some((s) => s.id === id && s.alive)) return false;
+      terminals.write(id, text);
+      // Enter separado do texto: os agentes tratam texto + Enter juntos como colagem.
+      setTimeout(() => terminals.write(id, '\r'), 80);
+      return true;
+    },
+    relay: (target) => voiceSession?.setRelay(target),
   };
   const voiceBrain = opts.voice ? (typeof opts.voice.brain === 'function' ? opts.voice.brain(jarvis) : opts.voice.brain) : undefined;
 
@@ -251,7 +259,12 @@ export function createApp(opts: AppOptions): App {
       sendVoice,
       Date.now,
       (line) => console.error(`[voz] ${line}`),
-      { bargeIn: voice.bargeIn ?? true },
+      {
+        bargeIn: voice.bargeIn ?? true,
+        relaySend: (id, text) => jarvis.sendToSession(id, text),
+        // Nomes que o whisper deve acertar: projetos e os agentes.
+        vocabulary: async () => ['Jarvis', 'Claude', 'Codex', ...(await jarvis.projects()).map((p) => p.name)],
+      },
     );
     voiceSocket = ws;
     voiceSession = session;

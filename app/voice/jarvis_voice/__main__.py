@@ -22,6 +22,7 @@ FRAME_BYTES = FRAME_SAMPLES * 2
 WAKE_DEBOUNCE_S = 2.0
 PARTIAL_EVERY_FRAMES = 6  # legenda parcial a cada ~0,5 s de fala
 AUDIO_CHUNK_BYTES = 4096  # envia a voz em pedacos, enquanto o edge-tts gera
+HEARD_MAX_BYTES = 8 * 32000  # esperando ser chamado, so transcreve falas de ate 8 s
 
 _lock = threading.Lock()
 
@@ -67,14 +68,22 @@ def main() -> None:
 
     stt_pool = ThreadPoolExecutor(max_workers=1)
     tts_pool = ThreadPoolExecutor(max_workers=1)
-    state = {"listen": False, "generation": 0, "transcript": 0, "last_wake": 0.0, "since_partial": 0}
+    state = {"listen": False, "generation": 0, "transcript": 0, "last_wake": 0.0, "since_partial": 0, "prompt": ""}
+    # Chamado pelo nome ("Jarvis, ..."): esperando, transcreve falas curtas e o servidor procura o nome.
+    name_wake = os.environ.get("LLM_AGENT_VOICE_NAME_WAKE", "1") != "0"
     end_ms = int(os.environ.get("LLM_AGENT_VOICE_END_MS", "500"))
     segmenter = Segmenter(end_ms=end_ms)
     stt_busy = threading.Event()
 
     def run_whisper(segment: bytes) -> str:
         audio = np.frombuffer(segment, dtype=np.int16).astype(np.float32) / 32768.0
-        parts, _ = whisper.transcribe(audio, language="pt", beam_size=1, condition_on_previous_text=False)
+        parts, _ = whisper.transcribe(
+            audio,
+            language="pt",
+            beam_size=1,
+            condition_on_previous_text=False,
+            initial_prompt=state["prompt"] or None,
+        )
         return " ".join(p.text.strip() for p in parts).strip()
 
     def transcribe(segment: bytes, tid: int) -> None:
@@ -87,6 +96,17 @@ def main() -> None:
         except Exception as err:
             log(traceback.format_exc())
             send({"event": "error", "message": f"falha na transcrição: {err}"})
+
+    def transcribe_heard(segment: bytes) -> None:
+        try:
+            started = time.monotonic()
+            text = run_whisper(segment)
+            if text:
+                send({"event": "heard", "text": text, "ms": int((time.monotonic() - started) * 1000)})
+        except Exception:
+            log(traceback.format_exc())
+        finally:
+            stt_busy.clear()
 
     def transcribe_partial(segment: bytes) -> None:
         try:
@@ -140,15 +160,20 @@ def main() -> None:
                 # Enquanto o Jarvis fala ("barge"), so conta como fala do usuario
                 # voz mais forte e mais longa, para o eco nao interromper.
                 barge = bool(cmd.get("barge"))
-                segmenter = Segmenter(threshold=0.7 if barge else 0.5, start_frames=4 if barge else 2, end_ms=end_ms)
-                vad.reset_states()
+                # Se o usuario ja esta falando ("Hey Jarvis, abre..."), continua a mesma fala.
+                if barge or not segmenter.active:
+                    segmenter = Segmenter(threshold=0.7 if barge else 0.5, start_frames=4 if barge else 2, end_ms=end_ms)
+                    vad.reset_states()
             elif name == "sleep":
                 state["listen"] = False
-                segmenter.reset()
+                segmenter = Segmenter(end_ms=end_ms)
             elif name == "speak":
                 tts_pool.submit(speak, int(cmd["id"]), str(cmd["text"]), state["generation"])
             elif name == "cancel":
                 state["generation"] += 1
+            elif name == "vocab":
+                words = [str(w) for w in cmd.get("words", [])][:150]
+                state["prompt"] = ", ".join(words)
             continue
 
         pending += payload
@@ -162,8 +187,14 @@ def main() -> None:
                 wake.reset()
                 send({"event": "wake", "score": round(float(score), 3)})
                 continue
-            if state["listen"]:
+            if state["listen"] or name_wake:
                 started, segment = segmenter.feed(frame, float(vad.predict(samples, frame_size=640)))
+                if not state["listen"]:
+                    # Esperando ser chamado: transcreve falas curtas (sem legenda ao vivo).
+                    if segment is not None and len(segment) <= HEARD_MAX_BYTES and not stt_busy.is_set():
+                        stt_busy.set()
+                        stt_pool.submit(transcribe_heard, segment)
+                    continue
                 if started:
                     state["since_partial"] = 0
                     send({"event": "speech-start"})

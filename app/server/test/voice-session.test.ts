@@ -93,8 +93,8 @@ test('ciclo completo: ativa, ouve, pensa, fala frase a frase e volta a ouvir', a
   s.worker.fire({ event: 'transcript', id: 1, text: '  ' });
   assert.equal(s.session.state, 'listening', 'transcricao vazia e ignorada');
 
-  s.worker.fire({ event: 'transcript', id: 2, text: 'Oi, Jarvis' });
-  assert.deepEqual(s.sent.find((m) => m.type === 'caption'), { type: 'caption', who: 'user', text: 'Oi, Jarvis' });
+  s.worker.fire({ event: 'transcript', id: 2, text: 'Qual é a boa de hoje?' });
+  assert.deepEqual(s.sent.find((m) => m.type === 'caption'), { type: 'caption', who: 'user', text: 'Qual é a boa de hoje?' });
   await waitFor(() => s.worker.speaks().length === 2);
   assert.deepEqual(s.worker.speaks().map((c) => c.text), ['Olá.', 'Tudo bem?']);
   assert.equal(s.session.state, 'speaking');
@@ -109,7 +109,7 @@ test('ciclo completo: ativa, ouve, pensa, fala frase a frase e volta a ouvir', a
   s.session.client({ type: 'played', id: b.id });
   assert.equal(s.session.state, 'listening');
   assert.equal(s.worker.last(), 'listen');
-  assert.deepEqual(s.brain.calls, ['Oi, Jarvis']);
+  assert.deepEqual(s.brain.calls, ['Qual é a boa de hoje?']);
 });
 
 test('silencio nao encerra: continua ouvindo', async () => {
@@ -258,4 +258,54 @@ test('legenda parcial e ignorada fora do estado ouvindo', async () => {
   const s = await started();
   s.worker.fire({ event: 'partial', text: 'barulho' });
   assert.equal(s.sent.filter((m) => m.type === 'caption').length, 0);
+});
+
+test('chamar pelo nome: "Jarvis" acorda; "Jarvis, abre..." ja executa', async () => {
+  const s = await started([['Abrindo.']]);
+  s.worker.fire({ event: 'heard', text: 'que horas são' });
+  assert.equal(s.session.state, 'sleeping', 'fala sem o nome e ignorada');
+  s.worker.fire({ event: 'heard', text: 'Jarvis' });
+  assert.equal(s.session.state, 'listening');
+  s.session.stop();
+  const t = await started([['Abrindo.']]);
+  t.worker.fire({ event: 'heard', text: 'Jarvis, abre o projeto meu-app.' });
+  await waitFor(() => t.brain.calls.length === 1);
+  assert.deepEqual(t.brain.calls, ['abre o projeto meu-app.']);
+});
+
+test('"Hey Jarvis, ..." no meio da escuta tira o chamado do pedido', async () => {
+  const s = await started([['Ok.']]);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'Hey Jarvis, mostra as skills' });
+  await waitFor(() => s.brain.calls.length === 1);
+  assert.deepEqual(s.brain.calls, ['mostra as skills']);
+  s.worker.fire({ event: 'transcript', id: 2, text: 'Jarvis' });
+  assert.equal(s.brain.calls.length, 1, 'so o nome nao vira pergunta');
+});
+
+test('conversa direta: a voz vai para a sessao ate "Jarvis, volta"', async () => {
+  const worker = new FakeWorker();
+  const brain = new FakeBrain([['Voltei.']]);
+  const sent: VoiceServerMessage[] = [];
+  const relayed: string[] = [];
+  const session = new VoiceSession(worker, brain, (m) => sent.push(m), () => 0, () => {}, {
+    relaySend: (_id, text) => {
+      relayed.push(text);
+      return true;
+    },
+    vocabulary: async () => ['Nowcasting-Geoserver'],
+  });
+  await session.start();
+  await waitFor(() => worker.commands.some((c) => c.cmd === 'vocab'));
+  worker.fire({ event: 'wake', score: 0.9 });
+  session.setRelay({ id: 's1', label: 'Claude de meu-app' });
+  assert.deepEqual(sent.find((m) => m.type === 'relay'), { type: 'relay', target: 'Claude de meu-app' });
+  worker.fire({ event: 'transcript', id: 1, text: 'roda os testes de login' });
+  assert.deepEqual(relayed, ['roda os testes de login']);
+  assert.equal(brain.calls.length, 0);
+  worker.fire({ event: 'transcript', id: 2, text: 'Jarvis, volta' });
+  assert.deepEqual(sent.filter((m) => m.type === 'relay').at(-1), { type: 'relay', target: null });
+  assert.equal(brain.calls.length, 0, '"volta" so sai da conversa direta');
+  worker.fire({ event: 'transcript', id: 3, text: 'abre as skills' });
+  await waitFor(() => brain.calls.length === 1);
 });

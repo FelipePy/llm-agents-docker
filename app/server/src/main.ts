@@ -35,12 +35,15 @@ const makeBrain = (ctx: Parameters<typeof createJarvisServer>[0]) =>
     cwd: workspaceDir,
     mcp: () => createJarvisServer(ctx),
     // Memorias "sobre o usuario" que os agentes ja guardaram (nome, preferencias...).
-    about: async () =>
-      (await readProfile(home)).memories
+    about: async () => {
+      const memories = (await readProfile(home)).memories
         .map((f) => f.content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim())
         .filter(Boolean)
         .join('\n\n')
-        .slice(0, 3000),
+        .slice(0, 3000);
+      const projects = (await ctx.projects()).map((p) => p.name).join(', ');
+      return `${memories}\n\nProjetos do usuário (nomes exatos): ${projects || 'nenhum ainda'}.`.trim();
+    },
   }));
 
 const app = createApp({

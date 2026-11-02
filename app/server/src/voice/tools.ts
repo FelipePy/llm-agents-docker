@@ -20,6 +20,10 @@ export interface JarvisContext {
   ui(command: UiCommand): void;
   /** Manual do app (o README do projeto). */
   manual(): Promise<string>;
+  /** Digita um texto na sessao e aperta Enter; falso se a sessao nao existe mais. */
+  sendToSession(id: string, text: string): boolean;
+  /** Liga (ou desliga, com null) a conversa direta: a voz do usuario vai para a sessao. */
+  relay(target: { id: string; label: string } | null): void;
 }
 
 const LABEL: Record<SessionAgent, string> = { claude: 'Claude', codex: 'Codex', shell: 'Shell' };
@@ -34,30 +38,68 @@ const STOPWORDS = new Set(['o', 'a', 'os', 'as', 'do', 'da', 'dos', 'das', 'de',
 
 const tokens = (s: string): string[] => normalize(s).split(' ').filter((t) => t && !STOPWORDS.has(t));
 
-/** Projeto pelo nome falado: exato > prefixo > parte do nome > palavras em comum. */
-export function findProject(projects: ProjectSummary[], spoken: string): ProjectSummary | null {
+const compact = (s: string): string => tokens(s).join('');
+
+function trigrams(s: string): Set<string> {
+  const padded = `  ${s} `;
+  const out = new Set<string>();
+  for (let i = 0; i + 3 <= padded.length; i++) out.add(padded.slice(i, i + 3));
+  return out;
+}
+
+/** Semelhanca (Dice) entre trigramas: tolera erros de transcricao ("nowcast" ~ "nowcasting"). */
+function similarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  const ta = trigrams(a);
+  const tb = trigrams(b);
+  let common = 0;
+  for (const t of ta) if (tb.has(t)) common++;
+  return (2 * common) / (ta.size + tb.size);
+}
+
+/** Projetos ordenados pela chance de serem o que o usuario falou (0 a 100). */
+export function rankProjects(projects: ProjectSummary[], spoken: string): { project: ProjectSummary; score: number }[] {
   const q = tokens(spoken);
-  if (!q.length) return null;
+  if (!q.length) return [];
   const query = q.join(' ');
-  let best: ProjectSummary | null = null;
-  let bestScore = 0;
-  for (const p of projects) {
-    const nameTokens = tokens(p.name);
-    const name = nameTokens.join(' ');
-    let score = 0;
-    if (name === query) score = 100;
-    else if (name.startsWith(query)) score = 80;
-    else if (name.includes(query)) score = 60;
-    else {
+  const qc = q.join('');
+  return projects
+    .map((project) => {
+      const nameTokens = tokens(project.name);
+      const name = nameTokens.join(' ');
+      const nc = nameTokens.join('');
+      let score = 0;
+      if (name === query || nc === qc) score = 100;
+      else if (name.startsWith(query) || nc.startsWith(qc)) score = 80;
+      else if (nc.includes(qc)) score = 65;
+      // Mesmas palavras em outra ordem ("api do nowcasting" ~ "nowcasting-api").
+      if ([...q].sort().join(' ') === [...nameTokens].sort().join(' ')) score = Math.max(score, 95);
       const common = q.filter((t) => nameTokens.includes(t)).length;
-      if (common) score = 20 + 30 * (common / Math.max(q.length, nameTokens.length));
-    }
-    if (score > bestScore) {
-      best = p;
-      bestScore = score;
-    }
-  }
-  return best;
+      if (common) score = Math.max(score, 20 + 30 * (common / Math.max(q.length, nameTokens.length)));
+      score = Math.max(score, 70 * similarity(nc, qc));
+      return { project, score };
+    })
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score);
+}
+
+const MIN_SCORE = 30;
+const AMBIGUOUS_MARGIN = 8;
+
+/** O projeto falado; ou, se ficar em duvida, os candidatos para perguntar ao usuario. */
+export function resolveProject(projects: ProjectSummary[], spoken: string): { project?: ProjectSummary; candidates: ProjectSummary[] } {
+  const ranked = rankProjects(projects, spoken);
+  const top = ranked[0];
+  if (!top || top.score < MIN_SCORE) return { candidates: ranked.filter((r) => r.score >= 15).slice(0, 3).map((r) => r.project) };
+  const close = ranked.filter((r) => top.score - r.score < AMBIGUOUS_MARGIN);
+  if (top.score < 100 && close.length > 1) return { candidates: close.slice(0, 4).map((r) => r.project) };
+  return { project: top.project, candidates: [top.project] };
+}
+
+/** Projeto pelo nome falado (sem perguntar): o mais provavel, ou null. */
+export function findProject(projects: ProjectSummary[], spoken: string): ProjectSummary | null {
+  const top = rankProjects(projects, spoken)[0];
+  return top && top.score >= MIN_SCORE ? top.project : null;
 }
 
 export function stripAnsi(text: string): string {
@@ -103,10 +145,27 @@ export function searchManual(markdown: string, subject: string): string {
 export function jarvisHandlers(ctx: JarvisContext) {
   async function pick(spoken: string) {
     const list = await ctx.projects();
-    return { list, project: findProject(list, spoken) };
+    const { project, candidates } = resolveProject(list, spoken);
+    return { list, project: project ?? null, candidates };
   }
-  const notFound = (spoken: string, list: ProjectSummary[]) =>
-    `Não encontrei o projeto "${spoken}". Projetos recentes: ${list.slice(0, 6).map((p) => p.name).join(', ') || 'nenhum'}.`;
+  /** Sem projeto certo: pergunta entre os candidatos ou lista os recentes. */
+  const notFound = (spoken: string, list: ProjectSummary[], candidates: ProjectSummary[] = []) =>
+    candidates.length > 1
+      ? `Achei mais de um projeto parecido com "${spoken}": ${candidates.map((p) => p.name).join(', ')}. Pergunte ao usuário qual deles antes de seguir.`
+      : `Não encontrei o projeto "${spoken}". Projetos: ${list.slice(0, 12).map((p) => p.name).join(', ') || 'nenhum'}. Pergunte ao usuário qual deles.`;
+  /** A sessao mais relevante (em execucao e mais recente), opcionalmente de um projeto. */
+  async function pickSession(projeto?: string) {
+    const list = await ctx.projects();
+    const r = projeto ? await pick(projeto) : null;
+    if (projeto && !r?.project) return { list, error: notFound(projeto, list, r?.candidates) };
+    const project = r?.project ?? null;
+    const session = ctx
+      .sessions()
+      .filter((s) => !project || s.projectPath === project.path)
+      .sort((a, b) => Number(b.alive) - Number(a.alive) || b.startedAt.localeCompare(a.startedAt))[0];
+    if (!session) return { list, error: `Não há sessão aberta${project ? ` em ${project.name}` : ''}.` };
+    return { list, session };
+  }
   const projectName = (path: string, list: ProjectSummary[]) => list.find((p) => p.path === path)?.name ?? path.split('/').pop() ?? path;
 
   return {
@@ -117,14 +176,14 @@ export function jarvisHandlers(ctx: JarvisContext) {
       return `Mostrando ${a.label}.`;
     },
     async abrir_projeto({ nome }: { nome: string }) {
-      const { list, project } = await pick(nome);
-      if (!project) return notFound(nome, list);
+      const { list, project, candidates } = await pick(nome);
+      if (!project) return notFound(nome, list, candidates);
       ctx.ui({ kind: 'nav', node: { kind: 'project', id: project.id } });
       return `Abri o projeto ${project.name} (${project.path}).`;
     },
     async abrir_conversas({ projeto }: { projeto: string }) {
-      const { list, project } = await pick(projeto);
-      if (!project) return notFound(projeto, list);
+      const { list, project, candidates } = await pick(projeto);
+      if (!project) return notFound(projeto, list, candidates);
       ctx.ui({ kind: 'nav', node: { kind: 'conversations', projectId: project.id } });
       return `Mostrando as conversas de ${project.name}.`;
     },
@@ -133,8 +192,8 @@ export function jarvisHandlers(ctx: JarvisContext) {
       return 'Voltei um nível.';
     },
     async estado_do_projeto({ projeto }: { projeto: string }) {
-      const { list, project } = await pick(projeto);
-      if (!project) return notFound(projeto, list);
+      const { list, project, candidates } = await pick(projeto);
+      if (!project) return notFound(projeto, list, candidates);
       ctx.ui({ kind: 'nav', node: { kind: 'project', id: project.id } });
       const detail = await ctx.projectDetail(project.path);
       const lines = [`Projeto ${project.name}, em ${project.path}.`];
@@ -163,8 +222,8 @@ export function jarvisHandlers(ctx: JarvisContext) {
       return lines.join('\n');
     },
     async iniciar_sessao({ projeto, agente, tarefa }: { projeto: string; agente: SessionAgent; tarefa?: string }) {
-      const { list, project } = await pick(projeto);
-      if (!project) return notFound(projeto, list);
+      const { list, project, candidates } = await pick(projeto);
+      if (!project) return notFound(projeto, list, candidates);
       const task = tarefa?.trim() || undefined;
       const s = ctx.openSession(project.path, agente, agente === 'shell' ? undefined : task);
       ctx.ui({ kind: 'focus-session', id: s.id });
@@ -181,15 +240,8 @@ export function jarvisHandlers(ctx: JarvisContext) {
         .join('\n');
     },
     async estado_da_sessao({ projeto }: { projeto?: string }) {
-      const list = await ctx.projects();
-      const project = projeto ? findProject(list, projeto) : null;
-      if (projeto && !project) return notFound(projeto, list);
-      const candidates = ctx
-        .sessions()
-        .filter((s) => !project || s.projectPath === project.path)
-        .sort((a, b) => Number(b.alive) - Number(a.alive) || b.startedAt.localeCompare(a.startedAt));
-      const s = candidates[0];
-      if (!s) return `Não há sessão aberta${project ? ` em ${project.name}` : ''}.`;
+      const { list, session: s, error } = await pickSession(projeto);
+      if (!s) return error;
       const tail = stripAnsi(ctx.sessionOutput(s.id) ?? '')
         .split('\n')
         .map((l) => l.trimEnd())
@@ -198,6 +250,22 @@ export function jarvisHandlers(ctx: JarvisContext) {
         .join('\n')
         .slice(-2500);
       return `Sessão ${LABEL[s.agent]} em ${projectName(s.projectPath, list)} (${s.alive ? 'em execução' : 'encerrada'}). Últimas linhas do terminal:\n${tail || '(sem saída ainda)'}`;
+    },
+    async enviar_para_sessao({ projeto, mensagem }: { projeto?: string; mensagem: string }) {
+      const { list, session: s, error } = await pickSession(projeto);
+      if (!s) return error;
+      if (!s.alive || !ctx.sendToSession(s.id, mensagem)) return 'Essa sessão já foi encerrada.';
+      ctx.ui({ kind: 'focus-session', id: s.id });
+      return `Enviei para o ${LABEL[s.agent]} de ${projectName(s.projectPath, list)}.`;
+    },
+    async falar_direto_com_sessao({ projeto }: { projeto?: string }) {
+      const { list, session: s, error } = await pickSession(projeto);
+      if (!s) return error;
+      if (!s.alive) return 'Essa sessão já foi encerrada.';
+      const label = `${LABEL[s.agent]} de ${projectName(s.projectPath, list)}`;
+      ctx.relay({ id: s.id, label });
+      ctx.ui({ kind: 'focus-session', id: s.id });
+      return `Pronto para a conversa direta com o ${label}: depois que você responder, tudo o que o usuário falar vai direto para lá. Avise que, para voltar a falar com você, é só dizer "Jarvis, volta".`;
     },
     async criar_skill(_args: Record<string, never>) {
       const s = await ctx.runTask('new-skill');
@@ -280,6 +348,18 @@ export function createJarvisServer(ctx: JarvisContext) {
         'Lê as últimas linhas do terminal de uma sessão (a mais recente do projeto, ou a mais recente de todas) para contar o progresso.',
         { projeto: z.string().optional().describe('Nome do projeto da sessão.') },
         run(h.estado_da_sessao),
+      ),
+      tool(
+        'enviar_para_sessao',
+        'Digita uma mensagem numa sessão aberta (a mais recente do projeto, ou a mais recente de todas) e envia, como se o usuário tivesse digitado. Repasse o pedido do usuário fiel ao que ele disse.',
+        { projeto: z.string().optional().describe('Projeto da sessão.'), mensagem: z.string().describe('Texto a enviar para o agente da sessão.') },
+        run(h.enviar_para_sessao),
+      ),
+      tool(
+        'falar_direto_com_sessao',
+        'Liga a conversa direta por voz com uma sessão: as próximas falas do usuário vão direto para o agente dela, sem passar por você, até ele dizer "Jarvis, volta".',
+        { projeto: z.string().optional().describe('Projeto da sessão.') },
+        run(h.falar_direto_com_sessao),
       ),
       tool('criar_skill', 'Abre uma sessão do Claude dedicada a criar uma skill nova com o usuário.', {}, run(h.criar_skill)),
       tool('registrar_sobre_mim', 'Abre uma sessão do Claude dedicada a registrar informações sobre o usuário na memória.', {}, run(h.registrar_sobre_mim)),

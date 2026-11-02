@@ -1,12 +1,14 @@
 import type { VoiceClientMessage, VoiceServerMessage, VoiceState } from '../types.ts';
 import type { Brain } from './brain.ts';
-import { SentenceSplitter, isGoodbye, stripMarkdown } from './text.ts';
+import { SentenceSplitter, isGoodbye, isReturn, matchWake, stripMarkdown } from './text.ts';
 
 export type WorkerCommand =
   | { cmd: 'listen'; barge?: boolean }
   | { cmd: 'sleep' }
   | { cmd: 'cancel' }
-  | { cmd: 'speak'; id: number; text: string };
+  | { cmd: 'speak'; id: number; text: string }
+  /** Palavras que o whisper deve reconhecer (nomes de projetos etc.). */
+  | { cmd: 'vocab'; words: string[] };
 
 export type WorkerEvent =
   | { event: 'ready' }
@@ -15,6 +17,8 @@ export type WorkerEvent =
   | { event: 'speech-start' }
   | { event: 'partial'; text: string }
   | { event: 'transcript'; id: number; text: string; ms?: number }
+  /** Fala transcrita enquanto o Jarvis espera ser chamado (para "Jarvis, ..."). */
+  | { event: 'heard'; text: string; ms?: number }
   | { event: 'audio'; id: number; data: string; last: boolean }
   | { event: 'speak-error'; id: number; message: string }
   | { event: 'error'; message: string; fatal?: boolean }
@@ -46,6 +50,10 @@ export class VoiceSession {
   private readonly now: () => number;
   private readonly log: (line: string) => void;
   private readonly bargeIn: boolean;
+  private readonly relaySend: (id: string, text: string) => boolean;
+  private readonly vocabulary: (() => Promise<string[]>) | undefined;
+  /** Conversa direta: a voz do usuario vai para esta sessao, sem passar pelo cerebro. */
+  private relay: { id: string; label: string } | null = null;
   private readonly listener = (e: WorkerEvent) => this.onWorker(e);
   /** Resposta que pode falar; as anteriores seguem caladas. */
   private turn = 0;
@@ -65,8 +73,14 @@ export class VoiceSession {
     send: (m: VoiceServerMessage) => void,
     now: () => number = Date.now,
     log: (line: string) => void = () => {},
-    opts: { bargeIn?: boolean } = {},
+    opts: {
+      bargeIn?: boolean;
+      relaySend?: (id: string, text: string) => boolean;
+      vocabulary?: () => Promise<string[]>;
+    } = {},
   ) {
+    this.relaySend = opts.relaySend ?? (() => false);
+    this.vocabulary = opts.vocabulary;
     this.worker = worker;
     this.brain = brain;
     this.send = send;
@@ -86,6 +100,7 @@ export class VoiceSession {
     if (this.state === 'off') return;
     this.stopController.abort();
     this.mute();
+    this.setRelay(null);
     this.worker.off('event', this.listener);
     this.worker.command({ cmd: 'sleep' });
     this.send({ type: 'stop-audio' });
@@ -126,6 +141,53 @@ export class VoiceSession {
     this.setState('sleeping');
     this.worker.command({ cmd: 'sleep' });
     this.brain.warm?.();
+    void this.sendVocabulary();
+  }
+
+  /** Liga ou desliga a conversa direta com uma sessao. */
+  setRelay(target: { id: string; label: string } | null): void {
+    if (this.relay?.id === target?.id) return;
+    this.relay = target;
+    this.send({ type: 'relay', target: target?.label ?? null });
+  }
+
+  private async sendVocabulary(): Promise<void> {
+    if (!this.vocabulary) return;
+    try {
+      const words = await this.vocabulary();
+      if (this.state !== 'off') this.worker.command({ cmd: 'vocab', words });
+    } catch {
+      // sem vocabulario: o whisper segue sem dicas
+    }
+  }
+
+  private wakeUp(): void {
+    this.setState('listening');
+    this.send({ type: 'chime' });
+    this.worker.command({ cmd: 'listen' });
+  }
+
+  /** Uma fala completa do usuario (ja sem ser silencio). */
+  private utterance(text: string, ms?: number): void {
+    const called = matchWake(text);
+    if (this.relay) {
+      if (called || isGoodbye(text)) {
+        this.setRelay(null);
+        this.send({ type: 'chime' });
+        const rest = called?.rest ?? '';
+        if (rest && !isReturn(rest)) this.ask(rest, ms);
+        return;
+      }
+      this.send({ type: 'caption', who: 'user', text });
+      if (!this.relaySend(this.relay.id, text)) {
+        this.setRelay(null);
+        this.send({ type: 'error', message: 'A sessão da conversa direta foi encerrada; voltei a ouvir você.' });
+      }
+      return;
+    }
+    const request = called ? called.rest : text;
+    if (!request) return; // so chamou o nome de novo
+    this.ask(request, ms);
   }
 
   private onWorker(e: WorkerEvent): void {
@@ -134,11 +196,21 @@ export class VoiceSession {
       case 'status':
         if (this.state === 'preparing') this.setState('preparing', e.message);
         return;
+      case 'heard': {
+        // Chamado pelo nome ("Jarvis", "Jarvis, abre o meu-app") enquanto espera.
+        if (this.state !== 'sleeping') return;
+        const called = matchWake(e.text);
+        if (!called) return;
+        this.wakeUp();
+        if (called.rest) this.utterance(called.rest, e.ms);
+        return;
+      }
       case 'wake':
         if (this.state === 'sleeping') {
-          this.setState('listening');
+          this.wakeUp();
+        } else if (this.relay && this.state === 'listening') {
+          this.setRelay(null);
           this.send({ type: 'chime' });
-          this.worker.command({ cmd: 'listen' });
         } else if (this.state === 'thinking' || this.state === 'speaking') {
           this.interrupt();
         }
@@ -153,10 +225,7 @@ export class VoiceSession {
       case 'transcript': {
         const text = e.text.trim();
         if (this.state !== 'listening' || !text) return;
-        this.timing = { heard: this.now(), stt: e.ms };
-        this.send({ type: 'caption', who: 'user', text });
-        this.farewell = isGoodbye(text);
-        this.ask(text);
+        this.utterance(text, e.ms);
         return;
       }
       case 'audio':
@@ -196,7 +265,10 @@ export class VoiceSession {
   }
 
   /** Nova pergunta: ela passa a ser a que fala; roda depois das anteriores. */
-  private ask(text: string): void {
+  private ask(text: string, ms?: number): void {
+    this.timing = { heard: this.now(), stt: ms };
+    this.send({ type: 'caption', who: 'user', text });
+    this.farewell = isGoodbye(text);
     const turn = ++this.turn;
     this.brainDone = false;
     this.setState('thinking');
