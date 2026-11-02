@@ -8,7 +8,9 @@ Status: aprovado
 Este é o primeiro de três subprojetos rumo a um assistente estilo "Jarvis":
 
 1. **Remote Control automático** (este spec): toda sessão do Claude Code aberta pelo `llm-agent` fica acessível pelo celular (app Claude) e por claude.ai/code.
-2. App desktop (Tauri nativo no Windows, UI web com visual de buraco negro, backend no WSL) para visualizar skills, memória e informações do projeto.
+2. App desktop (Tauri nativo no Windows, UI web com visual de buraco negro, backend no WSL) para visualizar skills, memória e informações do projeto. Requisitos já levantados para esse spec:
+   - escolher o agente (Claude Code, Codex) e alternar entre eles;
+   - listar as conversas (Claude em `~/.claude/projects/<projeto>/`, Codex em `~/.codex/sessions/`) e trocar de conversa, retomando-a.
 3. Conversa por voz com palavra de ativação, conversa contínua até "tchau" e tarefas em background.
 
 O Claude Code (2.1.316) já tem a flag `claude --remote-control [nome]`, que abre a sessão interativa com o Remote Control ligado. Sem nome, a sessão é nomeada a partir do hostname. Dentro do container, o hostname é um ID aleatório, o que deixa a lista de sessões do celular ilegível.
