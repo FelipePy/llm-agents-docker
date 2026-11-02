@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { geoProblem, requestPosition } from '../geo.ts';
 import type { Api } from '../api.ts';
 import type { DayInfo } from '../types.ts';
 import { Settings, type SettingsState, type SettingsToggles } from './Settings.tsx';
@@ -26,14 +27,27 @@ export function DayPanel({ api, settings, toggles, voiceStatus }: Props) {
   // undefined: ainda perguntando ao navegador; null: sem localizacao.
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null | undefined>(undefined);
 
-  useEffect(() => {
-    if (!navigator.geolocation) return setCoords(null);
-    navigator.geolocation.getCurrentPosition(
-      (p) => setCoords({ lat: p.coords.latitude, lon: p.coords.longitude }),
-      () => setCoords(null),
-      { timeout: 8000, maximumAge: 3600e3 },
-    );
+  const [geoError, setGeoError] = useState<string | null>(null);
+
+  const locate = useCallback(async () => {
+    const problem = geoProblem({ secure: window.isSecureContext, supported: !!navigator.geolocation });
+    if (problem) {
+      setGeoError(problem);
+      return setCoords(null);
+    }
+    const r = await requestPosition();
+    if ('errorCode' in r) {
+      setGeoError(geoProblem({ secure: true, supported: true, errorCode: r.errorCode }));
+      setCoords((c) => (c === undefined ? null : c));
+    } else {
+      setGeoError(null);
+      setCoords(r);
+    }
   }, []);
+
+  useEffect(() => {
+    void locate();
+  }, [locate]);
 
   useEffect(() => {
     if (coords === undefined) return;
@@ -78,7 +92,14 @@ export function DayPanel({ api, settings, toggles, voiceStatus }: Props) {
             </div>
           </>
         ) : (
-          <p className="muted">{day?.weatherError ?? 'Carregando o clima…'}</p>
+          <div className="muted">
+            <p>{geoError ?? day?.weatherError ?? 'Carregando o clima…'}</p>
+            {coords === null && (
+              <button className="geo" onClick={() => void locate()}>
+                Usar minha localização
+              </button>
+            )}
+          </div>
         )}
       </section>
       <section className="news">
