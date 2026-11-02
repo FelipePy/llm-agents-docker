@@ -40,6 +40,7 @@ function ctx(over: Partial<JarvisContext> = {}) {
     runTask: async (task) => session(`task-${task}`, '/ws'),
     createProject: async (name) => session(`proj-${name}`, `/w/${name}`),
     ui: (cmd) => ui.push(cmd),
+    manual: async () => '# Manual',
     ...over,
   };
   return { c, ui, opened, h: jarvisHandlers(c) };
@@ -122,4 +123,15 @@ test('comandos lista o que o Jarvis sabe fazer e abre o painel', async () => {
   for (const c of COMMANDS) assert.ok(out.includes(c.title), c.title);
   assert.deepEqual(ui, [{ kind: 'commands' }]);
   assert.deepEqual(Object.keys(jarvisHandlers(ctx().c)).sort(), COMMANDS.map((c) => c.name).sort(), 'cada comando tem uma ferramenta');
+});
+
+test('manual_do_app procura no README as secoes do assunto', async () => {
+  const { searchManual } = await import('../src/voice/tools.ts');
+  const md = '# App\nIntro.\n## Interface\nOs cartões ficam à direita.\n### Voz\nDiga Hey Jarvis para ativar a escuta.\n## Licença\nMIT';
+  assert.match(searchManual(md, 'como ativo a escuta por voz?'), /Hey Jarvis/);
+  assert.ok(!searchManual(md, 'escuta voz').includes('MIT'));
+  assert.match(searchManual(md, ''), /Seções do manual: App; Interface; Voz; Licença/);
+  assert.match(searchManual(md, 'banana'), /Nada no manual/);
+  const { h } = ctx({ manual: async () => md });
+  assert.match(await h.manual_do_app({ assunto: 'cartões' }), /à direita/);
 });

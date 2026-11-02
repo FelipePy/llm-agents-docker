@@ -5,6 +5,8 @@ import { JARVIS_TOOL_NAMES } from './tools.ts';
 /** Responde a uma fala do usuario, em pedacos de texto (streaming). */
 export interface Brain {
   reply(text: string, signal: AbortSignal): AsyncIterable<string>;
+  /** Abre a sessao antes da primeira fala (opcional). */
+  warm?(): void;
 }
 
 export type QueryFn = typeof query;
@@ -14,7 +16,9 @@ export const JARVIS_PROMPT = [
   'Suas respostas são convertidas em fala: responda em uma a três frases curtas e naturais, a menos que o usuário peça mais detalhes.',
   'Não use markdown, listas, tabelas, emojis nem blocos de código. Escreva números e siglas do jeito que devem ser falados.',
   'Você controla a interface do usuário e os projetos dele pelas ferramentas do servidor jarvis; use-as sempre que o pedido for uma ação, sem pedir confirmação para ações que só mostram coisas.',
-  'Antes de uma ferramenta demorada, diga em poucas palavras o que vai fazer. Depois, resuma o resultado em voz, sem ler listas inteiras.',
+  'Você vive dentro do llm-agent, o app do usuário para conversar com agentes de código e acompanhar os projetos dele. Quando ele perguntar como fazer algo no app ou para que serve alguma parte dele, consulte a ferramenta manual_do_app e responda com base nela; não invente funcionalidades.',
+  'Quando for usar uma ferramenta, diga antes, com suas palavras e em poucas palavras, o que vai fazer. Depois, resuma o resultado em voz, sem ler listas inteiras.',
+  'Se o usuário se despedir, despeça-se em poucas palavras, do seu jeito.',
   'Trabalho de verdade nos projetos (corrigir, implementar, investigar) vai para uma sessão com iniciar_sessao, com a tarefa completa e clara; diga que ela segue em background.',
   'Se o usuário perguntar o que você sabe fazer, use a ferramenta comandos.',
   `Comandos disponíveis: ${COMMANDS.map((c) => `${c.title} (ex.: "${c.examples[0]}")`).join('; ')}.`,
@@ -98,10 +102,17 @@ export class ClaudeBrain implements Brain {
         includePartialMessages: true,
         resume: this.sessionId,
         effort: 'low',
+        // Respostas curtas faladas: sem raciocinio estendido, o primeiro token chega antes.
+        thinking: { type: 'disabled' },
         env: brainEnv(),
       },
     });
     this.messages = this.q[Symbol.asyncIterator]();
+  }
+
+  /** Abre o processo do Claude ja, para a primeira fala nao esperar por ele. */
+  warm(): void {
+    if (!this.q) this.open();
   }
 
   /** Fecha a sessao; a proxima fala abre outra, retomando a conversa. */
@@ -135,6 +146,7 @@ export class ClaudeBrain implements Brain {
     const onAbort = () => void this.q?.interrupt().catch(() => {});
     signal.addEventListener('abort', onAbort, { once: true });
     this.inTurn = true;
+    let spoke = false;
     this.input!.push({ type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null } as SDKUserMessage);
     try {
       for (;;) {
@@ -150,7 +162,12 @@ export class ClaudeBrain implements Brain {
         if (signal.aborted) continue;
         if (m.type === 'stream_event') {
           const e = m.event;
-          if (e.type === 'content_block_delta' && e.delta.type === 'text_delta') yield e.delta.text;
+          // Um bloco de texto novo (ex.: depois de uma ferramenta) comeca com espaco.
+          if (e.type === 'content_block_start' && e.content_block.type === 'text' && spoke) yield ' ';
+          if (e.type === 'content_block_delta' && e.delta.type === 'text_delta') {
+            spoke = true;
+            yield e.delta.text;
+          }
         }
       }
     } catch (err) {

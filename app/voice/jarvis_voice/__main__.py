@@ -63,7 +63,8 @@ def main() -> None:
     stt_pool = ThreadPoolExecutor(max_workers=1)
     tts_pool = ThreadPoolExecutor(max_workers=1)
     state = {"listen": False, "generation": 0, "transcript": 0, "last_wake": 0.0, "since_partial": 0}
-    segmenter = Segmenter(end_ms=int(os.environ.get("LLM_AGENT_VOICE_END_MS", "500")))
+    end_ms = int(os.environ.get("LLM_AGENT_VOICE_END_MS", "500"))
+    segmenter = Segmenter(end_ms=end_ms)
     stt_busy = threading.Event()
 
     def run_whisper(segment: bytes) -> str:
@@ -131,7 +132,10 @@ def main() -> None:
             name = cmd.get("cmd")
             if name == "listen":
                 state["listen"] = True
-                segmenter.reset()
+                # Enquanto o Jarvis fala ("barge"), so conta como fala do usuario
+                # voz mais forte e mais longa, para o eco nao interromper.
+                barge = bool(cmd.get("barge"))
+                segmenter = Segmenter(threshold=0.7 if barge else 0.5, start_frames=4 if barge else 2, end_ms=end_ms)
                 vad.reset_states()
             elif name == "sleep":
                 state["listen"] = False

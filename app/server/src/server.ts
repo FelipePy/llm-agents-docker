@@ -36,7 +36,9 @@ export interface AppOptions {
   newsUrl?: string;
   fetch?: typeof fetch;
   /** Voz (etapa 3a): sem ela, /ws/voice responde 404. */
-  voice?: { worker: VoiceWorker; brain: Brain | ((ctx: JarvisContext) => Brain) };
+  voice?: { worker: VoiceWorker; brain: Brain | ((ctx: JarvisContext) => Brain); bargeIn?: boolean };
+  /** Manual do app consultado pelo Jarvis (o README do projeto). */
+  manualPath?: string;
 }
 
 export interface App {
@@ -182,6 +184,7 @@ export function createApp(opts: AppOptions): App {
     runTask: (task) => openTask(task, 120, 30),
     createProject: (name) => createProjectSession(name, 120, 30),
     ui: (command) => voiceUi?.({ type: 'ui', command }),
+    manual: async () => (opts.manualPath ? readFile(opts.manualPath, 'utf8').catch(() => '') : ''),
   };
   const voiceBrain = opts.voice ? (typeof opts.voice.brain === 'function' ? opts.voice.brain(jarvis) : opts.voice.brain) : undefined;
 
@@ -248,6 +251,7 @@ export function createApp(opts: AppOptions): App {
       sendVoice,
       Date.now,
       (line) => console.error(`[voz] ${line}`),
+      { bargeIn: voice.bargeIn ?? true },
     );
     voiceSocket = ws;
     voiceSession = session;

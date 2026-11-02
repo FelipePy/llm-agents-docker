@@ -21,5 +21,6 @@ export const COMMANDS: VoiceCommand[] = [
   { name: 'criar_skill', title: 'Criar uma skill', examples: ['cria uma skill nova'] },
   { name: 'registrar_sobre_mim', title: 'Registrar algo sobre você', examples: ['anota uma coisa sobre mim'] },
   { name: 'criar_projeto', title: 'Criar um projeto', examples: ['cria um projeto chamado site-novo'] },
+  { name: 'manual_do_app', title: 'Tirar dúvidas sobre o app', examples: ['como eu crio um projeto novo?', 'para que serve a gaveta de terminais?'] },
   { name: 'comandos', title: 'Ver os comandos de voz', examples: ['o que você sabe fazer?'] },
 ];

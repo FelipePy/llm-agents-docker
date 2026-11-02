@@ -98,7 +98,7 @@ test('ciclo completo: ativa, ouve, pensa, fala frase a frase e volta a ouvir', a
   await waitFor(() => s.worker.speaks().length === 2);
   assert.deepEqual(s.worker.speaks().map((c) => c.text), ['Olá.', 'Tudo bem?']);
   assert.equal(s.session.state, 'speaking');
-  assert.ok(s.worker.commands.some((c) => c.cmd === 'sleep'), 'falando: worker so escuta a palavra de ativacao');
+  assert.ok(s.worker.commands.some((c) => c.cmd === 'listen' && c.barge), 'falando: worker continua ouvindo para a interrupcao');
 
   const [a, b] = s.worker.speaks();
   s.worker.fire({ event: 'audio', id: a.id, data: 'QQ==', last: false });
@@ -119,32 +119,63 @@ test('silencio nao encerra: continua ouvindo', async () => {
   assert.equal(s.session.state, 'listening');
 });
 
-test('despedida: fala "Até mais!" sem o cerebro e volta a dormir', async () => {
-  const s = await started();
+test('despedida: o cerebro se despede com as proprias palavras e o Jarvis volta a dormir', async () => {
+  const s = await started([['Até a próxima!']]);
   s.worker.fire({ event: 'wake', score: 0.9 });
   s.worker.fire({ event: 'transcript', id: 1, text: 'Tchau, Jarvis!' });
-  assert.deepEqual(s.worker.speaks().map((c) => c.text), ['Até mais!']);
+  await waitFor(() => s.worker.speaks().length === 1);
+  assert.deepEqual(s.brain.calls, ['Tchau, Jarvis!']);
+  assert.equal(s.worker.speaks()[0].text, 'Até a próxima!');
   s.session.client({ type: 'played', id: s.worker.speaks()[0].id });
   assert.equal(s.session.state, 'sleeping');
   assert.equal(s.worker.last(), 'sleep');
-  assert.deepEqual(s.brain.calls, []);
 });
 
-test('palavra de ativacao durante a fala interrompe e volta a ouvir', async () => {
-  const s = await started([['Uma frase longa. ', 'Outra.']]);
+test('palavra de ativacao durante a fala cala o Jarvis; a resposta termina em background', async () => {
+  const s = await started([['Uma frase longa. ', 'Outra frase. ', 'Mais uma.'], ['Resposta nova.']]);
   s.worker.fire({ event: 'wake', score: 0.9 });
   s.worker.fire({ event: 'transcript', id: 1, text: 'conta uma historia' });
-  await waitFor(() => s.worker.speaks().length === 2);
+  await waitFor(() => s.worker.speaks().length >= 1);
   const old = s.worker.speaks()[0].id;
+  const spokenBefore = s.worker.speaks().length;
   s.worker.fire({ event: 'wake', score: 0.9 });
   assert.equal(s.session.state, 'listening');
   assert.ok(s.worker.commands.some((c) => c.cmd === 'cancel'));
   assert.ok(s.sent.some((m) => m.type === 'stop-audio'));
   s.worker.fire({ event: 'audio', id: old, data: 'QQ==', last: true });
   assert.equal(s.sent.filter((m) => m.type === 'audio').length, 0, 'audio antigo e descartado');
+
+  // A pergunta nova e respondida depois que a anterior acaba (calada).
+  s.worker.fire({ event: 'transcript', id: 2, text: 'e agora?' });
+  await waitFor(() => s.worker.speaks().some((c) => c.text === 'Resposta nova.'));
+  assert.deepEqual(s.worker.speaks().slice(spokenBefore).map((c) => c.text), ['Resposta nova.'], 'depois da interrupcao, so a resposta nova fala');
+  assert.deepEqual(s.brain.calls, ['conta uma historia', 'e agora?']);
 });
 
-test('Esc durante "pensando" aborta o cerebro', async () => {
+test('falar por cima do Jarvis interrompe sem reiniciar a escuta', async () => {
+  const s = await started([['Frase um. ', 'Frase dois.']]);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'oi' });
+  await waitFor(() => s.session.state === 'speaking');
+  const before = s.worker.commands.length;
+  s.worker.fire({ event: 'speech-start' });
+  assert.equal(s.session.state, 'listening');
+  assert.ok(s.sent.some((m) => m.type === 'stop-audio'));
+  assert.ok(!s.worker.commands.slice(before).some((c) => c.cmd === 'listen'), 'nao reinicia a fala que esta sendo captada');
+});
+
+test('sem interrupcao por voz, falando o worker so escuta a palavra de ativacao', async () => {
+  const worker = new FakeWorker();
+  const session = new VoiceSession(worker, new FakeBrain([['Oi.']]), () => {}, () => 0, () => {}, { bargeIn: false });
+  await session.start();
+  worker.fire({ event: 'wake', score: 0.9 });
+  worker.fire({ event: 'transcript', id: 1, text: 'oi' });
+  await waitFor(() => session.state === 'speaking');
+  assert.equal(worker.last(), 'speak');
+  assert.equal(worker.commands.at(-2)?.cmd, 'sleep');
+});
+
+test('Esc durante "pensando" cala o Jarvis sem abortar o cerebro', async () => {
   const s = await started(['hang']);
   s.worker.fire({ event: 'wake', score: 0.9 });
   s.worker.fire({ event: 'transcript', id: 1, text: 'pergunta difícil' });
@@ -155,12 +186,12 @@ test('Esc durante "pensando" aborta o cerebro', async () => {
   assert.equal(s.session.state, 'listening');
 });
 
-test('erro do cerebro: legenda com o detalhe e uma frase de desculpa', async () => {
+test('erro do cerebro: legenda com o detalhe, sem frase pronta, e volta a ouvir', async () => {
   const s = await started([new Error('sem rede')]);
   s.worker.fire({ event: 'wake', score: 0.9 });
   s.worker.fire({ event: 'transcript', id: 1, text: 'oi' });
-  await waitFor(() => s.worker.speaks().length === 1);
-  assert.equal(s.worker.speaks()[0].text, 'Tive um problema para responder agora.');
+  await waitFor(() => s.session.state === 'listening' && s.sent.some((m) => m.type === 'error'));
+  assert.equal(s.worker.speaks().length, 0);
   assert.ok(s.sent.some((m) => m.type === 'caption' && m.who === 'jarvis' && m.text.includes('sem rede')));
 });
 

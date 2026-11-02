@@ -88,3 +88,13 @@ test('brainEnv remove credenciais de API do ambiente', () => {
   const env = brainEnv({ PATH: '/bin', ANTHROPIC_API_KEY: 'k', ANTHROPIC_BASE_URL: 'u', CLAUDECODE: '1', HOME: '/h' });
   assert.deepEqual(env, { PATH: '/bin', HOME: '/h' });
 });
+
+test('warm abre a sessao antes da primeira fala', async () => {
+  const q = fakeQuery([[delta('oi'), ok]]);
+  const brain = new ClaudeBrain({ model: 'haiku', cwd: '/w', query: q.fn });
+  brain.warm();
+  assert.equal(q.calls.length, 1);
+  assert.deepEqual(await collect(brain, 'oi'), ['oi']);
+  assert.equal(q.calls.length, 1);
+  brain.close();
+});

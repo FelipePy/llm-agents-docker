@@ -18,6 +18,8 @@ export interface JarvisContext {
   runTask(task: TaskName): Promise<SessionInfo>;
   createProject(name: string): Promise<SessionInfo>;
   ui(command: UiCommand): void;
+  /** Manual do app (o README do projeto). */
+  manual(): Promise<string>;
 }
 
 const LABEL: Record<SessionAgent, string> = { claude: 'Claude', codex: 'Codex', shell: 'Shell' };
@@ -67,6 +69,35 @@ export function stripAnsi(text: string): string {
 }
 
 const day = (iso: string): string => iso.slice(0, 10);
+
+/** Secoes do manual (markdown) mais ligadas ao assunto; sem assunto, o sumario. */
+export function searchManual(markdown: string, subject: string): string {
+  const sections: string[] = [];
+  let current: string[] = [];
+  for (const line of markdown.split('\n')) {
+    if (/^#{1,4}\s/.test(line) && current.length) {
+      sections.push(current.join('\n').trim());
+      current = [];
+    }
+    current.push(line);
+  }
+  if (current.length) sections.push(current.join('\n').trim());
+  const headings = sections.map((s) => s.split('\n')[0].replace(/^#+\s*/, '')).filter(Boolean);
+  const words = tokens(subject).filter((w) => w.length >= 3);
+  if (!words.length) return `Seções do manual: ${headings.join('; ')}.`;
+  const scored = sections
+    .map((text) => {
+      const norm = normalize(text);
+      const head = normalize(text.split('\n')[0]);
+      const score = words.reduce((n, w) => n + (norm.split(w).length - 1) + (head.includes(w) ? 3 : 0), 0);
+      return { text, score };
+    })
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+  if (!scored.length) return `Nada no manual sobre "${subject}". Seções: ${headings.join('; ')}.`;
+  return scored.map((s) => s.text.slice(0, 2500)).join('\n\n---\n\n');
+}
 
 /** Implementacao dos comandos; cada um devolve o texto que o cerebro le (e resume em voz). */
 export function jarvisHandlers(ctx: JarvisContext) {
@@ -188,6 +219,9 @@ export function jarvisHandlers(ctx: JarvisContext) {
       ctx.ui({ kind: 'focus-session', id: s.id });
       return `Criei a pasta do projeto ${nome} e abri o Claude nela para prepará-lo com você.`;
     },
+    async manual_do_app({ assunto }: { assunto?: string }) {
+      return searchManual(await ctx.manual(), assunto ?? '');
+    },
     async comandos(_args: Record<string, never>) {
       ctx.ui({ kind: 'commands' });
       return COMMANDS.map((c) => `${c.title}: por exemplo, "${c.examples[0]}"`).join('\n');
@@ -254,6 +288,12 @@ export function createJarvisServer(ctx: JarvisContext) {
         'Cria a pasta de um projeto novo e abre o Claude nela para prepará-lo com o usuário.',
         { nome: z.string().describe('Nome da pasta: letras, números, ".", "_" ou "-".') },
         run(h.criar_projeto),
+      ),
+      tool(
+        'manual_do_app',
+        'Procura no manual do llm-agent (o app em que você vive: interface, buraco negro, cartões, planetas, painel do dia, terminais, voz, botões "+", atalhos, configurações) como fazer algo ou para que serve algo. Consulte antes de responder dúvidas sobre o app.',
+        { assunto: z.string().optional().describe('Assunto da dúvida, com palavras-chave.') },
+        run(h.manual_do_app),
       ),
       tool('comandos', 'Lista os comandos de voz e abre o painel de comandos na interface.', {}, run(h.comandos)),
     ],

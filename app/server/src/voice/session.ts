@@ -2,7 +2,11 @@ import type { VoiceClientMessage, VoiceServerMessage, VoiceState } from '../type
 import type { Brain } from './brain.ts';
 import { SentenceSplitter, isGoodbye, stripMarkdown } from './text.ts';
 
-export type WorkerCommand = { cmd: 'listen' } | { cmd: 'sleep' } | { cmd: 'cancel' } | { cmd: 'speak'; id: number; text: string };
+export type WorkerCommand =
+  | { cmd: 'listen'; barge?: boolean }
+  | { cmd: 'sleep' }
+  | { cmd: 'cancel' }
+  | { cmd: 'speak'; id: number; text: string };
 
 export type WorkerEvent =
   | { event: 'ready' }
@@ -28,7 +32,11 @@ const RESTART_WINDOW_MS = 60_000;
 
 /**
  * Conversa por voz: palavra de ativacao -> ouvir -> pensar -> falar -> ouvir...
- * ate a despedida. Silencio nao encerra. Ver a tabela de estados no spec.
+ * ate a despedida. Silencio nao encerra.
+ *
+ * Interromper (falar por cima, "Hey Jarvis" ou Esc) so cala o Jarvis: a
+ * resposta em andamento continua em background (ferramentas terminam o que
+ * comecaram) e a nova pergunta e respondida assim que ela acabar.
  */
 export class VoiceSession {
   state: VoiceState = 'off';
@@ -37,15 +45,19 @@ export class VoiceSession {
   private readonly send: (m: VoiceServerMessage) => void;
   private readonly now: () => number;
   private readonly log: (line: string) => void;
-  /** Marcas de tempo da fala atual, para o log de latencia. */
-  private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number } | undefined;
+  private readonly bargeIn: boolean;
   private readonly listener = (e: WorkerEvent) => this.onWorker(e);
-  private abort: AbortController | undefined;
+  /** Resposta que pode falar; as anteriores seguem caladas. */
+  private turn = 0;
+  /** As respostas rodam uma de cada vez, em ordem. */
+  private chain: Promise<void> = Promise.resolve();
+  private stopController = new AbortController();
   private pending = new Set<number>();
   private nextSpeech = 0;
   private brainDone = true;
   private farewell = false;
   private lastRestart = -Infinity;
+  private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number } | undefined;
 
   constructor(
     worker: VoiceWorker,
@@ -53,23 +65,27 @@ export class VoiceSession {
     send: (m: VoiceServerMessage) => void,
     now: () => number = Date.now,
     log: (line: string) => void = () => {},
+    opts: { bargeIn?: boolean } = {},
   ) {
-    this.log = log;
     this.worker = worker;
     this.brain = brain;
     this.send = send;
     this.now = now;
+    this.log = log;
+    this.bargeIn = opts.bargeIn ?? true;
   }
 
   async start(): Promise<void> {
     if (this.state !== 'off') return;
+    this.stopController = new AbortController();
     this.worker.on('event', this.listener);
     await this.boot();
   }
 
   stop(): void {
     if (this.state === 'off') return;
-    this.cancelTurn();
+    this.stopController.abort();
+    this.mute();
     this.worker.off('event', this.listener);
     this.worker.command({ cmd: 'sleep' });
     this.send({ type: 'stop-audio' });
@@ -109,6 +125,7 @@ export class VoiceSession {
     if (this.state !== 'preparing') return;
     this.setState('sleeping');
     this.worker.command({ cmd: 'sleep' });
+    this.brain.warm?.();
   }
 
   private onWorker(e: WorkerEvent): void {
@@ -126,8 +143,11 @@ export class VoiceSession {
           this.interrupt();
         }
         return;
+      case 'speech-start':
+        // O usuario comecou a falar por cima do Jarvis.
+        if (this.state === 'speaking' || this.state === 'thinking') this.interrupt(false);
+        return;
       case 'partial':
-        // Legenda ao vivo enquanto o usuario ainda fala.
         if (this.state === 'listening' && e.text.trim()) this.send({ type: 'caption', who: 'user', text: e.text.trim() });
         return;
       case 'transcript': {
@@ -135,13 +155,8 @@ export class VoiceSession {
         if (this.state !== 'listening' || !text) return;
         this.timing = { heard: this.now(), stt: e.ms };
         this.send({ type: 'caption', who: 'user', text });
-        if (isGoodbye(text)) {
-          this.farewell = true;
-          this.brainDone = true;
-          this.speak('Até mais!');
-        } else {
-          void this.think(text);
-        }
+        this.farewell = isGoodbye(text);
+        this.ask(text);
         return;
       }
       case 'audio':
@@ -168,7 +183,7 @@ export class VoiceSession {
   }
 
   private onExit(): void {
-    this.cancelTurn();
+    this.mute();
     this.send({ type: 'stop-audio' });
     if (this.now() - this.lastRestart < RESTART_WINDOW_MS) {
       this.send({ type: 'error', message: 'O worker de voz parou de novo; a escuta foi desligada. Veja o log do servidor.' });
@@ -180,31 +195,35 @@ export class VoiceSession {
     void this.boot('reiniciando a voz');
   }
 
-  private async think(text: string): Promise<void> {
-    this.setState('thinking');
+  /** Nova pergunta: ela passa a ser a que fala; roda depois das anteriores. */
+  private ask(text: string): void {
+    const turn = ++this.turn;
     this.brainDone = false;
-    const abort = new AbortController();
-    this.abort = abort;
+    this.setState('thinking');
+    this.chain = this.chain.then(() => this.think(text, turn)).catch(() => {});
+  }
+
+  private async think(text: string, turn: number): Promise<void> {
     const splitter = new SentenceSplitter();
     let said = '';
+    const live = () => turn === this.turn && this.state !== 'off';
     try {
-      for await (const delta of this.brain.reply(text, abort.signal)) {
-        if (abort.signal.aborted) return;
+      for await (const delta of this.brain.reply(text, this.stopController.signal)) {
+        if (!live()) continue; // calada: segue ate o fim, em background
         if (this.timing && this.timing.firstToken === undefined) this.timing.firstToken = this.now();
         said += delta;
         this.send({ type: 'caption', who: 'jarvis', text: said });
         for (const sentence of splitter.push(delta)) this.speak(sentence);
       }
-      if (abort.signal.aborted) return;
+      if (!live()) return;
       const rest = splitter.flush();
       if (rest) this.speak(rest);
     } catch (err) {
-      if (abort.signal.aborted) return;
+      if (!live()) return;
       this.send({ type: 'caption', who: 'jarvis', text: `Erro: ${String((err as Error)?.message ?? err)}` });
-      this.speak('Tive um problema para responder agora.');
+      this.send({ type: 'error', message: 'Tive um problema para responder; o detalhe está na legenda.' });
     } finally {
-      if (this.abort === abort) {
-        this.abort = undefined;
+      if (turn === this.turn) {
         this.brainDone = true;
         this.maybeFinish();
       }
@@ -223,8 +242,8 @@ export class VoiceSession {
     if (!clean) return;
     if (this.state !== 'speaking') {
       this.setState('speaking');
-      // Enquanto fala, o worker so procura a palavra de ativacao (para interromper).
-      this.worker.command({ cmd: 'sleep' });
+      // Falando, o worker continua ouvindo (mais exigente) para o usuario poder interromper.
+      this.worker.command(this.bargeIn ? { cmd: 'listen', barge: true } : { cmd: 'sleep' });
     }
     const id = ++this.nextSpeech;
     this.pending.add(id);
@@ -243,16 +262,17 @@ export class VoiceSession {
     }
   }
 
-  private interrupt(): void {
-    this.cancelTurn();
+  /** Cala o Jarvis e volta a ouvir; `restartListening`: falso quando o usuario ja esta falando. */
+  private interrupt(restartListening = true): void {
+    this.mute();
     this.send({ type: 'stop-audio' });
     this.setState('listening');
-    this.worker.command({ cmd: 'listen' });
+    if (restartListening) this.worker.command({ cmd: 'listen' });
   }
 
-  private cancelTurn(): void {
-    this.abort?.abort();
-    this.abort = undefined;
+  /** A resposta atual deixa de falar (mas continua rodando) e a voz pendente e descartada. */
+  private mute(): void {
+    this.turn++;
     this.brainDone = true;
     this.farewell = false;
     if (this.pending.size) {

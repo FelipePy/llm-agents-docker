@@ -46,7 +46,8 @@ const app = createApp({
   projectsDir: process.env.LLM_AGENT_PROJECTS_DIR || undefined,
   city: process.env.LLM_AGENT_UI_CITY || undefined,
   newsUrl: process.env.LLM_AGENT_UI_NEWS_RSS || undefined,
-  voice: { worker: voiceWorker, brain: makeBrain },
+  voice: { worker: voiceWorker, brain: makeBrain, bargeIn: process.env.LLM_AGENT_VOICE_BARGE_IN !== '0' },
+  manualPath: join(repo, 'README.md'),
 });
 
 const port = await app.listen();
