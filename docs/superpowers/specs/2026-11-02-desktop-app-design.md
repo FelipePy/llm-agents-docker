@@ -20,7 +20,7 @@ O app é um ponto central para todos os projetos. Ele mostra o que os agentes sa
 - **Servidor:** Node e TypeScript no WSL, com o usuário do host, fora do container. Ele lê `~/.claude` e `~/.codex` e abre terminais que executam o `llm-agent`.
 - **Terminal embutido** em vez de chat próprio. As sessões continuam interativas e cobertas pelo plano da assinatura, e Claude Code e Codex funcionam exatamente como no terminal.
 - **Todos os projetos**, não um por vez.
-- **Somente leitura** para memórias, instruções e skills nesta etapa.
+- **Somente leitura** para memórias, instruções e skills: o app não edita arquivos. Criar skills, registrar informações sobre o usuário e preparar projetos novos é feito por sessões do Claude abertas pelos botões "+".
 
 ## Arquitetura
 
@@ -138,18 +138,32 @@ WebSocket em `/ws?token=<token>` (navegadores não mandam cabeçalhos no WebSock
 - `Ctrl+K` (com o foco fora do terminal, onde o atalho apaga a linha no shell): busca global por projetos, conversas e skills.
 - Sem conexão, aparece "reconectando" e a UI tenta de novo com espera crescente até 10 s.
 
-**Marco 2: núcleo de voz e navegação radial**
+**Marco 2: núcleo de voz, cartões à direita e painel do dia**
 
-Revisado depois de avaliar a primeira versão (buraco negro com projetos em órbita): clicar em corpos pequenos e em movimento era ruim de usar, e o centro precisa representar o agente.
+Revisado duas vezes depois de avaliações do usuário. A primeira versão (buraco negro com projetos em órbita) exigia cliques em corpos pequenos e em movimento. A segunda (átomo azul com cartões em elipse) ficou com o núcleo pouco "vivo" e os cartões espalhados.
 
-- **Núcleo (átomo), sempre no centro:** esfera brilhante com a superfície deformada por ruído animado, brilho de borda e halo; três órbitas elípticas inclinadas com um elétron e rastro de luz cada. A câmera fica fixa nele (dá para girar levemente; sem zoom nem deslocamento).
-- **Estados do núcleo**, alimentados por `{ mode, level }`: `idle` (respiração lenta, azul), `listening` (órbitas acesas, ciano), `thinking` (elétrons rápidos, violeta), `speaking` (o núcleo pulsa e se deforma conforme `level` de 0 a 1, e os elétrons aceleram). O nível é suavizado: sobe rápido e desce devagar. A etapa 3 alimenta esse sinal com a voz real; até lá, a opção "Demonstração de voz" na barra lateral percorre os estados com um sinal sintético.
-- **Cartões radiais:** o conteúdo fica em cartões HTML dispostos numa elipse em volta do núcleo (até 12 por página, com setas e indicador de página; campo de filtro nos níveis com listas). Ao navegar, os cartões entram com animação radial; o núcleo não muda.
-- **Níveis:** Início (Você · Projetos · Skills · Sessões abertas) → Projetos (um cartão por projeto) → Projeto (Conversas · Memória · Instruções · Git · + Claude · + Codex · + Shell) → Conversas (um cartão por conversa; clicar retoma). Skills (um cartão por skill) e Sessões abertas (clicar foca a aba) saem do Início.
-- **Leitura:** "Você", memória, instruções e skills abrem no painel lateral, sem esconder o anel.
-- **Trilha** no topo (`Início › Projetos › meu-app › Conversas`), clicável; `Esc` fecha o painel ou sobe um nível. `Ctrl+K` salta direto para projetos, conversas e skills.
-- **Modelo de navegação puro** (`push`, `back`, `goto`, `jump`, `page`, `filter`), para que a etapa 3 controle a interface por voz ("abra o projeto X") com as mesmas ações.
-- Com a gaveta de terminais aberta, a cena escurece. "Reduzir movimento" congela rotação e órbitas e atenua a reação à voz. "Modo 3D" desligado ou sem WebGL 2: interface do marco 1. Qualidade automática: 3 segundos abaixo de 30 FPS desligam o bloom; mais 3 reduzem a malha do núcleo.
+- **Núcleo (átomo dourado), sempre no centro da área à esquerda dos cartões:** um aglomerado de prótons (dourados) e nêutrons (âmbar claros) e três órbitas elípticas inclinadas com um elétron e rastro cada, em tons de amarelo. Câmera fixa (gira levemente; sem zoom nem deslocamento). Sem halo nem brilho extra ao falar.
+- **Voz como temperatura:** o sinal `{ mode, level }` vira um "calor" de 0 a 1 (suavizado: esquenta rápido, esfria devagar). Frio (`idle`): núcleo quase parado, órbitas estáveis. Quente (`speaking`, conforme o volume; `thinking` e `listening` mornos): prótons e nêutrons vibram, as órbitas tremem, se deformam e precessionam, e os elétrons aceleram. A cor da órbita varia dentro do amarelo conforme o estado. A opção "Demonstração de voz" percorre os estados com um sinal sintético até a etapa 3.
+- **Cartões à direita:** o conteúdo da área atual fica numa coluna em arco à direita do átomo, de cima para baixo, com espaçamento vertical uniforme. Cartão compacto: ponto de cor, nome e, nos cartões do início, a contagem. Detalhes aparecem ao clicar. Cabem de 6 a 18 por página, conforme a altura da tela, com setas de página e campo de filtro nas listas.
+- **Níveis:** Início (Você · Projetos · Skills · Sessões abertas) → Você (instruções e memórias, uma por cartão) · Projetos (um cartão por projeto) → Projeto (Sobre o projeto · Conversas · Memória · Instruções · git · + Claude · + Codex · + Shell) → Conversas (clicar retoma) · Skills · Sessões abertas (clicar foca a aba).
+- **Botões "+" pelo agente:** "+ Sobre mim" (em Você) e "+ Nova skill" (em Skills) abrem uma sessão do Claude, já com a instrução da tarefa, numa pasta de trabalho própria (`${XDG_DATA_HOME:-~/.local/share}/llm-agent/workspace`, fora da lista de projetos). "+ Novo projeto" pede só o nome; o servidor cria a pasta na pasta-base de projetos e abre o Claude nela, instruído a preparar o projeto com o usuário. A pasta-base é `LLM_AGENT_PROJECTS_DIR` ou a pasta-mãe mais comum entre os projetos conhecidos (sem projetos: `~/projetos`). "+ Nova sessão" (em Sessões abertas) leva à lista de projetos.
+- **Painel do dia (coluna esquerda no modo 3D, no lugar do menu):** data e hora (atualizadas a cada segundo), clima (temperatura atual, descrição, máxima e mínima) e as principais notícias do dia, com links. As opções (Modo 3D, Reduzir movimento, Demonstração de voz) ficam no pé do painel. O menu lateral continua no modo lista.
+- **Leitura:** detalhes (projeto, arquivo de memória ou instrução, skill, formulário de novo projeto) abrem num painel à esquerda da área central. `Esc` fecha o painel ou sobe um nível. Trilha clicável no topo. `Ctrl+K` salta para projetos, conversas e skills.
+- **Modelo de navegação puro** (`push`, `back`, `goto`, `jump`, `page`, `filter`), para a etapa 3 controlar a interface por voz.
+- Gaveta aberta escurece a cena. "Reduzir movimento" congela rotação e órbitas e atenua a agitação. "Modo 3D" desligado ou sem WebGL 2: interface do marco 1. Qualidade automática: 3 segundos abaixo de 30 FPS desligam o bloom; mais 3 reduzem a malha das partículas.
+
+**Dados do painel do dia (servidor)**
+- `GET /api/day?lat=&lon=` (com token) devolve `{ weather, weatherError?, news, newsError? }`.
+- Clima: Open-Meteo (sem chave). Coordenadas vêm da geolocalização do navegador; sem elas, da cidade em `LLM_AGENT_UI_CITY` (geocodificação do Open-Meteo); sem nenhuma, `weather: null` e uma mensagem explicando. Cache de 15 minutos.
+- Notícias: RSS do Google Notícias em português (`LLM_AGENT_UI_NEWS_RSS` troca a fonte), até 8 itens, só links `http(s)`. Cache de 30 minutos.
+- Falhas de rede viram `weatherError`/`newsError`; uma não derruba a outra. Tempo limite de 5 segundos por requisição.
+- O clima envia as coordenadas ao Open-Meteo; o README avisa.
+
+**Mensagens novas no WebSocket**
+- `task { task: "new-skill" | "about-me", cols, rows }`: abre o Claude na pasta de trabalho com a instrução da tarefa (o texto fica no servidor; o cliente só escolhe a tarefa).
+- `create-project { name, cols, rows }`: `name` com até 64 caracteres entre letras, números, `.`, `_` e `-`, começando por letra ou número. Recusa se a pasta já existir.
+- `open` também aceita a pasta de trabalho (para reabrir uma sessão de tarefa).
+- A instrução inicial vai como último argumento do `claude`.
 
 **Marco 3: Tauri**
 - Ao abrir, o app executa `wsl.exe -e bash -lc "llm-agent ui"`, lê a URL da última linha da saída e carrega essa URL na janela.
@@ -182,7 +196,7 @@ O servidor consegue abrir agentes autônomos, então:
 ## Ordem de entrega
 
 1. **Marco 1:** servidor, `llm-agent ui` e UI funcional sem 3D. Já é usável no navegador.
-2. **Marco 2:** núcleo de voz (átomo) e navegação radial.
+2. **Marco 2:** núcleo de voz (átomo), cartões à direita e painel do dia.
 3. **Marco 3:** app Tauri e build no GitHub Actions.
 
 Cada marco tem o seu plano de implementação, escrito quando o anterior terminar.
