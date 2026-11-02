@@ -309,3 +309,27 @@ test('conversa direta: a voz vai para a sessao ate "Jarvis, volta"', async () =>
   worker.fire({ event: 'transcript', id: 3, text: 'abre as skills' });
   await waitFor(() => brain.calls.length === 1);
 });
+
+test('chamado sem pedido: responde com uma saudacao sorteada, sem repetir', async () => {
+  const worker = new FakeWorker();
+  const greetings = ['Estou à disposição, senhor.', 'Às suas ordens, senhor.'];
+  const session = new VoiceSession(worker, new FakeBrain([['Abrindo.']]), () => {}, () => 0, () => {}, { greetings, random: () => 0 });
+  await session.start();
+  assert.ok(worker.commands.some((c) => c.cmd === 'prefetch'));
+  worker.fire({ event: 'wake', score: 0.9 });
+  assert.equal(session.state, 'speaking');
+  const first = worker.speaks()[0];
+  assert.equal(first.text, 'Estou à disposição, senhor.');
+  session.client({ type: 'played', id: first.id });
+  assert.equal(session.state, 'listening');
+  session.stop();
+  await session.start();
+  worker.fire({ event: 'heard', text: 'Jarvis' });
+  assert.equal(worker.speaks().at(-1)?.text, 'Às suas ordens, senhor.', 'nao repete a ultima');
+  session.stop();
+  await session.start();
+  const before = worker.speaks().length;
+  worker.fire({ event: 'heard', text: 'Jarvis, abre o meu-app' });
+  await waitFor(() => worker.speaks().length > before);
+  assert.equal(worker.speaks().at(-1)?.text, 'Abrindo.', 'com pedido, vai direto ao pedido');
+});

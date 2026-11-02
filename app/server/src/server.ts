@@ -36,7 +36,7 @@ export interface AppOptions {
   newsUrl?: string;
   fetch?: typeof fetch;
   /** Voz (etapa 3a): sem ela, /ws/voice responde 404. */
-  voice?: { worker: VoiceWorker; brain: Brain | ((ctx: JarvisContext) => Brain); bargeIn?: boolean };
+  voice?: { worker: VoiceWorker; brain: Brain | ((ctx: JarvisContext) => Brain); bargeIn?: boolean; greetings?: string[] };
   /** Manual do app consultado pelo Jarvis (o README do projeto). */
   manualPath?: string;
 }
@@ -261,6 +261,7 @@ export function createApp(opts: AppOptions): App {
       (line) => console.error(`[voz] ${line}`),
       {
         bargeIn: voice.bargeIn ?? true,
+        greetings: voice.greetings,
         relaySend: (id, text) => jarvis.sendToSession(id, text),
         // Nomes que o whisper deve acertar: projetos e os agentes.
         vocabulary: async () => ['Jarvis', 'Claude', 'Codex', ...(await jarvis.projects()).map((p) => p.name)],

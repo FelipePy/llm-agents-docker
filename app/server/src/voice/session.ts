@@ -8,7 +8,9 @@ export type WorkerCommand =
   | { cmd: 'cancel' }
   | { cmd: 'speak'; id: number; text: string }
   /** Palavras que o whisper deve reconhecer (nomes de projetos etc.). */
-  | { cmd: 'vocab'; words: string[] };
+  | { cmd: 'vocab'; words: string[] }
+  /** Sintetiza ja e guarda (para as saudacoes tocarem sem espera). */
+  | { cmd: 'prefetch'; texts: string[] };
 
 export type WorkerEvent =
   | { event: 'ready' }
@@ -52,6 +54,9 @@ export class VoiceSession {
   private readonly bargeIn: boolean;
   private readonly relaySend: (id: string, text: string) => boolean;
   private readonly vocabulary: (() => Promise<string[]>) | undefined;
+  private readonly greetings: string[];
+  private lastGreeting = -1;
+  private readonly random: () => number;
   /** Conversa direta: a voz do usuario vai para esta sessao, sem passar pelo cerebro. */
   private relay: { id: string; label: string } | null = null;
   private readonly listener = (e: WorkerEvent) => this.onWorker(e);
@@ -77,8 +82,13 @@ export class VoiceSession {
       bargeIn?: boolean;
       relaySend?: (id: string, text: string) => boolean;
       vocabulary?: () => Promise<string[]>;
+      /** Frases ditas quando o usuario chama sem pedir nada (vazio: so o som). */
+      greetings?: string[];
+      random?: () => number;
     } = {},
   ) {
+    this.greetings = (opts.greetings ?? []).map((g) => g.trim()).filter(Boolean);
+    this.random = opts.random ?? Math.random;
     this.relaySend = opts.relaySend ?? (() => false);
     this.vocabulary = opts.vocabulary;
     this.worker = worker;
@@ -142,6 +152,7 @@ export class VoiceSession {
     this.worker.command({ cmd: 'sleep' });
     this.brain.warm?.();
     void this.sendVocabulary();
+    if (this.greetings.length) this.worker.command({ cmd: 'prefetch', texts: this.greetings });
   }
 
   /** Liga ou desliga a conversa direta com uma sessao. */
@@ -161,10 +172,21 @@ export class VoiceSession {
     }
   }
 
-  private wakeUp(): void {
+  /** Acordou; `greet`: chamado sem pedido, responde com uma saudacao. */
+  private wakeUp(greet = false): void {
     this.setState('listening');
-    this.send({ type: 'chime' });
     this.worker.command({ cmd: 'listen' });
+    if (!greet || !this.greetings.length) {
+      this.send({ type: 'chime' });
+      return;
+    }
+    // Sorteia sem repetir a ultima.
+    let i = Math.floor(this.random() * this.greetings.length);
+    if (this.greetings.length > 1 && i === this.lastGreeting) i = (i + 1) % this.greetings.length;
+    this.lastGreeting = i;
+    this.turn++;
+    this.brainDone = true;
+    this.speak(this.greetings[i]);
   }
 
   /** Uma fala completa do usuario (ja sem ser silencio). */
@@ -201,13 +223,13 @@ export class VoiceSession {
         if (this.state !== 'sleeping') return;
         const called = matchWake(e.text);
         if (!called) return;
-        this.wakeUp();
+        this.wakeUp(!called.rest);
         if (called.rest) this.utterance(called.rest, e.ms);
         return;
       }
       case 'wake':
         if (this.state === 'sleeping') {
-          this.wakeUp();
+          this.wakeUp(true);
         } else if (this.relay && this.state === 'listening') {
           this.setRelay(null);
           this.send({ type: 'chime' });

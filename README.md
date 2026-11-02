@@ -184,6 +184,7 @@ Na primeira vez, o servidor cria um ambiente Python em `app/voice/.venv` e baixa
 | `LLM_AGENT_VOICE_END_MS` | `500` | silêncio (ms) que marca o fim da sua fala |
 | `LLM_AGENT_VOICE_RATE` | `+0%` | velocidade da voz (ex.: `+10%` fala um pouco mais rápido) |
 | `LLM_AGENT_VOICE_BARGE_IN` | `1` | `0` desliga a interrupção falando por cima |
+| `LLM_AGENT_VOICE_GREETINGS` | 7 frases ("Estou à disposição, senhor."…) | saudações ditas quando você chama sem pedir nada, separadas por `|`; vazio desliga |
 | `LLM_AGENT_VOICE_NAME_WAKE` | `1` | `0` desliga o chamado só pelo nome (esperando, o whisper transcreve falas curtas para achar "Jarvis"; isso usa CPU) |
 
 O log do servidor (`~/.config/llm-agent/ui/server.log`) mostra o tempo de cada etapa de uma resposta (`[voz] latência: transcrição … · 1º token … · 1º áudio …`), útil para ajustar o modelo do whisper.

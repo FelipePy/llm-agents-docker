@@ -16,6 +16,15 @@ if (!home) {
 }
 
 const repo = resolve(import.meta.dirname, '..', '..', '..');
+const DEFAULT_GREETINGS = [
+  'Estou à disposição, senhor.',
+  'Às suas ordens, senhor.',
+  'Pois não, senhor?',
+  'Sim, senhor?',
+  'Em que posso ajudar, senhor?',
+  'Pronto para ajudar, senhor.',
+  'Aqui, senhor. O que precisa?',
+];
 const stateDir =
   process.env.LLM_AGENT_UI_STATE_DIR ?? join(process.env.XDG_CONFIG_HOME ?? join(home, '.config'), 'llm-agent', 'ui');
 const workspaceDir = join(process.env.XDG_DATA_HOME ?? join(home, '.local', 'share'), 'llm-agent', 'workspace');
@@ -57,7 +66,13 @@ const app = createApp({
   projectsDir: process.env.LLM_AGENT_PROJECTS_DIR || undefined,
   city: process.env.LLM_AGENT_UI_CITY || undefined,
   newsUrl: process.env.LLM_AGENT_UI_NEWS_RSS || undefined,
-  voice: { worker: voiceWorker, brain: makeBrain, bargeIn: process.env.LLM_AGENT_VOICE_BARGE_IN !== '0' },
+  voice: {
+    worker: voiceWorker,
+    brain: makeBrain,
+    bargeIn: process.env.LLM_AGENT_VOICE_BARGE_IN !== '0',
+    // Saudacoes ao ser chamado sem pedido ("|" separa; vazio desliga).
+    greetings: (process.env.LLM_AGENT_VOICE_GREETINGS ?? DEFAULT_GREETINGS.join('|')).split('|'),
+  },
   manualPath: join(repo, 'README.md'),
 });
 

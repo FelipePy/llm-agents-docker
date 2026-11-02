@@ -68,6 +68,9 @@ def main() -> None:
 
     stt_pool = ThreadPoolExecutor(max_workers=1)
     tts_pool = ThreadPoolExecutor(max_workers=1)
+    prefetch_pool = ThreadPoolExecutor(max_workers=1)
+    # Audio de frases curtas ja sintetizadas (saudacoes): tocam sem esperar o edge-tts.
+    tts_cache: dict = {}
     state = {"listen": False, "generation": 0, "transcript": 0, "last_wake": 0.0, "since_partial": 0, "prompt": ""}
     # Chamado pelo nome ("Jarvis, ..."): esperando, transcreve falas curtas e o servidor procura o nome.
     name_wake = os.environ.get("LLM_AGENT_VOICE_NAME_WAKE", "1") != "0"
@@ -118,17 +121,41 @@ def main() -> None:
         finally:
             stt_busy.clear()
 
+    async def synth_all(text: str) -> bytes:
+        chunks = []
+        async for chunk in edge_tts.Communicate(text, voice, rate=rate).stream():
+            if chunk.get("type") == "audio":
+                chunks.append(chunk["data"])
+        return b"".join(chunks)
+
+    def prefetch(texts) -> None:
+        for text in texts:
+            if text in tts_cache:
+                continue
+            try:
+                tts_cache[text] = asyncio.run(synth_all(text))
+            except Exception as err:
+                log(f"voz: nao consegui preparar {text!r}: {err}")
+
     def speak(sid: int, text: str, generation: int) -> None:
+        cached = tts_cache.get(text)
+        if cached:
+            if generation == state["generation"]:
+                send({"event": "audio", "id": sid, "data": base64.b64encode(cached).decode("ascii"), "last": True})
+            return
+
         async def synth() -> None:
             started = time.monotonic()
             first = True
             buf = b""
+            whole = []
             async for chunk in edge_tts.Communicate(text, voice, rate=rate).stream():
                 if generation != state["generation"]:
                     return
                 if chunk.get("type") != "audio":
                     continue
                 buf += chunk["data"]
+                whole.append(chunk["data"])
                 if len(buf) >= AUDIO_CHUNK_BYTES:
                     if first:
                         log(f"voz: primeiro pedaco em {int((time.monotonic() - started) * 1000)} ms")
@@ -137,6 +164,8 @@ def main() -> None:
                     buf = b""
             if generation == state["generation"]:
                 send({"event": "audio", "id": sid, "data": base64.b64encode(buf).decode("ascii"), "last": True})
+            if len(text) <= 60 and len(tts_cache) < 64:
+                tts_cache[text] = b"".join(whole)
 
         try:
             asyncio.run(synth())
@@ -171,6 +200,8 @@ def main() -> None:
                 tts_pool.submit(speak, int(cmd["id"]), str(cmd["text"]), state["generation"])
             elif name == "cancel":
                 state["generation"] += 1
+            elif name == "prefetch":
+                prefetch_pool.submit(prefetch, [str(t) for t in cmd.get("texts", [])][:20])
             elif name == "vocab":
                 words = [str(w) for w in cmd.get("words", [])][:150]
                 state["prompt"] = ", ".join(words)
