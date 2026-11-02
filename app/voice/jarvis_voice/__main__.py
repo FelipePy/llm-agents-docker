@@ -15,6 +15,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 
 from .protocol import JSON, encode_json, read_message
+from .hallucination import looks_like_vocabulary, vocab_tokens
 from .segmenter import Segmenter
 
 FRAME_SAMPLES = 1280  # 80 ms a 16 kHz
@@ -71,7 +72,7 @@ def main() -> None:
     prefetch_pool = ThreadPoolExecutor(max_workers=1)
     # Audio de frases curtas ja sintetizadas (saudacoes): tocam sem esperar o edge-tts.
     tts_cache: dict = {}
-    state = {"listen": False, "generation": 0, "transcript": 0, "last_wake": 0.0, "since_partial": 0, "prompt": ""}
+    state = {"listen": False, "generation": 0, "transcript": 0, "last_wake": 0.0, "since_partial": 0, "prompt": "", "vocab": set()}
     # Chamado pelo nome ("Jarvis, ..."): esperando, transcreve falas curtas e o servidor procura o nome.
     name_wake = os.environ.get("LLM_AGENT_VOICE_NAME_WAKE", "1") != "0"
     end_ms = int(os.environ.get("LLM_AGENT_VOICE_END_MS", "500"))
@@ -85,9 +86,15 @@ def main() -> None:
             language="pt",
             beam_size=1,
             condition_on_previous_text=False,
-            initial_prompt=state["prompt"] or None,
+            # "hotwords" destaca os nomes sem trata-los como fala anterior
+            # (com initial_prompt, o whisper "transcrevia" a lista em ruido).
+            hotwords=state["prompt"] or None,
         )
-        return " ".join(p.text.strip() for p in parts).strip()
+        text = " ".join(p.text.strip() for p in parts).strip()
+        if looks_like_vocabulary(text, state["vocab"]):
+            log(f"transcricao descartada (eco do vocabulario): {text!r}")
+            return ""
+        return text
 
     def transcribe(segment: bytes, tid: int) -> None:
         try:
@@ -204,7 +211,8 @@ def main() -> None:
                 prefetch_pool.submit(prefetch, [str(t) for t in cmd.get("texts", [])][:20])
             elif name == "vocab":
                 words = [str(w) for w in cmd.get("words", [])][:150]
-                state["prompt"] = ", ".join(words)
+                state["prompt"] = " ".join(words)
+                state["vocab"] = vocab_tokens(words)
             continue
 
         pending += payload
