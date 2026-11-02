@@ -191,17 +191,25 @@ Na primeira vez, o servidor cria um ambiente Python em `app/voice/.venv` e baixa
 
 O log do servidor (`~/.config/llm-agent/ui/server.log`) mostra o tempo de cada etapa de uma resposta (`[voz] latência: transcrição … · 1º token … · 1º áudio …`), útil para ajustar o modelo do whisper.
 
-## App desktop (Windows)
+## App desktop (Windows e Ubuntu)
 
-O **Jarvis** para Windows é a mesma interface numa janela própria (Tauri). Ao abrir, ele executa `llm-agent ui` no WSL e carrega a interface; se algo falhar, mostra o erro e um botão para tentar de novo.
+O **Jarvis** é a mesma interface numa janela própria (Tauri). Ao abrir, ele executa `llm-agent ui` (no Windows, dentro do WSL; no Ubuntu, direto) e carrega a interface; se algo falhar, mostra o erro e um botão para tentar de novo. O `llm-agent` precisa estar instalado (`./install.sh`; no Windows, dentro do WSL).
 
-- **Instalação:** baixe o instalador (`.msi` ou `.exe`) do último release `desktop-v*` do repositório, ou do artefato `jarvis-windows` do workflow **desktop** no GitHub Actions. O `llm-agent` precisa estar instalado no WSL (`./install.sh`).
+- **Instaladores:** baixe do último release `desktop-v*` do repositório, ou dos artefatos do workflow **desktop** no GitHub Actions: `jarvis-windows` (`.msi` ou `.exe`) e `jarvis-linux` (`.deb` ou `.AppImage`).
+  - Windows: execute o `.msi` (ou o `.exe`) e abra **Jarvis** pelo menu Iniciar.
+  - Ubuntu: `sudo apt install ./Jarvis_*.deb` e abra **Jarvis** pelo menu de aplicativos; ou `chmod +x Jarvis_*.AppImage && ./Jarvis_*.AppImage`.
 - **Bandeja:** fechar a janela só a esconde; o Jarvis continua ouvindo. Pelo ícone na bandeja: mostrar, reiniciar o servidor ou sair.
 - **Atalho global:** `Ctrl+Alt+J` mostra ou esconde a janela de qualquer lugar.
 - **Voz:** no app, o áudio toca sem precisar clicar antes e o microfone é liberado direto.
-- **Outra distribuição do WSL:** defina a variável de ambiente do Windows `JARVIS_WSL_DISTRO` (por exemplo, `Ubuntu-24.04`).
+- **Outra distribuição do WSL (Windows):** defina a variável de ambiente `JARVIS_WSL_DISTRO` (por exemplo, `Ubuntu-24.04`).
 
-Para compilar à mão no Windows (com Rust e Node): `cd app/desktop && npm ci && npm run icons && npm run build`.
+Para compilar à mão (Rust e Node instalados; no Ubuntu, também `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf`; no Windows, as Build Tools do Visual Studio com C++):
+
+```sh
+cd app/desktop && npm ci && npm run icons
+npx tauri dev     # abre o app em modo de desenvolvimento
+npm run build     # instaladores em src-tauri/target/release/bundle/
+```
 
 ## O que o container enxerga
 

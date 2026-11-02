@@ -1,5 +1,6 @@
-// Jarvis (Windows): janela do llm-agent. Ao abrir, executa `llm-agent ui` no
-// WSL, le a URL impressa e carrega a interface; fica na bandeja ao fechar.
+// Jarvis: janela do llm-agent (Windows e Linux). Ao abrir, executa `llm-agent ui`
+// (no WSL, no Windows; direto, no Linux), le a URL impressa e carrega a
+// interface; fica na bandeja ao fechar.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::process::Command;
@@ -26,7 +27,7 @@ fn tail(text: &str, lines: usize) -> String {
     all[all.len().saturating_sub(lines)..].join("\n")
 }
 
-/// Executa `llm-agent ui` (com `--stop` antes, ao reiniciar) no WSL e devolve a URL.
+/// Executa `llm-agent ui` (com `--stop` antes, ao reiniciar) e devolve a URL.
 fn start_server(restart: bool) -> Result<String, String> {
     let stop = if restart { "llm-agent ui --stop >/dev/null 2>&1; " } else { "" };
     let script = format!(
@@ -34,18 +35,29 @@ fn start_server(restart: bool) -> Result<String, String> {
          command -v llm-agent >/dev/null || {{ echo 'llm-agent não encontrado no WSL: rode ./install.sh no repositório.' >&2; exit 127; }}; \
          {stop}llm-agent ui"
     );
-    let mut cmd = Command::new("wsl.exe");
-    // JARVIS_WSL_DISTRO escolhe a distribuicao (padrao: a do WSL).
-    if let Ok(distro) = std::env::var("JARVIS_WSL_DISTRO") {
-        if !distro.trim().is_empty() {
-            cmd.args(["-d", distro.trim()]);
-        }
-    }
-    cmd.args(["-e", "bash", "-lc", &script]);
     #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    let mut cmd = {
+        let mut cmd = Command::new("wsl.exe");
+        // JARVIS_WSL_DISTRO escolhe a distribuicao (padrao: a do WSL).
+        if let Ok(distro) = std::env::var("JARVIS_WSL_DISTRO") {
+            if !distro.trim().is_empty() {
+                cmd.args(["-d", distro.trim()]);
+            }
+        }
+        cmd.args(["-e", "bash", "-lc", &script]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd
+    };
+    #[cfg(not(windows))]
+    let mut cmd = {
+        let mut cmd = Command::new("bash");
+        cmd.args(["-lc", &script]);
+        cmd
+    };
 
-    let out = cmd.output().map_err(|e| format!("Não consegui executar o wsl.exe ({e}). O WSL está instalado?"))?;
+    let out = cmd.output().map_err(|e| {
+        if cfg!(windows) { format!("Não consegui executar o wsl.exe ({e}). O WSL está instalado?") } else { format!("Não consegui executar o bash ({e}).") }
+    })?;
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
     stdout
@@ -120,6 +132,29 @@ fn toggle(app: &AppHandle) {
     }
 }
 
+/// No Linux (WebKitGTK), microfone e audio sem clique vem desligados: liga os dois
+/// e aceita os pedidos de permissao da pagina (microfone, localizacao).
+fn configure_webview(app: &AppHandle) {
+    #[cfg(target_os = "linux")]
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.with_webview(|webview| {
+            use webkit2gtk::{PermissionRequestExt, SettingsExt, WebViewExt};
+            let view = webview.inner();
+            if let Some(settings) = WebViewExt::settings(&view) {
+                settings.set_enable_media_stream(true);
+                settings.set_enable_webaudio(true);
+                settings.set_media_playback_requires_user_gesture(false);
+            }
+            view.connect_permission_request(|_, request| {
+                request.allow();
+                true
+            });
+        });
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = app;
+}
+
 fn main() {
     tauri::Builder::default()
         // Abrir de novo so traz a janela para a frente.
@@ -164,6 +199,7 @@ fn main() {
             app.global_shortcut()
                 .register(Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyJ))?;
 
+            configure_webview(&handle);
             boot(handle, false);
             Ok(())
         })
