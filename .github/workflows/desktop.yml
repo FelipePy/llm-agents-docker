@@ -4,7 +4,9 @@ name: desktop
 # app/desktop e publica um release nas tags desktop-v*.
 on:
   push:
+    branches: ['**']
     tags: ['desktop-v*']
+    # (nas tags, o GitHub ignora o filtro de caminhos e sempre compila)
     paths: ['app/desktop/**', '.github/workflows/desktop.yml']
   pull_request:
     paths: ['app/desktop/**', '.github/workflows/desktop.yml']
