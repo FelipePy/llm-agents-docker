@@ -10,14 +10,16 @@ interface Props {
   sessions: SessionInfo[];
   projects: ProjectSummary[];
   socket: LiveSocket | null;
+  collapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
   onReopen: (s: SessionInfo) => void;
 }
 
-export function TerminalDrawer({ tabs, sessions, projects, socket, onActivate, onClose, onReopen }: Props) {
+export function TerminalDrawer(props: Props) {
+  const { tabs, sessions, projects, socket, collapsed, onCollapsedChange, onActivate, onClose, onReopen } = props;
   const [height, setHeight] = useState(340);
-  const [collapsed, setCollapsed] = useState(false);
   const byId = new Map(sessions.map((s) => [s.id, s]));
   const names = new Map(projects.map((p) => [p.path, p.name]));
   if (!tabs.order.length || !socket) return null;
@@ -49,7 +51,7 @@ export function TerminalDrawer({ tabs, sessions, projects, socket, onActivate, o
               title={s.projectPath}
               onClick={() => {
                 onActivate(id);
-                setCollapsed(false);
+                onCollapsedChange(false);
               }}
             >
               <span className={`dot ${s.agent}`} />
@@ -69,7 +71,7 @@ export function TerminalDrawer({ tabs, sessions, projects, socket, onActivate, o
             </div>
           );
         })}
-        <button className="collapse" onClick={() => setCollapsed(!collapsed)} aria-label="Recolher">
+        <button className="collapse" onClick={() => onCollapsedChange(!collapsed)} aria-label="Recolher">
           {collapsed ? '▲' : '▼'}
         </button>
       </div>

@@ -5,10 +5,13 @@ interface Props {
   overview: Overview | null;
   view: View;
   sessions: SessionInfo[];
+  settings: { webgl: boolean; mode3d: boolean; reduceMotion: boolean };
   onSelect: (v: View) => void;
+  onToggle3d: () => void;
+  onToggleReduceMotion: () => void;
 }
 
-export function Sidebar({ overview, view, sessions, onSelect }: Props) {
+export function Sidebar({ overview, view, sessions, settings, onSelect, onToggle3d, onToggleReduceMotion }: Props) {
   const [filter, setFilter] = useState('');
   const q = filter.trim().toLowerCase();
   const projects = (overview?.projects ?? []).filter((p) => p.name.toLowerCase().includes(q));
@@ -39,7 +42,17 @@ export function Sidebar({ overview, view, sessions, onSelect }: Props) {
           </li>
         ))}
       </ul>
-      <div className="hint">Ctrl+K busca · Ctrl+Tab alterna terminais</div>
+      <div className="settings">
+        <label title={settings.webgl ? '' : 'Este navegador não tem WebGL 2'}>
+          <input type="checkbox" checked={settings.webgl && settings.mode3d} disabled={!settings.webgl} onChange={onToggle3d} />
+          Modo 3D
+        </label>
+        <label>
+          <input type="checkbox" checked={settings.reduceMotion} onChange={onToggleReduceMotion} />
+          Reduzir movimento
+        </label>
+      </div>
+      <div className="hint">Ctrl+K busca · Esc volta · Ctrl+Tab alterna terminais</div>
     </nav>
   );
 }

@@ -153,6 +153,8 @@ A interface mostra:
 
 Em cada projeto, os botões **+ Claude**, **+ Codex** e **+ Shell** abrem uma sessão nova, e **Retomar** reabre uma conversa. As sessões rodam no `llm-agent` de sempre, dentro do container, em abas na parte de baixo da tela. Elas continuam rodando se você fechar a página; ao reabrir, as abas voltam com o conteúdo.
 
+No centro fica um buraco negro: ele representa você (clique para ver instruções e memórias). Os projetos orbitam em volta, os mais recentes mais perto, e os que têm sessão aberta pulsam. Clicar num projeto leva a câmera até ele e mostra as conversas como luas (laranja para o Claude, verde para o Codex); clicar numa lua retoma a conversa. As skills formam o cinturão de estrelas de fora. Arraste para girar, use o scroll para aproximar e `Esc` para voltar à visão geral. Na barra lateral, **Modo 3D** troca para a interface em lista e **Reduzir movimento** congela as órbitas. Em GPUs mais fracas, a cena reduz a qualidade sozinha.
+
 Atalhos: `Ctrl+1`…`Ctrl+9` vão para uma aba, `Ctrl+Tab` e `Ctrl+Shift+Tab` alternam (no navegador, esses dois são do próprio navegador), `Ctrl+Shift+W` fecha a aba e `Ctrl+K`, fora do terminal, abre a busca.
 
 O servidor escuta só em `127.0.0.1` (porta 7777, ou `LLM_AGENT_UI_PORT`) e exige o token que vai na URL, salvo em `~/.config/llm-agent/ui/token`. Quem tem a URL pode abrir agentes autônomos nos seus projetos, então não a compartilhe.

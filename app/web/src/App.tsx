@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Api, LiveSocket, takeToken, wsUrl, type Status } from './api.ts';
 import { bus } from './bus.ts';
+import { hasWebGL, systemReducedMotion, usePref } from './prefs.ts';
 import { addTab, applyAction, closeTab, emptyTabs, shortcut, syncTabs, type TabsState } from './tabs.ts';
-import type { Overview, ServerMessage, SessionAgent, SessionInfo, View } from './types.ts';
+import type { Conversation, Overview, ServerMessage, SessionAgent, SessionInfo, View } from './types.ts';
 import { Sidebar } from './components/Sidebar.tsx';
 import { ProfilePanel } from './components/ProfilePanel.tsx';
 import { SkillsPanel } from './components/SkillsPanel.tsx';
 import { ProjectPanel } from './components/ProjectPanel.tsx';
 import { TerminalDrawer } from './components/TerminalDrawer.tsx';
 import { SearchDialog } from './components/SearchDialog.tsx';
+
+// A cena 3D (three.js) so e baixada quando o modo 3D esta ligado.
+const Galaxy = lazy(() => import('./scene/Galaxy.tsx').then((m) => ({ default: m.Galaxy })));
 
 export function App() {
   const token = useMemo(
@@ -27,17 +31,32 @@ export function App() {
 
 function Connected({ token }: { token: string }) {
   const api = useMemo(() => new Api(token), [token]);
+  const webgl = useMemo(hasWebGL, []);
+  const [mode3d, setMode3d] = usePref('llm-agent-3d', true);
+  const [reduceMotion, setReduceMotion] = usePref('llm-agent-reduce-motion', systemReducedMotion());
+  const use3d = webgl && mode3d;
+
   const [overview, setOverview] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>('connecting');
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [tabs, setTabs] = useState<TabsState>(emptyTabs);
-  const [view, setView] = useState<View>({ kind: 'profile' });
+  const [view, setView] = useState<View>(use3d ? { kind: 'none' } : { kind: 'profile' });
+  const [drawerCollapsed, setDrawerCollapsed] = useState(false);
   const [revision, setRevision] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const [socket, setSocket] = useState<LiveSocket | null>(null);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
+  const searchOpenRef = useRef(searchOpen);
+  searchOpenRef.current = searchOpen;
+  const use3dRef = useRef(use3d);
+  use3dRef.current = use3d;
+
+  // Sem a cena, sempre ha um painel aberto.
+  useEffect(() => {
+    if (!use3d && view.kind === 'none') setView({ kind: 'profile' });
+  }, [use3d, view.kind]);
 
   useEffect(() => {
     api.overview().then(
@@ -66,6 +85,7 @@ function Connected({ token }: { token: string }) {
             break;
           case 'opened':
             setTabs((t) => addTab(t, m.session.id));
+            setDrawerCollapsed(false);
             break;
           case 'output':
             bus.data(m.id, m.data);
@@ -110,12 +130,25 @@ function Connected({ token }: { token: string }) {
     [socket],
   );
 
+  const resumeConversation = useCallback(
+    (c: Conversation) => {
+      const project = overview?.projects.find((p) => p.path === c.cwd);
+      if (project) setView({ kind: 'project', id: project.id });
+      openSession(c.cwd, c.agent, c.id);
+    },
+    [overview, openSession],
+  );
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const inTerminal = (e.target as HTMLElement | null)?.closest?.('.terminal') != null;
       if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k' && !inTerminal) {
         e.preventDefault();
         setSearchOpen(true);
+        return;
+      }
+      if (e.key === 'Escape' && !inTerminal && !searchOpenRef.current && use3dRef.current) {
+        setView({ kind: 'none' });
         return;
       }
       const action = shortcut(e);
@@ -130,25 +163,70 @@ function Connected({ token }: { token: string }) {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [socket]);
 
+  const panel =
+    view.kind === 'profile' ? (
+      <ProfilePanel profile={overview?.profile} />
+    ) : view.kind === 'skills' ? (
+      <SkillsPanel skills={overview?.skills ?? []} focus={view.focus} />
+    ) : view.kind === 'project' ? (
+      <ProjectPanel api={api} id={view.id} revision={revision} onOpen={openSession} />
+    ) : null;
+
   return (
     <div className="app">
-      <Sidebar overview={overview} view={view} sessions={sessions} onSelect={setView} />
-      <main className="content">
+      <Sidebar
+        overview={overview}
+        view={view}
+        sessions={sessions}
+        settings={{ webgl, mode3d, reduceMotion }}
+        onSelect={setView}
+        onToggle3d={() => setMode3d(!mode3d)}
+        onToggleReduceMotion={() => setReduceMotion(!reduceMotion)}
+      />
+      <main className={use3d ? 'content three' : 'content'}>
         {status !== 'open' && <div className="banner">Reconectando ao servidor…</div>}
         {error && (
           <div className="banner error" onClick={() => setError(null)} title="Clique para fechar">
             {error}
           </div>
         )}
-        {view.kind === 'profile' && <ProfilePanel profile={overview?.profile} />}
-        {view.kind === 'skills' && <SkillsPanel skills={overview?.skills ?? []} focus={view.focus} />}
-        {view.kind === 'project' && <ProjectPanel api={api} id={view.id} revision={revision} onOpen={openSession} />}
+        {use3d ? (
+          <>
+            {overview && (
+              <Suspense fallback={null}>
+                <Galaxy
+                  overview={overview}
+                  sessions={sessions}
+                  focusId={view.kind === 'project' ? view.id : null}
+                  reducedMotion={reduceMotion}
+                  dimmed={tabs.order.length > 0 && !drawerCollapsed}
+                  onSelectProject={(id) => setView({ kind: 'project', id })}
+                  onSelectProfile={() => setView({ kind: 'profile' })}
+                  onSelectSkill={(path) => setView({ kind: 'skills', focus: path })}
+                  onResume={resumeConversation}
+                />
+              </Suspense>
+            )}
+            {panel && (
+              <aside className="panel-overlay">
+                <button className="panel-close" onClick={() => setView({ kind: 'none' })} aria-label="Fechar painel">
+                  ×
+                </button>
+                {panel}
+              </aside>
+            )}
+          </>
+        ) : (
+          panel
+        )}
       </main>
       <TerminalDrawer
         tabs={tabs}
         sessions={sessions}
         projects={overview?.projects ?? []}
         socket={socket}
+        collapsed={drawerCollapsed}
+        onCollapsedChange={setDrawerCollapsed}
         onActivate={(id) => setTabs((t) => ({ ...t, active: id }))}
         onClose={closeSession}
         onReopen={(s) => {
@@ -162,11 +240,7 @@ function Connected({ token }: { token: string }) {
           onClose={() => setSearchOpen(false)}
           onProject={(id) => setView({ kind: 'project', id })}
           onSkill={(path) => setView({ kind: 'skills', focus: path })}
-          onConversation={(c) => {
-            const project = overview.projects.find((p) => p.path === c.cwd);
-            if (project) setView({ kind: 'project', id: project.id });
-            openSession(c.cwd, c.agent, c.id);
-          }}
+          onConversation={resumeConversation}
         />
       )}
     </div>
