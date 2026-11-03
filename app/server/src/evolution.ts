@@ -47,6 +47,8 @@ export interface UpdateRecord {
   rolledBack?: boolean;
   error?: string;
   checks?: SelfCheck[];
+  /** Quando o /api/self-check gravou as verificacoes. */
+  checkedAt?: string;
 }
 
 export interface SelfCheck {
@@ -391,6 +393,22 @@ const CHECK_LABEL: Record<string, string> = {
   web: 'a interface',
 };
 
+/** Tempo que o restart.sh tem para voltar a versao anterior depois de uma verificacao falhar. */
+export const ROLLBACK_GRACE_MS = 120_000;
+
+/**
+ * O que fazer com o update ao abrir/periodicamente: esperar, anunciar o sucesso, anunciar a volta a
+ * versao anterior ou, se uma verificacao essencial falhou e ninguem voltou atras, anunciar a falha.
+ */
+export function updateOutcome(u: UpdateRecord | null, now = Date.now()): 'wait' | 'ok' | 'rolledBack' | 'failed' {
+  if (!u || u.announced) return 'wait';
+  if (u.rolledBack) return 'rolledBack';
+  if (!u.checks?.length) return 'wait';
+  if (u.checks.every((c) => c.ok || !c.essential)) return 'ok';
+  const at = u.checkedAt ? Date.parse(u.checkedAt) : NaN;
+  return Number.isFinite(at) && now - at < ROLLBACK_GRACE_MS ? 'wait' : 'failed';
+}
+
 /** O que o Jarvis fala ao voltar de uma atualizacao (ou de uma volta a versao anterior). */
 export function updateNotice(u: UpdateRecord): string {
   if (u.rolledBack) {
@@ -401,6 +419,11 @@ export function updateNotice(u: UpdateRecord): string {
         ? ` (${u.error})`
         : '';
     return `A atualização "${u.title}" não passou nas verificações${why}. Voltei para a versão anterior e está tudo funcionando como antes. Quer que eu peça a correção?`;
+  }
+  const essential = u.checks?.find((c) => c.essential && !c.ok);
+  if (essential) {
+    const label = CHECK_LABEL[essential.name] ?? essential.name;
+    return `A atualização "${u.title}" foi aplicada e o código novo está no ar, mas uma verificação falhou: ${label}${essential.error ? ` (${essential.error})` : ''}. Não consegui voltar para a versão anterior sozinho; vale conferir ${label}.`;
   }
   const checks = u.checks ?? [];
   const ok = checks.filter((c) => c.ok).map((c) => CHECK_LABEL[c.name] ?? c.name);

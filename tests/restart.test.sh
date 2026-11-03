@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Testa o app/restart.sh com um "ui" falso: um servidor minimo em Node cujo
-# /api/self-check responde ok ou falha conforme o commit do repositorio.
+# /api/self-check responde ok ou falha conforme o commit do repositorio (com
+# verificacoes que passaram mesmo quando o resultado geral falha).
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -23,7 +24,7 @@ cat >"$work/server.js" <<'EOF'
 const http = require('http');
 const fs = require('fs');
 const ok = !fs.existsSync(process.argv[2] + '/versao');
-const srv = http.createServer((req, res) => res.end(JSON.stringify({ ok, checks: [] })));
+const srv = http.createServer((req, res) => res.end(JSON.stringify({ ok, checks: [{ name: 'web', ok: true }, { name: 'catalogo', ok } ] })));
 srv.listen(0, '127.0.0.1', () => {
   fs.writeFileSync(process.argv[3] + '/server.json', JSON.stringify({ pid: process.pid, port: srv.address().port }));
 });

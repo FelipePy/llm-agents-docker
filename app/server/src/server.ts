@@ -15,9 +15,10 @@ import { TerminalManager } from './terminals.ts';
 import type { Brain, InterruptJudge } from './voice/brain.ts';
 import { createJarvisServer, jarvisHandlers, type JarvisContext } from './voice/tools.ts';
 import { COMMANDS } from './voice/commands.ts';
-import { EvolutionManager, markUpdateAnnounced, readUpdate, updateNotice, type EvolutionDeps, type SelfCheck } from './evolution.ts';
+import { EvolutionManager, markUpdateAnnounced, readUpdate, updateNotice, updateOutcome, type EvolutionDeps, type SelfCheck } from './evolution.ts';
 import { writeFile } from 'node:fs/promises';
 import { Announcer } from './voice/announcer.ts';
+import { SessionWatcher, type WatchSummarizer } from './voice/session-watch.ts';
 import { shortTitle } from './conversations.ts';
 import { gitLines } from './catalog.ts';
 import { VoiceSession, type VoiceWorker } from './voice/session.ts';
@@ -57,6 +58,10 @@ export interface AppOptions {
     judge?: InterruptJudge;
     /** Configuracoes feitas pela tela (transcricao local ou Groq). */
     settings?: VoiceSettingsStore;
+    /** Escreve o aviso falado de uma sessao acompanhada (sem ele, um texto simples). */
+    watchSummary?: WatchSummarizer;
+    /** Tempo sem saida nova para considerar terminada uma sessao acompanhada. */
+    watchQuietMs?: number;
   };
   /**
    * Evolucao do Jarvis por voz: repositorio, clones e arquivos de estado (as
@@ -139,6 +144,13 @@ export function createApp(opts: AppOptions): App {
   const clients = new Set<WebSocket>();
   const memory = opts.memory ?? new JarvisMemory(join(workspace, '.jarvis-memory.json'));
   const newsHistory = opts.newsHistory ?? new NewsHistory(join(workspace, '.jarvis-news.json'));
+  // Sessoes que o usuario pediu para acompanhar (aviso por voz ao terminar ou dar erro).
+  const watcher = new SessionWatcher({
+    sessions: () => terminals.list(),
+    output: (id) => terminals.history(id),
+    summarize: opts.voice?.watchSummary,
+    quietMs: opts.voice?.watchQuietMs,
+  });
 
   const broadcast = (msg: ServerMessage): void => {
     const data = JSON.stringify(msg);
@@ -274,6 +286,7 @@ export function createApp(opts: AppOptions): App {
     userTurn: () => voiceSession?.userTurns ?? 0,
     memory,
     newsHistory,
+    watcher,
   };
 
   // Funcionalidades novas para o proprio Jarvis (definidas e aprovadas por voz).
@@ -305,16 +318,16 @@ export function createApp(opts: AppOptions): App {
     delivering = true;
     try {
       const say = (text: string) => voiceSession?.announce(text) ?? false;
+      notices.push(...(await watcher.check()));
       while (notices.length && say(notices[0])) notices.shift();
       const file = opts.evolution?.updateFile;
       const u = file ? readUpdate(file) : null;
-      if (file && u && !u.announced) {
-        const verified = u.checks?.length && u.checks.every((c) => c.ok || !c.essential);
-        if ((u.rolledBack || verified) && say(updateNotice(u))) {
-          markUpdateAnnounced(file);
-          if (u.rolledBack) evolution?.rolledBack(u.error ?? 'a verificação falhou');
-          else evolution?.finish();
-        }
+      const outcome = updateOutcome(u);
+      if (file && u && outcome !== 'wait' && say(updateNotice(u))) {
+        markUpdateAnnounced(file);
+        // 'failed': o codigo novo ficou no ar (ninguem voltou atras), entao a evolucao termina.
+        if (outcome === 'rolledBack') evolution?.rolledBack(u.error ?? 'a verificação falhou');
+        else evolution?.finish();
       }
       const done = await evolution?.poll();
       if (done && say(done)) evolution!.markNotified();
@@ -363,7 +376,8 @@ export function createApp(opts: AppOptions): App {
         clearTimeout(timer);
       }
     };
-    await check('catalogo', true, () => buildOverview(opts.home, { hidden, projectsDir: opts.projectsDir }), 20_000);
+    // Logo depois do reinicio a primeira varredura dos projetos e lenta (cache de disco frio).
+    await check('catalogo', true, () => buildOverview(opts.home, { hidden, projectsDir: opts.projectsDir }), 90_000);
     await check('ferramentas', true, async () => {
       createJarvisServer(jarvis);
       const tools = Object.keys(jarvisHandlers(jarvis)).sort().join();
@@ -377,7 +391,7 @@ export function createApp(opts: AppOptions): App {
     const ok = checks.every((c) => c.ok || !c.essential);
     const file = opts.evolution?.updateFile;
     const u = file && record ? readUpdate(file) : null;
-    if (file && u && !u.announced) await writeFile(file, JSON.stringify({ ...u, checks }, null, 2) + '\n', { mode: 0o600 });
+    if (file && u && !u.announced) await writeFile(file, JSON.stringify({ ...u, checks, checkedAt: new Date().toISOString() }, null, 2) + '\n', { mode: 0o600 });
     return { ok, checks };
   }
 

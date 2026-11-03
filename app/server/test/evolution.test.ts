@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tempHome, waitFor } from './helpers.ts';
-import { EvolutionManager, devPrompt, markUpdateAnnounced, readUpdate, slugify, updateNotice, type RunResult, type UpdateRecord } from '../src/evolution.ts';
+import { EvolutionManager, devPrompt, markUpdateAnnounced, readUpdate, slugify, updateNotice, updateOutcome, ROLLBACK_GRACE_MS, type RunResult, type UpdateRecord } from '../src/evolution.ts';
 import type { SessionInfo } from '../src/types.ts';
 
 const exec = (cmd: string, args: string[], cwd: string) =>
@@ -232,4 +232,23 @@ test('updateNotice: sucesso com as verificacoes, verificacao opcional falha, rol
   writeFileSync(file, JSON.stringify(base));
   markUpdateAnnounced(file);
   assert.equal(readUpdate(file)?.announced, true);
+});
+
+test('updateOutcome: espera o restart.sh voltar atras; sem volta, anuncia a falha', () => {
+  const base: UpdateRecord = { from: 'a', to: 'b', title: 'Sessões', summary: 's', startedAt: '', desktop: false, announced: false };
+  const check = (name: string, ok = true, essential = true, error?: string) => ({ name, ok, essential, ms: 10, error });
+  const now = Date.parse('2026-11-03T15:00:00Z');
+  const failing = { ...base, checks: [check('catalogo', false, true, 'sem resposta em 20 s'), check('web')] };
+  assert.equal(updateOutcome(null, now), 'wait');
+  assert.equal(updateOutcome(base, now), 'wait', 'sem verificacoes ainda');
+  assert.equal(updateOutcome({ ...base, checks: [check('web'), check('cerebro', false, false)] }, now), 'ok');
+  assert.equal(updateOutcome({ ...failing, rolledBack: true }, now), 'rolledBack');
+  assert.equal(updateOutcome({ ...failing, checkedAt: new Date(now - 5_000).toISOString() }, now), 'wait', 'restart.sh ainda pode voltar atras');
+  assert.equal(updateOutcome({ ...failing, checkedAt: new Date(now - ROLLBACK_GRACE_MS).toISOString() }, now), 'failed');
+  assert.equal(updateOutcome(failing, now), 'failed', 'registro antigo, sem checkedAt');
+  assert.equal(updateOutcome({ ...failing, announced: true }, now), 'wait');
+  assert.equal(
+    updateNotice(failing),
+    'A atualização "Sessões" foi aplicada e o código novo está no ar, mas uma verificação falhou: os projetos (sem resposta em 20 s). Não consegui voltar para a versão anterior sozinho; vale conferir os projetos.',
+  );
 });
