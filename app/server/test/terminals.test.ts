@@ -62,6 +62,23 @@ test('TerminalManager limita o historico', async () => {
   tm.closeAll();
 });
 
+test('TerminalManager: screen() mostra a tela atual, sem o que ja foi apagado', async () => {
+  const home = tempHome();
+  // Como o Claude Code: escreve o indicador de trabalho e depois o apaga no lugar (\r + apagar linha).
+  const bin = join(home, 'fake-claude');
+  write(bin, "#!/usr/bin/env bash\nprintf 'Pensando · esc to interrupt'\nsleep 0.1\nprintf '\\r\\033[K● pronto\\n> '\nIFS= read -r line\n");
+  chmodSync(bin, 0o755);
+  const tm = new TerminalManager(bin);
+  const s = tm.open({ projectPath: home, agent: 'claude', title: 't', cols: 80, rows: 24 });
+  await waitFor(() => (tm.screen(s.id) ?? '').includes('pronto'));
+  assert.ok(tm.history(s.id)?.includes('esc to interrupt'), 'os bytes brutos ainda tem o indicador');
+  assert.equal(tm.screen(s.id), '● pronto\n>');
+  tm.resize(s.id, 100, 30);
+  assert.equal(tm.screen(s.id), '● pronto\n>');
+  tm.close(s.id);
+  assert.equal(tm.screen(s.id), null);
+});
+
 async function connect(port: number, opts: { token?: string; origin?: string } = {}) {
   const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${opts.token ?? 'tok'}`, opts.origin ? { origin: opts.origin } : {});
   const messages: any[] = [];

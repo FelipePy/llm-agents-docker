@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import nodePty from '@lydell/node-pty';
 import type { IPty } from '@lydell/node-pty';
+import headless from '@xterm/headless';
 import type { SessionAgent, SessionInfo } from './types.ts';
 
 /**
@@ -36,7 +37,12 @@ interface Session {
   info: SessionInfo;
   proc: IPty;
   buffer: string;
+  /** Terminal emulado no servidor: a tela como o usuario a ve (sem redesenhos antigos). */
+  screen: headless.Terminal;
 }
+
+/** Linhas guardadas alem da tela, para o resumo do fim da tarefa. */
+const SCREEN_SCROLLBACK = 500;
 
 export class TerminalManager extends EventEmitter {
   private readonly sessions = new Map<string, Session>();
@@ -66,10 +72,12 @@ export class TerminalManager extends EventEmitter {
       startedAt: new Date().toISOString(),
       alive: true,
     };
-    const session: Session = { info, proc, buffer: '' };
+    const screen = new headless.Terminal({ cols: req.cols, rows: req.rows, scrollback: SCREEN_SCROLLBACK, allowProposedApi: true });
+    const session: Session = { info, proc, buffer: '', screen };
     this.sessions.set(info.id, session);
     proc.onData((data) => {
       session.buffer = (session.buffer + data).slice(-this.maxBuffer);
+      screen.write(data);
       this.emit('output', info.id, data);
     });
     proc.onExit(({ exitCode }) => {
@@ -91,6 +99,20 @@ export class TerminalManager extends EventEmitter {
     return this.sessions.get(id)?.buffer ?? null;
   }
 
+  /**
+   * O texto na tela da sessao (com o historico rolado acima), como o usuario o ve. Diferente do
+   * history(), que guarda os bytes brutos: o Claude Code redesenha so o que muda, entao um
+   * "esc to interrupt" ja apagado da tela continua nos bytes.
+   */
+  screen(id: string): string | null {
+    const s = this.sessions.get(id);
+    if (!s) return null;
+    const b = s.screen.buffer.active;
+    const lines: string[] = [];
+    for (let i = 0; i < b.length; i++) lines.push((b.getLine(i)?.translateToString(true) ?? '').trimEnd());
+    return lines.join('\n').replace(/\n+$/, '');
+  }
+
   write(id: string, data: string): void {
     const s = this.sessions.get(id);
     if (s?.info.alive) s.proc.write(data);
@@ -98,7 +120,9 @@ export class TerminalManager extends EventEmitter {
 
   resize(id: string, cols: number, rows: number): void {
     const s = this.sessions.get(id);
-    if (s?.info.alive && cols > 0 && rows > 0) s.proc.resize(cols, rows);
+    if (!s?.info.alive || cols <= 0 || rows <= 0) return;
+    s.proc.resize(cols, rows);
+    s.screen.resize(cols, rows);
   }
 
   close(id: string): void {
@@ -106,6 +130,7 @@ export class TerminalManager extends EventEmitter {
     if (!s) return;
     this.sessions.delete(id);
     if (s.info.alive) s.proc.kill();
+    s.screen.dispose();
     this.emit('sessions');
   }
 

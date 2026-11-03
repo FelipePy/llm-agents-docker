@@ -64,6 +64,10 @@ const BARGE_WINDOW_MS = 800;
 const CONTINUE_MS = 8000;
 /** Ate quanto tempo depois de cortar a resposta a fala seguinte ainda conta como a interrupcao. */
 const CUT_IN_MS = 10_000;
+/** Ouvindo em silencio ha pelo menos isto, um aviso pedido (sessao terminou) pode ser falado. */
+const ANNOUNCE_QUIET_MS = 10_000;
+/** Por quanto tempo o cerebro fica sabendo do ultimo aviso falado (para o "conta mais"). */
+const NOTICE_CONTEXT_MS = 10 * 60_000;
 
 export class VoiceSession {
   state: VoiceState = 'off';
@@ -104,6 +108,12 @@ export class VoiceSession {
   // Pausa e continuacao: a ultima pergunta e a fala que espera a continuacao.
   private lastAsk: { text: string; at: number } | undefined;
   private continuation: string | undefined;
+  /** Desde quando esta ouvindo (sem fala do usuario nem resposta). */
+  private listeningAt = -Infinity;
+  /** O usuario esta falando agora (fala detectada, transcricao ainda nao chegou). */
+  private userSpeaking = false;
+  /** Ultimo aviso falado sem pedido, para o cerebro entender a resposta do usuario a ele. */
+  private lastNotice: { text: string; at: number } | undefined;
   /**
    * O usuario cortou a resposta (falou por cima, chamou o nome ou Esc) e a fala
    * dele ainda nao foi transcrita. Essa transcricao passa pelo filtro de falas
@@ -271,12 +281,24 @@ export class VoiceSession {
   /**
    * Fala espontanea (anuncios: hora do dia, notícias). So fala se o Jarvis
    * estiver esperando ser chamado; depois volta a esperar. Falso se ocupado.
+   * Com whileListening (avisos que o usuario pediu, como "me avisa quando
+   * terminar"), fala tambem no meio da conversa, se ele estiver ouvindo em
+   * silencio ha um tempo; depois continua ouvindo.
    */
-  announce(text: string): boolean {
-    if (this.state !== 'sleeping' || this.relay) return false;
+  announce(text: string, opts: { whileListening?: boolean } = {}): boolean {
+    if (this.relay) return false;
+    const idle =
+      this.state === 'listening' &&
+      opts.whileListening &&
+      !this.userSpeaking &&
+      !this.held &&
+      this.continuation === undefined &&
+      this.now() - this.listeningAt >= ANNOUNCE_QUIET_MS;
+    if (this.state !== 'sleeping' && !idle) return false;
     this.turn++;
     this.brainDone = true;
-    this.farewell = true;
+    this.farewell = this.state === 'sleeping';
+    this.lastNotice = { text, at: this.now() };
     this.send({ type: 'caption', who: 'jarvis', text });
     this.speak(text);
     return true;
@@ -372,6 +394,7 @@ export class VoiceSession {
         }
         return;
       case 'speech-start':
+        this.userSpeaking = true;
         // Pensando (sem audio tocando): o usuario fez uma pausa e continuou falando.
         // A resposta para (por enquanto) e a fala nova sera emendada na anterior.
         if (this.state === 'thinking') {
@@ -388,6 +411,7 @@ export class VoiceSession {
         }
         return;
       case 'speech-drop':
+        this.userSpeaking = false;
         // Era ruido: se a resposta anterior tinha sido calada por ele, pergunta de novo.
         if (this.state === 'listening') {
           this.cutInAt = -Infinity;
@@ -396,6 +420,7 @@ export class VoiceSession {
         }
         return;
       case 'transcript': {
+        this.userSpeaking = false;
         const text = e.text.trim();
         if (this.state === 'speaking') {
           if (!text || !this.isUserTalking(text)) {
@@ -483,7 +508,11 @@ export class VoiceSession {
     const turn = ++this.turn;
     this.brainDone = false;
     this.setState('thinking');
-    this.chain = this.chain.then(() => this.think(text, turn, signal)).catch(() => {});
+    // O usuario pode estar respondendo a um aviso ("conta mais"): o cerebro precisa saber qual.
+    const notice = this.lastNotice && this.now() - this.lastNotice.at <= NOTICE_CONTEXT_MS ? this.lastNotice.text : undefined;
+    this.lastNotice = undefined;
+    const brainText = notice ? `[você avisou o usuário, sem ele pedir agora: "${notice}"]\n${text}` : text;
+    this.chain = this.chain.then(() => this.think(brainText, turn, signal)).catch(() => {});
   }
 
   private async think(text: string, turn: number, signal: AbortSignal): Promise<void> {
@@ -678,6 +707,7 @@ export class VoiceSession {
   }
 
   private setState(state: VoiceState, detail?: string): void {
+    if (state === 'listening' && this.state !== 'listening') this.listeningAt = this.now();
     this.state = state;
     this.send(detail ? { type: 'state', state, detail } : { type: 'state', state });
   }
