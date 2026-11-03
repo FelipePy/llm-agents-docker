@@ -377,7 +377,8 @@ export function createApp(opts: AppOptions): App {
         clearTimeout(timer);
       }
     };
-    await check('catalogo', true, () => buildOverview(opts.home, { hidden, projectsDir: opts.projectsDir }), 20_000);
+    // Logo depois do reinicio a primeira varredura dos projetos e lenta (cache de disco frio).
+    await check('catalogo', true, () => buildOverview(opts.home, { hidden, projectsDir: opts.projectsDir }), 90_000);
     await check('ferramentas', true, async () => {
       createJarvisServer(jarvis);
       const tools = Object.keys(jarvisHandlers(jarvis)).sort().join();
