@@ -1,6 +1,7 @@
 name: desktop
 
-# Instaladores do Jarvis para Windows e Linux (Tauri).
+# Verificacoes (testes, tipos, build da web) em jobs paralelos e, so depois
+# que todas passam, os instaladores do Jarvis para Windows e Linux (Tauri).
 # - push em qualquer branch: instaladores como artefatos da execucao (um por tipo);
 # - push na main: tambem publica um release do projeto (vX.Y.Z) com cada
 #   instalador como um arquivo separado, com a versao no nome.
@@ -22,6 +23,99 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # Testes do servidor (node --test).
+  server-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/server/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  # Testes da interface (vitest).
+  web-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  # Checagem de tipos, uma parte da matriz por pacote.
+  typecheck:
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [server, web]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/${{ matrix.package }}/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+
+  # Build da interface (vite).
+  web-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  # Testes do worker de voz (so biblioteca padrao, sem o requirements.txt).
+  voice-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s app/voice/tests -t app/voice
+
+  # Testes dos scripts (llm-agent ui, restart, remote control).
+  scripts-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/server/package-lock.json
+      - run: npm --prefix app/server ci
+      - run: bash tests/ui.test.sh
+      - run: bash tests/restart.test.sh
+      - run: bash tests/remote-control.test.sh
+
   version:
     runs-on: ubuntu-latest
     outputs:
@@ -53,8 +147,9 @@ jobs:
           echo "release=true" >>"$GITHUB_OUTPUT"
           echo "Versão: $version" >>"$GITHUB_STEP_SUMMARY"
 
+  # Os instaladores so saem com todas as verificacoes verdes.
   build:
-    needs: version
+    needs: [version, server-test, web-test, typecheck, web-build, voice-test, scripts-test]
     strategy:
       fail-fast: false
       matrix:
