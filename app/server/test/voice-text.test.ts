@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isStopRequest, isSubmit, matchWake, normalize, stripMarkdown,
+  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isStopRequest, isSubmit, isUnintelligible, matchWake, normalize, stripMarkdown,
 } from '../src/voice/text.ts';
 import { AUDIO, FrameDecoder, JSON_KIND, encodeFrame, encodeJson } from '../src/voice/protocol.ts';
 
@@ -89,4 +89,16 @@ test('mergeUtterances emenda a continuacao e, se for correcao, fica so com a nov
   assert.equal(mergeUtterances('abre o meu-app', 'quer dizer, o agendarse'), 'quer dizer, o agendarse');
   assert.ok(isCorrection('Na verdade, esquece'));
   assert.ok(!isCorrection('nos testes também'), '"nos" nao e "nao"');
+});
+
+test('isUnintelligible: ruido, hesitacoes, anotacoes, fala truncada e alucinacoes do whisper', () => {
+  for (const t of [
+    '', '   ', '...', 'Hmm.', 'Ahn, hã...', 'Humm hum', '[Música]', '(risos)', '♪ ♪', '*tosse*',
+    'Legendas pela comunidade Amara.org', 'Obrigado por assistir!', 'Inscreva-se no canal',
+    'ご視聴ありがとうございました', 'de', 'a a a a', 'não não não não não', 'Música',
+  ]) assert.equal(isUnintelligible(t), true, t);
+  for (const t of [
+    'espera, abre o projeto meu-app', 'para', 'sim', 'não', 'ok', 'obrigado', 'e amanhã?', 'Jarvis', '42',
+    'não não', 'abre o 3', 'qual a previsão pra amanhã',
+  ]) assert.equal(isUnintelligible(t), false, t);
 });

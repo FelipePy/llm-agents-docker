@@ -513,3 +513,58 @@ test('pausa seguida de ruido: a fala anterior e respondida de novo', async () =>
   await waitFor(() => s.worker.speaks().length === 1);
   assert.deepEqual(s.brain.calls, ['que horas são', 'que horas são']);
 });
+
+test('falando: ruido transcrito por cima da voz nao interrompe o Jarvis', async () => {
+  const s = await started([['Hoje o dia está nublado. ', 'Leve guarda-chuva.']]);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'como está o tempo' });
+  await waitFor(() => s.session.state === 'speaking' && s.worker.speaks().length === 2);
+  s.worker.fire({ event: 'speech-start' });
+  s.worker.fire({ event: 'transcript', id: 2, text: 'Legendas pela comunidade Amara.org' });
+  assert.equal(s.session.state, 'speaking');
+  assert.ok(!s.sent.some((m) => m.type === 'stop-audio'));
+  assert.deepEqual(s.sent.filter((m) => m.type === 'duck').at(-1), { type: 'duck', on: false });
+  assert.equal(s.brain.calls.length, 1);
+  assert.ok(s.logs.some((l) => l.includes('fala descartada')));
+});
+
+test('interrompido na hora por uma fala nao entendida: ela e descartada e o Jarvis volta a ouvir', async () => {
+  let t = 0;
+  const s = await started([['Hoje o dia está nublado. ', 'Leve guarda-chuva.'], ['Amanhã sol.']], () => t);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'como está o tempo' });
+  await waitFor(() => s.session.state === 'speaking' && s.worker.speaks().length === 2);
+  t = 1000;
+  s.session.client({ type: 'over-echo' });
+  s.worker.fire({ event: 'speech-start' });
+  assert.equal(s.session.state, 'listening');
+  s.worker.fire({ event: 'transcript', id: 2, text: 'hmm ahn' });
+  assert.equal(s.session.state, 'listening');
+  assert.ok(!s.sent.some((m) => m.type === 'caption' && m.who === 'user' && m.text === 'hmm ahn'));
+  assert.equal(s.brain.calls.length, 1, 'a fala nao entendida nao vira pedido');
+  // A fala seguinte, entendida, e respondida normalmente.
+  s.worker.fire({ event: 'transcript', id: 3, text: 'e amanhã?' });
+  await waitFor(() => s.brain.calls.length === 2);
+  assert.equal(s.brain.calls[1], 'e amanhã?');
+});
+
+test('pensando: continuacao nao entendida e descartada e a pergunta anterior e respondida', async () => {
+  const s = await started(['hang', ['Pronto.']]);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'que horas são' });
+  s.worker.fire({ event: 'speech-start' });
+  s.worker.fire({ event: 'transcript', id: 2, text: '[Música]' });
+  await waitFor(() => s.worker.speaks().length === 1);
+  assert.deepEqual(s.brain.calls, ['que horas são', 'que horas são'], 'nada de "que horas são [Música]"');
+});
+
+test('fora de uma interrupcao, o filtro nao se aplica', async () => {
+  const s = await started([['Oi.'], ['Hum?']]);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'oi' });
+  await waitFor(() => s.worker.speaks().length === 1);
+  s.session.client({ type: 'played', id: s.worker.speaks()[0].id });
+  assert.equal(s.session.state, 'listening');
+  s.worker.fire({ event: 'transcript', id: 2, text: 'hmm' });
+  await waitFor(() => s.brain.calls.length === 2);
+});

@@ -136,3 +136,47 @@ export function mergeUtterances(first: string, second: string): string {
   if (isCorrection(second)) return second.trim();
   return `${first.trim().replace(/[.!?…]+$/, '')} ${second.trim()}`.trim();
 }
+
+// Sons sem conteudo: hesitacoes e interjeicoes que o whisper transcreve de ruido ou respiracao.
+const FILLERS = new Set([
+  'a', 'ah', 'aah', 'ahn', 'an', 'e', 'eh', 'ehh', 'er', 'hum', 'humm', 'hmm', 'hm', 'mm', 'mmm', 'uh', 'uhh', 'uhm', 'um',
+  'hein', 'ha', 'hah', 'he', 'hehe', 'haha', 'kk', 'kkk', 'o', 'oh', 'ooh', 'u', 'ue', 'ufa', 'psiu', 'tsc', 'ai',
+]);
+// Palavras de uma ou duas letras que sozinhas ainda sao uma resposta.
+const SHORT_OK = new Set(['ok', 'oi', 'ja', 'la', 'eu', 'so', 'tu', 'vc']);
+// Frases que o whisper inventa em silencio/ruido (vem dos dados de treino com legendas).
+const HALLUCINATIONS = [
+  /\blegenda(s|do)? (pela|por) /,
+  /\bamara org\b/,
+  /\b(obrigad[oa]|valeu) (por|pela) (assistir|atencao|ver)\b/,
+  /\binscrev(a|e) se\b/,
+  /\b(se inscreva|ative o sininho|deixe (o )?seu like)\b/,
+  /^(musica|aplausos|risos|silencio|ruido|som|barulho|inaudivel)$/,
+];
+
+/**
+ * A transcricao nao e uma fala entendida: vazia, so hesitacoes ("hmm", "ahn"),
+ * so anotacoes ("[Música]"), alfabeto estranho (ruido virando japones), uma
+ * palavra repetida, um fragmento de letra ou uma frase que o whisper inventa no
+ * silencio ("Legendas pela comunidade Amara.org"). Usado nas falas captadas
+ * enquanto o Jarvis responde: nesse momento ruido e eco viram "fala" com
+ * facilidade, e nao devem virar pedido.
+ */
+export function isUnintelligible(text: string): boolean {
+  // Anotacoes entre colchetes/parenteses e notas musicais nao sao fala.
+  const spoken = text.replace(/\[[^\]]*\]|\([^)]*\)|\*[^*]*\*|[♪♫]/g, ' ');
+  const n = normalize(spoken);
+  if (!n) return true;
+  // Muitas letras fora do alfabeto latino (o normalize as remove): ruido "transcrito" em outra lingua.
+  const letters = (spoken.match(/\p{L}/gu) ?? []).length;
+  const latin = n.replace(/[^a-z]/g, '').length;
+  if (letters >= 4 && latin / letters < 0.5) return true;
+  if (HALLUCINATIONS.some((re) => re.test(n))) return true;
+  const words = n.split(' ');
+  if (words.every((w) => FILLERS.has(w) || /^(h+|m+|a+h*|e+h*|u+h*|hu+m+)$/.test(w))) return true;
+  // Uma palavra so, de uma ou duas letras (fala cortada: "de", "pr").
+  if (words.length === 1 && words[0].length <= 2 && !SHORT_OK.has(words[0]) && !/^\d+$/.test(words[0])) return true;
+  // A mesma palavra 4+ vezes e nada mais ("a a a a", "não não não não não"): o whisper em loop.
+  if (words.length >= 4 && new Set(words).size === 1) return true;
+  return false;
+}

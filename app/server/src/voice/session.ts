@@ -1,7 +1,7 @@
 import type { VoiceClientMessage, VoiceServerMessage, VoiceState } from '../types.ts';
 import type { Brain } from './brain.ts';
 import {
-  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isStopRequest, isSubmit, matchWake, mergeUtterances, normalize, stripMarkdown,
+  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isStopRequest, isSubmit, isUnintelligible, matchWake, mergeUtterances, normalize, stripMarkdown,
 } from './text.ts';
 
 export type WorkerCommand =
@@ -62,6 +62,8 @@ const RESTART_WINDOW_MS = 60_000;
 const BARGE_WINDOW_MS = 800;
 /** Ate quanto tempo depois de uma pergunta uma fala nova (antes da resposta) e continuacao dela. */
 const CONTINUE_MS = 8000;
+/** Ate quanto tempo depois de cortar a resposta a fala seguinte ainda conta como a interrupcao. */
+const CUT_IN_MS = 10_000;
 
 export class VoiceSession {
   state: VoiceState = 'off';
@@ -100,6 +102,12 @@ export class VoiceSession {
   // Pausa e continuacao: a ultima pergunta e a fala que espera a continuacao.
   private lastAsk: { text: string; at: number } | undefined;
   private continuation: string | undefined;
+  /**
+   * O usuario cortou a resposta (falou por cima, chamou o nome ou Esc) e a fala
+   * dele ainda nao foi transcrita. Essa transcricao passa pelo filtro de falas
+   * nao entendidas: ruido, eco ou fala truncada e descartada em vez de virar pedido.
+   */
+  private cutInAt = -Infinity;
   private turnAbort = new AbortController();
   private readonly conversation: { start(): void; request(text: string): void; end(): void } | undefined;
   private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number; tools: string[] } | undefined;
@@ -363,7 +371,10 @@ export class VoiceSession {
         return;
       case 'speech-drop':
         // Era ruido: se a resposta anterior tinha sido calada por ele, pergunta de novo.
-        if (this.state === 'listening') this.resumeContinuation();
+        if (this.state === 'listening') {
+          this.cutInAt = -Infinity;
+          this.resumeContinuation();
+        }
         return;
       case 'transcript': {
         const text = e.text.trim();
@@ -372,10 +383,23 @@ export class VoiceSession {
             this.send({ type: 'duck', on: false }); // era eco: volume normal de novo
             return;
           }
+          if (isUnintelligible(text) && !isStopRequest(text)) {
+            this.discard(text, 'falando');
+            this.send({ type: 'duck', on: false }); // era ruido: segue falando
+            return;
+          }
           this.interrupt(false);
         }
         if (this.state !== 'listening') return;
+        const cutIn = this.now() - this.cutInAt <= CUT_IN_MS;
+        this.cutInAt = -Infinity;
         if (!text) return this.resumeContinuation();
+        // Fala que cortou a resposta mas nao foi entendida: descarta. Se ela tinha
+        // calado uma pergunta a meio caminho, essa pergunta e respondida de novo.
+        if (cutIn && !this.relay && isUnintelligible(text)) {
+          this.discard(text, 'interrupcao');
+          return this.resumeContinuation();
+        }
         if (this.continuation !== undefined) {
           // Continuacao da fala anterior: cancela a resposta a ela e responde a fala completa.
           const previous = this.continuation;
@@ -424,6 +448,7 @@ export class VoiceSession {
 
   /** Nova pergunta: ela passa a ser a que fala; roda depois das anteriores. */
   private ask(text: string, ms?: number): void {
+    this.cutInAt = -Infinity;
     this.conversation?.request(text);
     this.timing = { heard: this.now(), stt: ms, tools: [] };
     this.lastAsk = { text, at: this.now() };
@@ -525,6 +550,11 @@ export class VoiceSession {
     }
   }
 
+  /** Fala nao entendida captada durante a resposta: fica so no log, nao vira pedido. */
+  private discard(text: string, when: string): void {
+    this.log(`fala descartada (${when}, não entendida): ${JSON.stringify(text)}`);
+  }
+
   /** A continuacao esperada nao veio (ruido): responde a fala anterior. */
   private resumeContinuation(): void {
     const previous = this.continuation;
@@ -536,6 +566,7 @@ export class VoiceSession {
 
   /** Cala o Jarvis e volta a ouvir; `restartListening`: falso quando o usuario ja esta falando. */
   private interrupt(restartListening = true): void {
+    this.cutInAt = this.now();
     this.mute();
     this.send({ type: 'stop-audio' });
     this.setState('listening');
