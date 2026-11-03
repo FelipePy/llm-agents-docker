@@ -147,7 +147,8 @@ export function createApp(opts: AppOptions): App {
   // Sessoes que o usuario pediu para acompanhar (aviso por voz ao terminar ou dar erro).
   const watcher = new SessionWatcher({
     sessions: () => terminals.list(),
-    output: (id) => terminals.history(id),
+    // A tela emulada, nao os bytes brutos: o que ja foi apagado (o "esc to interrupt") nao conta.
+    output: (id) => terminals.screen(id),
     summarize: opts.voice?.watchSummary,
     quietMs: opts.voice?.watchQuietMs,
   });
@@ -256,7 +257,7 @@ export function createApp(opts: AppOptions): App {
     gitLog: (path) => gitLines(path, ['log', '-5', '--format=%h %ar %s']),
     gitChanges: (path) => gitLines(path, ['status', '--porcelain']),
     sessions: () => terminals.list(),
-    sessionOutput: (id) => terminals.history(id),
+    sessionOutput: (id) => terminals.screen(id),
     openSession: (projectPath, agent, prompt) =>
       terminals.open({
         projectPath,
@@ -295,7 +296,7 @@ export function createApp(opts: AppOptions): App {
         ...opts.evolution,
         openSession: (dir, prompt, title) => terminals.open({ projectPath: dir, agent: 'claude', prompt, title, cols: 120, rows: 30 }),
         sessions: () => terminals.list(),
-        sessionOutput: (id) => terminals.history(id),
+        sessionOutput: (id) => terminals.screen(id),
         closeSession: (id) => terminals.close(id),
       })
     : undefined;
