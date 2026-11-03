@@ -1,6 +1,6 @@
 import type { VoiceClientMessage, VoiceServerMessage, VoiceState } from '../types.ts';
 import type { Brain } from './brain.ts';
-import { SentenceSplitter, isGoodbye, isReturn, matchWake, stripMarkdown } from './text.ts';
+import { SentenceSplitter, isGoodbye, isReturn, matchWake, normalize, stripMarkdown } from './text.ts';
 
 export type WorkerCommand =
   | { cmd: 'listen'; barge?: boolean }
@@ -71,6 +71,8 @@ export class VoiceSession {
   private brainDone = true;
   private farewell = false;
   private lastRestart = -Infinity;
+  /** O que o Jarvis disse por ultimo (para reconhecer o eco da propria voz no microfone). */
+  private spoken = '';
   private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number } | undefined;
 
   constructor(
@@ -257,15 +259,28 @@ export class VoiceSession {
         }
         return;
       case 'speech-start':
-        // O usuario comecou a falar por cima do Jarvis.
-        if (this.state === 'speaking' || this.state === 'thinking') this.interrupt(false);
+        // Pensando (sem audio tocando): e o usuario falando de novo.
+        // Falando, pode ser o eco da propria voz: decide pela transcricao (abaixo).
+        if (this.state === 'thinking') this.interrupt(false);
         return;
-      case 'partial':
-        if (this.state === 'listening' && e.text.trim()) this.send({ type: 'caption', who: 'user', text: e.text.trim() });
+      case 'partial': {
+        const text = e.text.trim();
+        if (!text) return;
+        if (this.state === 'speaking') {
+          if (this.isEcho(text)) return;
+          this.interrupt(false); // o usuario falou por cima de verdade
+        }
+        if (this.state === 'listening') this.send({ type: 'caption', who: 'user', text });
         return;
+      }
       case 'transcript': {
         const text = e.text.trim();
-        if (this.state !== 'listening' || !text) return;
+        if (!text) return;
+        if (this.state === 'speaking') {
+          if (this.isEcho(text)) return;
+          this.interrupt(false);
+        }
+        if (this.state !== 'listening') return;
         this.utterance(text, e.ms);
         return;
       }
@@ -348,6 +363,20 @@ export class VoiceSession {
     if (!t) return;
     const since = (v?: number) => (v === undefined ? '?' : `${v - t.heard} ms`);
     this.log(`latência: transcrição ${t.stt ?? '?'} ms · 1º token ${since(t.firstToken)} · 1º áudio ${since(t.firstAudio)}`);
+    this.send({
+      type: 'timing',
+      stt: t.stt ?? null,
+      firstToken: t.firstToken === undefined ? null : t.firstToken - t.heard,
+      firstAudio: t.firstAudio === undefined ? null : t.firstAudio - t.heard,
+    });
+  }
+
+  /** O texto captado e basicamente o que o proprio Jarvis esta falando (eco)? */
+  private isEcho(text: string): boolean {
+    const heard = normalize(text).split(' ').filter(Boolean);
+    if (!heard.length) return true;
+    const said = new Set(normalize(this.spoken).split(' '));
+    return heard.filter((w) => said.has(w)).length / heard.length >= 0.6;
   }
 
   private speak(text: string): void {
@@ -360,6 +389,7 @@ export class VoiceSession {
     }
     const id = ++this.nextSpeech;
     this.pending.add(id);
+    this.spoken = `${this.spoken} ${clean}`.slice(-600);
     this.worker.command({ cmd: 'speak', id, text: clean });
   }
 

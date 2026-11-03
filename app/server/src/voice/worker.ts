@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { AUDIO, FrameDecoder, JSON_KIND, encodeFrame, encodeJson } from './protocol.ts';
 import type { VoiceWorker, WorkerCommand, WorkerEvent } from './session.ts';
@@ -12,6 +13,32 @@ export interface WorkerOptions {
 }
 
 const lastLines = (text: string, n = 8): string => text.trim().split('\n').slice(-n).join('\n');
+
+/**
+ * Bibliotecas CUDA instaladas pelo setup.sh no ambiente (pacotes nvidia-*):
+ * entram no LD_LIBRARY_PATH do worker para o whisper usar a GPU.
+ */
+export function withCudaLibraries(env: Record<string, string | undefined>, voiceDir: string): Record<string, string | undefined> {
+  const libDir = join(voiceDir, '.venv', 'lib');
+  const dirs: string[] = [];
+  for (const python of safeList(libDir).filter((n) => n.startsWith('python3'))) {
+    const nvidia = join(libDir, python, 'site-packages', 'nvidia');
+    for (const pkg of safeList(nvidia)) {
+      const lib = join(nvidia, pkg, 'lib');
+      if (existsSync(lib)) dirs.push(lib);
+    }
+  }
+  if (!dirs.length) return env;
+  return { ...env, LD_LIBRARY_PATH: [...dirs, env.LD_LIBRARY_PATH].filter(Boolean).join(':') };
+}
+
+function safeList(dir: string): string[] {
+  try {
+    return readdirSync(dir).sort();
+  } catch {
+    return [];
+  }
+}
 
 /** Processo do worker Python: prepara o ambiente, inicia e troca mensagens. */
 export class WorkerProcess extends EventEmitter implements VoiceWorker {
@@ -76,7 +103,7 @@ export class WorkerProcess extends EventEmitter implements VoiceWorker {
     await this.setup();
     const proc = spawn(join(this.opts.voiceDir, '.venv', 'bin', 'python'), ['-u', '-m', 'jarvis_voice'], {
       cwd: this.opts.voiceDir,
-      env: this.opts.env,
+      env: withCudaLibraries(this.opts.env, this.opts.voiceDir),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.proc = proc;

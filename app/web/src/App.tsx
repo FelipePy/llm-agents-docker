@@ -21,7 +21,7 @@ import { Sidebar } from './components/Sidebar.tsx';
 import { SkillDetail } from './components/SkillDetail.tsx';
 import { SkillsPanel } from './components/SkillsPanel.tsx';
 import { TerminalDrawer } from './components/TerminalDrawer.tsx';
-import { OFF_VIEW, VoiceClient, voiceStatus, type VoiceView } from './voice/client.ts';
+import { OFF_VIEW, VoiceClient, timingText, voiceStatus, type VoiceView } from './voice/client.ts';
 
 // A cena 3D (three.js) so e baixada quando o modo 3D esta ligado.
 const CoreScene = lazy(() => import('./scene/CoreScene.tsx').then((m) => ({ default: m.CoreScene })));
@@ -386,7 +386,12 @@ function Connected({ token }: { token: string }) {
     <div className={use3d ? 'app full' : 'app'}>
       {use3d ? (
         <div className={dayOpen ? 'day-drawer open' : 'day-drawer'}>
-          <DayPanel api={api} settings={settings} toggles={toggles} voiceStatus={voiceStatus(voice)} />
+          <DayPanel
+            api={api}
+            settings={settings}
+            toggles={toggles}
+            voiceStatus={[voiceStatus(voice), timingText(voice)].filter(Boolean).join('\n')}
+          />
           <button
             className="day-toggle"
             onClick={() => setDayOpen(!dayOpen)}

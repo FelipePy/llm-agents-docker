@@ -13,7 +13,14 @@ if ! "$py" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>
   exit 2
 fi
 
-want="$(cat "$dir/requirements.txt" "$dir/requirements-nodeps.txt" | sha256sum | cut -d' ' -f1)"
+# GPU NVIDIA (no WSL, com o driver do Windows): instala as bibliotecas CUDA do
+# whisper (cuBLAS e cuDNN) dentro do ambiente; o servidor aponta o worker para elas.
+gpu=""
+if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+  gpu="cuda12"
+fi
+
+want="$(cat "$dir/requirements.txt" "$dir/requirements-nodeps.txt" | sha256sum | cut -d' ' -f1)-$gpu"
 if [ -f "$venv/.installed" ] && [ "$(cat "$venv/.installed")" = "$want" ]; then
   exit 0
 fi
@@ -26,5 +33,10 @@ fi
 "$venv/bin/python" -m pip install -q --upgrade pip
 "$venv/bin/python" -m pip install -q -r "$dir/requirements.txt"
 "$venv/bin/python" -m pip install -q --no-deps -r "$dir/requirements-nodeps.txt"
+if [ -n "$gpu" ]; then
+  echo "GPU NVIDIA encontrada: instalando as bibliotecas CUDA do whisper..." >&2
+  "$venv/bin/python" -m pip install -q "nvidia-cublas-cu12" "nvidia-cudnn-cu12==9.*" ||
+    echo "Nao consegui instalar as bibliotecas CUDA; a transcricao vai usar a CPU." >&2
+fi
 "$venv/bin/python" -c 'import openwakeword.utils as u; u.download_models(["hey_jarvis"])'
 echo "$want" > "$venv/.installed"

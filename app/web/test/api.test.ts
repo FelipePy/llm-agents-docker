@@ -101,3 +101,11 @@ it('Api.day manda as coordenadas arredondadas, quando existem', async () => {
   await api.day();
   expect(urls).toEqual(['/api/day?lat=-23.551&lon=-46.633', '/api/day']);
 });
+
+it('timingText resume os tempos da ultima resposta', async () => {
+  const { timingText } = await import('../src/voice/client.ts');
+  expect(timingText({ state: 'sleeping', user: '', jarvis: '', timing: { stt: 1240, firstToken: 2100, firstAudio: 2950 } })).toBe(
+    'última resposta: transcrição 1,2 s · 1ª palavra 2,1 s · voz 3,0 s',
+  );
+  expect(timingText({ state: 'sleeping', user: '', jarvis: '' })).toBe('');
+});

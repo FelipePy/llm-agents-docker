@@ -10,9 +10,20 @@ export interface VoiceView {
   jarvis: string;
   /** Conversa direta com uma sessao (nome dela), ou null. */
   relay?: string | null;
+  /** Tempos da ultima resposta (ms desde o fim da fala). */
+  timing?: { stt: number | null; firstToken: number | null; firstAudio: number | null };
 }
 
 export const OFF_VIEW: VoiceView = { state: 'off', user: '', jarvis: '' };
+
+const seconds = (ms: number | null): string => (ms === null ? '?' : `${(ms / 1000).toFixed(1).replace('.', ',')} s`);
+
+/** "transcrição 1,2 s · resposta 0,9 s · voz 1,6 s" da ultima fala (vazio se nao houver). */
+export function timingText(v: VoiceView): string {
+  const t = v.timing;
+  if (!t || v.state === 'off') return '';
+  return `última resposta: transcrição ${seconds(t.stt)} · 1ª palavra ${seconds(t.firstToken)} · voz ${seconds(t.firstAudio)}`;
+}
 
 const MODE: Record<VoiceState, CoreMode> = {
   off: 'idle',
@@ -144,6 +155,9 @@ export class VoiceClient {
         return;
       case 'relay':
         this.onView({ relay: m.target });
+        return;
+      case 'timing':
+        this.onView({ timing: { stt: m.stt, firstToken: m.firstToken, firstAudio: m.firstAudio } });
         return;
     }
   }

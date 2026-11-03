@@ -60,3 +60,14 @@ test('WorkerProcess repassa a mensagem quando a preparacao falha', async () => {
   await assert.rejects(w.ensureReady(), /Python 3.10/);
   w.stop();
 });
+
+test('withCudaLibraries poe as bibliotecas nvidia do ambiente no LD_LIBRARY_PATH', async () => {
+  const { withCudaLibraries } = await import('../src/voice/worker.ts');
+  const dir = join(tempHome(), 'voice');
+  const site = join(dir, '.venv', 'lib', 'python3.12', 'site-packages', 'nvidia');
+  mkdirSync(join(site, 'cublas', 'lib'), { recursive: true });
+  mkdirSync(join(site, 'cudnn', 'lib'), { recursive: true });
+  const env = withCudaLibraries({ PATH: '/bin', LD_LIBRARY_PATH: '/x' }, dir);
+  assert.equal(env.LD_LIBRARY_PATH, `${join(site, 'cublas', 'lib')}:${join(site, 'cudnn', 'lib')}:/x`);
+  assert.deepEqual(withCudaLibraries({ PATH: '/bin' }, join(tempHome(), 'nada')), { PATH: '/bin' });
+});

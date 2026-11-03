@@ -179,7 +179,7 @@ Na primeira vez, o servidor cria um ambiente Python em `app/voice/.venv` e baixa
 | --- | --- | --- |
 | `LLM_AGENT_VOICE_MODEL` | `haiku` | modelo do Claude que responde |
 | `LLM_AGENT_VOICE` | `pt-BR-AntonioNeural` | voz do edge-tts (`pt-BR-FranciscaNeural`, `pt-BR-ThalitaMultilingualNeural`…) |
-| `LLM_AGENT_VOICE_STT_MODEL` | `small` | modelo do whisper (`base` é mais rápido; `medium` transcreve melhor) |
+| `LLM_AGENT_VOICE_STT_MODEL` | `auto` | modelo do whisper: `auto` usa o `small` na GPU NVIDIA e o `base` na CPU (mais rápido); `small` ou `medium` transcrevem melhor e demoram mais na CPU |
 | `LLM_AGENT_VOICE_WAKE_THRESHOLD` | `0.5` | sensibilidade do "Hey Jarvis" (maior = menos ativações falsas) |
 | `LLM_AGENT_VOICE_END_MS` | `500` | silêncio (ms) que marca o fim da sua fala |
 | `LLM_AGENT_VOICE_RATE` | `+0%` | velocidade da voz (ex.: `+10%` fala um pouco mais rápido) |
@@ -189,7 +189,7 @@ Na primeira vez, o servidor cria um ambiente Python em `app/voice/.venv` e baixa
 | `LLM_AGENT_VOICE_NEWS_EVERY_MIN` | `90` | minutos entre as rodadas de notícias (mínimo 15) |
 | `LLM_AGENT_VOICE_NAME_WAKE` | `1` | `0` desliga o chamado só pelo nome (esperando, o whisper transcreve falas curtas para achar "Jarvis"; isso usa CPU) |
 
-O log do servidor (`~/.config/llm-agent/ui/server.log`) mostra o tempo de cada etapa de uma resposta (`[voz] latência: transcrição … · 1º token … · 1º áudio …`), útil para ajustar o modelo do whisper.
+Com GPU NVIDIA (no WSL, com o driver do Windows), a preparação da voz instala as bibliotecas CUDA e a transcrição roda na GPU, bem mais rápida. O painel do dia mostra os tempos da última resposta (transcrição, primeira palavra e voz), e o log do servidor (`~/.config/llm-agent/ui/server.log`) mostra o tempo de cada etapa de uma resposta (`[voz] latência: transcrição … · 1º token … · 1º áudio …`), útil para ajustar o modelo do whisper.
 
 ## App desktop (Windows e Ubuntu)
 

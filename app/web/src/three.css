@@ -78,7 +78,7 @@
 .settings { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
 .settings label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .day .hint, .sidebar .hint { margin-top: 0; }
-.voice-status { margin: -2px 0 4px 24px; color: #ffd36b; }
+.voice-status { margin: -2px 0 4px 24px; color: #ffd36b; white-space: pre-line; line-height: 1.5; }
 .captions { position: absolute; left: 50%; bottom: 48px; transform: translateX(-50%); z-index: 3; width: min(560px, 60%); text-align: center; pointer-events: none; }
 .captions p { margin: 4px 0; line-height: 1.4; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9); }
 .captions .you { color: var(--muted); font-size: 13px; }

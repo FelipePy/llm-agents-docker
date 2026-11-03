@@ -152,16 +152,34 @@ test('palavra de ativacao durante a fala cala o Jarvis; a resposta termina em ba
   assert.deepEqual(s.brain.calls, ['conta uma historia', 'e agora?']);
 });
 
-test('falar por cima do Jarvis interrompe sem reiniciar a escuta', async () => {
-  const s = await started([['Frase um. ', 'Frase dois.']]);
+test('o eco da propria voz nao interrompe o Jarvis', async () => {
+  const s = await started([['Boa noite, senhor. ', 'Tudo pronto por aqui.']]);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'oi' });
+  await waitFor(() => s.session.state === 'speaking' && s.worker.speaks().length === 2);
+  s.worker.fire({ event: 'speech-start' });
+  s.worker.fire({ event: 'partial', text: 'boa noite senhor' });
+  s.worker.fire({ event: 'transcript', id: 2, text: 'Boa noite, senhor. Tudo pronto.' });
+  assert.equal(s.session.state, 'speaking');
+  assert.ok(!s.sent.some((m) => m.type === 'stop-audio'));
+  assert.equal(s.brain.calls.length, 1, 'o eco nao vira pergunta');
+});
+
+test('falar por cima de verdade interrompe e a fala vira a nova pergunta', async () => {
+  const s = await started([['Frase um. ', 'Frase dois.'], ['Ok.']]);
   s.worker.fire({ event: 'wake', score: 0.9 });
   s.worker.fire({ event: 'transcript', id: 1, text: 'oi' });
   await waitFor(() => s.session.state === 'speaking');
   const before = s.worker.commands.length;
   s.worker.fire({ event: 'speech-start' });
+  assert.equal(s.session.state, 'speaking', 'so a deteccao de fala nao basta');
+  s.worker.fire({ event: 'partial', text: 'espera, abre o projeto' });
   assert.equal(s.session.state, 'listening');
   assert.ok(s.sent.some((m) => m.type === 'stop-audio'));
   assert.ok(!s.worker.commands.slice(before).some((c) => c.cmd === 'listen'), 'nao reinicia a fala que esta sendo captada');
+  s.worker.fire({ event: 'transcript', id: 2, text: 'espera, abre o projeto meu-app' });
+  await waitFor(() => s.brain.calls.length === 2);
+  assert.equal(s.brain.calls[1], 'espera, abre o projeto meu-app');
 });
 
 test('sem interrupcao por voz, falando o worker so escuta a palavra de ativacao', async () => {

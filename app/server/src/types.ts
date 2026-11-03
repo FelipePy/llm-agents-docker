@@ -121,6 +121,8 @@ export type VoiceServerMessage =
   | { type: 'stop-audio' }
   | { type: 'chime' }
   | { type: 'ui'; command: UiCommand }
+  /** Tempos da ultima resposta, em ms desde o fim da fala (null: nao medido). */
+  | { type: 'timing'; stt: number | null; firstToken: number | null; firstAudio: number | null }
   /** Conversa direta com uma sessao (null: de volta ao Jarvis). */
   | { type: 'relay'; target: string | null }
   | { type: 'error'; message: string };

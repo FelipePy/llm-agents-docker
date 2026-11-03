@@ -22,7 +22,7 @@ FRAME_SAMPLES = 1280  # 80 ms a 16 kHz
 FRAME_BYTES = FRAME_SAMPLES * 2
 WAKE_DEBOUNCE_S = 2.0
 PARTIAL_EVERY_FRAMES = 6  # legenda parcial a cada ~0,5 s de fala
-AUDIO_CHUNK_BYTES = 4096  # envia a voz em pedacos, enquanto o edge-tts gera
+AUDIO_CHUNK_BYTES = 2048  # envia a voz em pedacos (~0,3 s), enquanto o edge-tts gera
 HEARD_MAX_BYTES = 8 * 32000  # esperando ser chamado, so transcreve falas de ate 8 s
 
 _lock = threading.Lock()
@@ -39,14 +39,31 @@ def log(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
+def cuda_available() -> bool:
+    try:
+        import ctranslate2
+
+        return ctranslate2.get_cuda_device_count() > 0
+    except Exception:
+        return False
+
+
 def load_whisper(name: str):
+    """Modelo "auto": "small" na GPU (rapido e preciso); "base" na CPU (~3x mais rapido que o "small")."""
     from faster_whisper import WhisperModel
 
-    try:
-        return WhisperModel(name, device="auto", compute_type="default")
-    except Exception as err:  # sem CUDA utilizavel
-        log(f"whisper: falha no modo automatico ({err}); usando CPU int8")
-        return WhisperModel(name, device="cpu", compute_type="int8")
+    gpu = cuda_available()
+    if name == "auto":
+        name = "small" if gpu else "base"
+    if gpu:
+        try:
+            model = WhisperModel(name, device="cuda", compute_type="float16")
+            log(f"whisper: modelo {name} na GPU")
+            return model
+        except Exception as err:  # bibliotecas CUDA ausentes ou incompativeis
+            log(f"whisper: GPU indisponivel ({err}); usando CPU")
+    log(f"whisper: modelo {name} na CPU (int8)")
+    return WhisperModel(name, device="cpu", compute_type="int8")
 
 
 def main() -> None:
@@ -59,7 +76,7 @@ def main() -> None:
 
     wake = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
     vad = VAD()
-    whisper = load_whisper(os.environ.get("LLM_AGENT_VOICE_STT_MODEL", "small"))
+    whisper = load_whisper(os.environ.get("LLM_AGENT_VOICE_STT_MODEL", "auto"))
     voice = os.environ.get("LLM_AGENT_VOICE", "pt-BR-AntonioNeural")
     rate = os.environ.get("LLM_AGENT_VOICE_RATE", "+0%")
     if not re.fullmatch(r"[+-]\d{1,2}%", rate):
@@ -86,6 +103,7 @@ def main() -> None:
             language="pt",
             beam_size=1,
             condition_on_previous_text=False,
+            without_timestamps=True,
             # "hotwords" destaca os nomes sem trata-los como fala anterior
             # (com initial_prompt, o whisper "transcrevia" a lista em ruido).
             hotwords=state["prompt"] or None,
