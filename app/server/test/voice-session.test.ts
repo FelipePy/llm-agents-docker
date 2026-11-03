@@ -647,3 +647,96 @@ test('fora de uma interrupcao, o filtro nao se aplica', async () => {
   s.worker.fire({ event: 'transcript', id: 2, text: 'hmm' });
   await waitFor(() => s.brain.calls.length === 2);
 });
+
+/** Sessao com voz cadastrada: `answer` diz se o trecho e do usuario (ou lanca erro). */
+async function withSpeaker(answer: (clip: number | undefined) => boolean | Error, script: Step[] = [['Abrindo.']]) {
+  const worker = new FakeWorker();
+  const brain = new FakeBrain(script);
+  const sent: VoiceServerMessage[] = [];
+  const checked: (number | undefined)[] = [];
+  const conversations: string[] = [];
+  const session = new VoiceSession(worker, brain, (m) => sent.push(m), () => 0, () => {}, {
+    speaker: {
+      enrolled: () => true,
+      verify: async (clip) => {
+        checked.push(clip);
+        const r = answer(clip);
+        if (r instanceof Error) throw r;
+        return r;
+      },
+    },
+    conversation: { start: () => conversations.push('start'), request: () => {}, end: () => conversations.push('end') },
+  });
+  await session.start();
+  const captions = () => sent.filter((m) => m.type === 'caption').map((m) => (m as { text: string }).text);
+  return { worker, brain, sent, session, checked, captions, conversations };
+}
+
+test('voz cadastrada: a ativacao so acorda se a voz for a do usuario', async () => {
+  const s = await withSpeaker((clip) => clip === 7);
+  s.worker.fire({ event: 'wake', score: 0.9, clip: 7 });
+  assert.equal(s.session.state, 'sleeping', 'espera a verificacao');
+  await waitFor(() => s.session.state === 'listening');
+  assert.deepEqual(s.checked, [7]);
+  // No meio da conversa, chamar de novo nao confere outra vez.
+  s.worker.fire({ event: 'transcript', id: 1, text: 'que horas são' });
+  await waitFor(() => s.brain.calls.length === 1);
+  s.worker.fire({ event: 'wake', score: 0.9, clip: 8 });
+  assert.deepEqual(s.checked, [7]);
+});
+
+test('voz cadastrada: "Jarvis, abre..." de outra voz e recusado e nada e executado', async () => {
+  const s = await withSpeaker(() => false);
+  s.worker.fire({ event: 'heard', text: 'Jarvis, abre o projeto meu-app.', clip: 3 });
+  await waitFor(() => s.worker.speaks().length === 1);
+  assert.equal(s.worker.speaks()[0].text, 'Não reconheci a sua voz.');
+  assert.equal(s.worker.last(), 'sleep', 'nao ouve pedidos nem fala por cima');
+  assert.deepEqual(s.brain.calls, []);
+  // Enquanto avisa, nem fala nem "Jarvis" de novo abrem a conversa.
+  s.worker.fire({ event: 'speech-start' });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'abre o projeto meu-app' });
+  s.worker.fire({ event: 'wake', score: 0.9, clip: 4 });
+  s.session.client({ type: 'played', id: s.worker.speaks()[0].id });
+  assert.equal(s.session.state, 'sleeping');
+  assert.deepEqual(s.brain.calls, []);
+  assert.deepEqual(s.conversations, [], 'recusa nao conta como conversa');
+});
+
+test('voz cadastrada: Esc durante o aviso volta a esperar', async () => {
+  const s = await withSpeaker(() => false);
+  s.worker.fire({ event: 'wake', score: 0.9, clip: 1 });
+  await waitFor(() => s.session.state === 'speaking');
+  s.session.client({ type: 'interrupt' });
+  assert.equal(s.session.state, 'sleeping');
+  s.worker.fire({ event: 'transcript', id: 1, text: 'abre o projeto meu-app' });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(s.brain.calls, []);
+});
+
+test('voz cadastrada: se nao der para conferir, avisa e nao executa', async () => {
+  const s = await withSpeaker(() => new Error('modelo indisponivel'));
+  s.worker.fire({ event: 'heard', text: 'Jarvis, que horas são', clip: 2 });
+  await waitFor(() => s.worker.speaks().length === 1);
+  assert.match(s.worker.speaks()[0].text, /Não consegui conferir a sua voz/);
+  assert.deepEqual(s.brain.calls, []);
+});
+
+test('voz cadastrada: duas ativacoes seguidas conferem uma vez so', async () => {
+  const s = await withSpeaker(() => true);
+  s.worker.fire({ event: 'wake', score: 0.9, clip: 1 });
+  s.worker.fire({ event: 'heard', text: 'Jarvis', clip: 2 });
+  await waitFor(() => s.session.state === 'listening');
+  assert.deepEqual(s.checked, [1]);
+});
+
+test('sem voz cadastrada, qualquer voz ativa (sem conferir)', async () => {
+  const worker = new FakeWorker();
+  let asked = 0;
+  const session = new VoiceSession(worker, new FakeBrain([]), () => {}, () => 0, () => {}, {
+    speaker: { enrolled: () => false, verify: async () => (asked++, false) },
+  });
+  await session.start();
+  worker.fire({ event: 'wake', score: 0.9, clip: 1 });
+  assert.equal(session.state, 'listening');
+  assert.equal(asked, 0);
+});
