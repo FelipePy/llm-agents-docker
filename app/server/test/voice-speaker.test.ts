@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
+import { EventEmitter } from 'node:events';
+import { startApp } from './app.ts';
+import type { VoiceWorker, WorkerCommand } from '../src/voice/session.ts';
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tempHome } from './helpers.ts';
@@ -181,4 +184,49 @@ test('sendMail conversa com um servidor SMTP (local, sem TLS)', async () => {
 test('SMTP sem TLS so vale no proprio PC', () => {
   assert.ok(plainAllowed('127.0.0.1') && plainAllowed('localhost'));
   assert.ok(!plainAllowed('smtp.gmail.com'));
+});
+
+test('/api/voice/profile: cadastro pelo worker, verificacao e recuperacao', async () => {
+  const commands: WorkerCommand[] = [];
+  const worker = Object.assign(new EventEmitter(), {
+    async ensureReady() {},
+    command(c: WorkerCommand) {
+      commands.push(c);
+      if (c.cmd !== 'embed') return;
+      const vectors = c.audio ? c.audio.map((a) => (whoIs(a) === 'me' ? ME : OTHER)) : [c.clip === 1 ? ME : OTHER];
+      setImmediate(() => worker.emit('event', { event: 'embedding', id: c.id, vectors }));
+    },
+    sendAudio() {},
+  }) as unknown as VoiceWorker & EventEmitter;
+  const home = tempHome();
+  const file = join(home, 'ui', 'voice-profile.json');
+  const { app, base } = await startApp(home, { voice: { worker, brain: { async *reply() {} }, profile: { file } } });
+  const auth = { authorization: 'Bearer tok', 'content-type': 'application/json' };
+  const post = async (path: string, body: unknown) => {
+    const res = await fetch(`${base}${path}`, { method: 'POST', headers: auth, body: JSON.stringify(body) });
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  };
+  try {
+    assert.equal((await fetch(`${base}/api/voice/profile`)).status, 401);
+    const view = await (await fetch(`${base}/api/voice/profile`, { headers: auth })).json();
+    assert.equal(view.enrolled, false);
+    const bad = await post('/api/voice/profile', { audio: four(), password: 'curta' });
+    assert.equal(bad.status, 400);
+    const ok = await post('/api/voice/profile', { audio: four(), password: 'senha-boa' });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.enrolled, true);
+    assert.ok(commands.some((c) => c.cmd === 'embed' && c.audio?.length === 4));
+    const again = await post('/api/voice/profile', { audio: four(), currentPassword: 'errada!!' });
+    assert.match(String(again.body.error), /Senha incorreta/);
+    const rec = await post('/api/voice/profile/recover', { method: 'voice', audio: clip('me'), password: 'nova-senha' });
+    assert.equal(rec.status, 200);
+    assert.match(String((await post('/api/voice/profile/recover', { method: 'email' })).body.error), /Nenhum e-mail/);
+    assert.equal((await post('/api/voice/profile/recover', { method: 'x' })).status, 400);
+
+    // O perfil fica salvo para os proximos inicios do servidor.
+    const store = new SpeakerProfileStore({ file, embed: async () => [], embedClip: async () => null });
+    assert.equal(store.enrolled(), true);
+  } finally {
+    await app.close();
+  }
 });

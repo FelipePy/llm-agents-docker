@@ -12,6 +12,8 @@ import { WorkerProcess } from './voice/worker.ts';
 import { VoiceSettingsStore, sttConfig } from './voice/settings.ts';
 import { JarvisMemory } from './voice/memory.ts';
 import { NewsHistory } from './voice/news-history.ts';
+import { parseSmtpUrl, sendMail } from './mail.ts';
+import { DEFAULT_THRESHOLD, type Mailer } from './voice/speaker.ts';
 
 const home = process.env.HOME;
 if (!home) {
@@ -51,6 +53,17 @@ const voiceSettings = new VoiceSettingsStore(join(stateDir, 'voice.json'), {
   onChange: (s) => voiceWorker.configureStt(sttConfig(s)),
 });
 voiceWorker.configureStt(sttConfig(voiceSettings.get()));
+// Codigo de recuperacao da senha da voz por e-mail (opcional): smtps://usuario:senha@host:465.
+let mailer: Mailer | undefined;
+if (process.env.LLM_AGENT_SMTP_URL) {
+  try {
+    const smtp = parseSmtpUrl(process.env.LLM_AGENT_SMTP_URL, process.env.LLM_AGENT_SMTP_FROM);
+    mailer = (to, subject, text) => sendMail(smtp, to, subject, text);
+  } catch (err) {
+    console.error(`LLM_AGENT_SMTP_URL inválida (${(err as Error).message}); recuperação da senha da voz só pela voz`);
+  }
+}
+const speakerThreshold = Number(process.env.LLM_AGENT_VOICE_SPEAKER_THRESHOLD) || DEFAULT_THRESHOLD;
 let brain: ClaudeBrain | undefined;
 const voiceModel = process.env.LLM_AGENT_VOICE_MODEL || 'haiku';
 const makeBrain = (ctx: Parameters<typeof createJarvisServer>[0]) =>
@@ -132,6 +145,8 @@ const app = createApp({
     judge: process.env.LLM_AGENT_VOICE_JUDGE === '0' ? undefined : claudeJudge({ model: voiceModel, cwd: workspaceDir }),
     // Aviso de sessao acompanhada que terminou ou deu erro, resumido por um Claude a parte.
     watchSummary: claudeWatchSummary({ model: voiceModel, cwd: workspaceDir }),
+    // So a voz cadastrada ativa o Jarvis (conferida na ativacao).
+    profile: { file: join(stateDir, 'voice-profile.json'), mailer, threshold: speakerThreshold },
   },
   manualPath: join(repo, 'README.md'),
   evolution: {
