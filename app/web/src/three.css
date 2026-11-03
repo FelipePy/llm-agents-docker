@@ -139,6 +139,10 @@
 .stt-actions { display: flex; gap: 10px; align-items: center; }
 .stt-actions .link { background: none; border: none; padding: 0; color: var(--muted); text-decoration: underline; cursor: pointer; }
 .stt-notice { font-size: 12px; }
+.voice-phrase { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.voice-phrase > span:first-child { flex: 1; }
+.voice-phrase button { flex: none; }
+.voice-ok, .settings-panel .voice-enrolled { color: #7fd99a; }
 .stt-notice.ok { color: #7fd99a; }
 .stt-notice.error { color: #ff8a80; }
 .stt-notice.busy { color: var(--muted); }

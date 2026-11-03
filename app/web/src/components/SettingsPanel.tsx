@@ -1,6 +1,7 @@
 import type { Api } from '../api.ts';
 import type { DesktopInfo } from '../desktop.ts';
 import { SttSettings } from './SttSettings.tsx';
+import { VoiceProfileSettings } from './VoiceProfileSettings.tsx';
 import { GLOBE_COLORS, isGlobeColor } from '../scene/globe.ts';
 import type { SettingsState, SettingsToggles } from './Settings.tsx';
 
@@ -35,6 +36,7 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
           Demonstração de voz
         </label>
         <SttSettings api={api} />
+        <VoiceProfileSettings api={api} />
       </section>
 
       <section>
