@@ -51,7 +51,7 @@ export interface SpeakerCheck {
   verify(clip: number | undefined): Promise<boolean>;
 }
 
-export const VOICE_REFUSED = 'Não reconheci a sua voz.';
+export const VOICE_REFUSED = 'Acesso negado.';
 export const VOICE_CHECK_FAILED = 'Não consegui conferir a sua voz agora; tente de novo em instantes.';
 
 /** Terminal da sessao na conversa direta. Cada funcao devolve falso se a sessao acabou. */
@@ -84,6 +84,8 @@ const CUT_IN_MS = 10_000;
 const ANNOUNCE_QUIET_MS = 10_000;
 /** Por quanto tempo o cerebro fica sabendo do ultimo aviso falado (para o "conta mais"). */
 const NOTICE_CONTEXT_MS = 10 * 60_000;
+/** Depois de falar "acesso negado", outros chamados recusados neste intervalo so aparecem na legenda. */
+const REFUSE_REPEAT_MS = 30_000;
 
 export class VoiceSession {
   state: VoiceState = 'off';
@@ -154,6 +156,8 @@ export class VoiceSession {
   private checkingVoice = false;
   /** Falando que nao reconheceu a voz: nada interrompe nem abre a conversa. */
   private refusing = false;
+  /** Quando o Jarvis falou "acesso negado" por ultimo (para nao repetir o aviso sem parar). */
+  private lastRefusal = -Infinity;
   private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number; tools: string[] } | undefined;
 
   constructor(
@@ -353,7 +357,7 @@ export class VoiceSession {
    * Chamado enquanto esperava: com voz cadastrada, so acorda se a voz de quem
    * chamou for a do usuario; se nao for, avisa e continua esperando.
    */
-  private activate(clip: number | undefined, wake: () => void): void {
+  private activate(clip: number | undefined, wake: () => void, heard?: string): void {
     if (!this.speaker?.enrolled()) return wake();
     if (this.checkingVoice) return;
     this.checkingVoice = true;
@@ -368,13 +372,30 @@ export class VoiceSession {
         this.checkingVoice = false;
         if (stopped.aborted || this.state !== 'sleeping') return;
         if (ok) return wake();
-        this.refuse(ok === null ? VOICE_CHECK_FAILED : VOICE_REFUSED);
+        if (ok === null) return this.refuse(VOICE_CHECK_FAILED, heard);
+        this.deny(heard);
       });
   }
 
+  /**
+   * Chamado por outra voz: "acesso negado" e nada e executado. A legenda mostra a
+   * fala ignorada; outro chamado recusado logo depois nao repete o aviso em voz.
+   */
+  private deny(heard: string | undefined): void {
+    if (this.now() - this.lastRefusal < REFUSE_REPEAT_MS) {
+      this.log('ativação recusada de novo: só na legenda');
+      if (heard) this.send({ type: 'caption', who: 'user', text: heard, ignored: true });
+      this.send({ type: 'caption', who: 'jarvis', text: VOICE_REFUSED });
+      return;
+    }
+    this.lastRefusal = this.now();
+    this.refuse(VOICE_REFUSED, heard);
+  }
+
   /** Voz nao reconhecida: avisa e volta a esperar, sem abrir conversa nem ouvir pedidos. */
-  private refuse(text: string): void {
+  private refuse(text: string, heard?: string): void {
     this.log(`ativação recusada: ${text}`);
+    if (heard) this.send({ type: 'caption', who: 'user', text: heard, ignored: true });
     this.refusing = true;
     this.turn++;
     this.brainDone = true;
@@ -452,10 +473,14 @@ export class VoiceSession {
         if (this.state !== 'sleeping') return;
         const called = matchWake(e.text);
         if (!called) return;
-        return this.activate(e.clip, () => {
-          this.wakeUp(!called.rest);
-          if (called.rest) this.utterance(called.rest, e.ms);
-        });
+        return this.activate(
+          e.clip,
+          () => {
+            this.wakeUp(!called.rest);
+            if (called.rest) this.utterance(called.rest, e.ms);
+          },
+          e.text.trim(),
+        );
       }
       case 'wake':
         if (this.refusing) return;

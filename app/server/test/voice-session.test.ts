@@ -649,13 +649,17 @@ test('fora de uma interrupcao, o filtro nao se aplica', async () => {
 });
 
 /** Sessao com voz cadastrada: `answer` diz se o trecho e do usuario (ou lanca erro). */
-async function withSpeaker(answer: (clip: number | undefined) => boolean | Error, script: Step[] = [['Abrindo.']]) {
+async function withSpeaker(
+  answer: (clip: number | undefined) => boolean | Error,
+  script: Step[] = [['Abrindo.']],
+  clock: { t: number } = { t: 0 },
+) {
   const worker = new FakeWorker();
   const brain = new FakeBrain(script);
   const sent: VoiceServerMessage[] = [];
   const checked: (number | undefined)[] = [];
   const conversations: string[] = [];
-  const session = new VoiceSession(worker, brain, (m) => sent.push(m), () => 0, () => {}, {
+  const session = new VoiceSession(worker, brain, (m) => sent.push(m), () => clock.t, () => {}, {
     speaker: {
       enrolled: () => true,
       verify: async (clip) => {
@@ -689,7 +693,11 @@ test('voz cadastrada: "Jarvis, abre..." de outra voz e recusado e nada e executa
   const s = await withSpeaker(() => false);
   s.worker.fire({ event: 'heard', text: 'Jarvis, abre o projeto meu-app.', clip: 3 });
   await waitFor(() => s.worker.speaks().length === 1);
-  assert.equal(s.worker.speaks()[0].text, 'Não reconheci a sua voz.');
+  assert.equal(s.worker.speaks()[0].text, 'Acesso negado.');
+  assert.ok(
+    s.sent.some((m) => m.type === 'caption' && m.who === 'user' && m.ignored && m.text === 'Jarvis, abre o projeto meu-app.'),
+    'a legenda mostra a fala ignorada',
+  );
   assert.equal(s.worker.last(), 'sleep', 'nao ouve pedidos nem fala por cima');
   assert.deepEqual(s.brain.calls, []);
   // Enquanto avisa, nem fala nem "Jarvis" de novo abrem a conversa.
@@ -700,6 +708,36 @@ test('voz cadastrada: "Jarvis, abre..." de outra voz e recusado e nada e executa
   assert.equal(s.session.state, 'sleeping');
   assert.deepEqual(s.brain.calls, []);
   assert.deepEqual(s.conversations, [], 'recusa nao conta como conversa');
+});
+
+test('voz cadastrada: outro chamado recusado logo depois so aparece na legenda', async () => {
+  const clock = { t: 1000 };
+  const s = await withSpeaker(() => false, [], clock);
+  s.worker.fire({ event: 'heard', text: 'Jarvis', clip: 1 });
+  await waitFor(() => s.worker.speaks().length === 1);
+  s.session.client({ type: 'played', id: s.worker.speaks()[0].id });
+  assert.equal(s.session.state, 'sleeping');
+  clock.t += 10_000;
+  s.worker.fire({ event: 'heard', text: 'Jarvis, desliga tudo', clip: 2 });
+  await waitFor(() => s.checked.length === 2);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(s.worker.speaks().length, 1, 'nao repete o aviso em voz');
+  assert.equal(s.session.state, 'sleeping');
+  assert.deepEqual(s.captions().slice(-2), ['Jarvis, desliga tudo', 'Acesso negado.']);
+  // Passado o intervalo, avisa em voz de novo.
+  clock.t += 30_000;
+  s.worker.fire({ event: 'wake', score: 0.9, clip: 3 });
+  await waitFor(() => s.worker.speaks().length === 2);
+  assert.deepEqual(s.brain.calls, []);
+});
+
+test('esperando: conversa de fundo sem chamado e ignorada, sem resposta nem conferencia', async () => {
+  const s = await withSpeaker(() => false);
+  s.worker.fire({ event: 'heard', text: 'passa o sal, por favor', clip: 1 });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(s.checked, []);
+  assert.deepEqual(s.worker.speaks(), []);
+  assert.equal(s.session.state, 'sleeping');
 });
 
 test('voz cadastrada: Esc durante o aviso volta a esperar', async () => {
