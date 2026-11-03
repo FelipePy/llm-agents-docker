@@ -318,7 +318,8 @@ export function createApp(opts: AppOptions): App {
     if (delivering) return;
     delivering = true;
     try {
-      const say = (text: string) => voiceSession?.announce(text) ?? false;
+      // Avisos pedidos (sessao acompanhada, evolucao): saem tambem no meio da conversa, num silencio.
+      const say = (text: string) => voiceSession?.announce(text, { whileListening: true }) ?? false;
       notices.push(...(await watcher.check()));
       while (notices.length && say(notices[0])) notices.shift();
       const file = opts.evolution?.updateFile;

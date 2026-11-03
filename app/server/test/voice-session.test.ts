@@ -456,6 +456,31 @@ test('anuncio so fala quando o Jarvis esta esperando, e volta a esperar', async 
   assert.equal(session.announce('x'), false, 'conversando: nao interrompe');
 });
 
+test('aviso pedido sai no meio da conversa, num silencio, e o cerebro fica sabendo dele', async () => {
+  let t = 0;
+  const s = await started([['Vou acompanhar.'], ['O meu-app terminou os testes.']], () => t);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'me avisa quando o meu-app terminar' });
+  await waitFor(() => s.worker.speaks().length === 1);
+  s.session.client({ type: 'played', id: s.worker.speaks()[0].id });
+  assert.equal(s.session.state, 'listening');
+  const notice = 'Senhor, a sessão do meu-app terminou.';
+  assert.equal(s.session.announce(notice), false, 'anuncio comum: so dormindo');
+  t = 5_000;
+  assert.equal(s.session.announce(notice, { whileListening: true }), false, 'acabou de responder: espera um silencio');
+  t = 20_000;
+  s.worker.fire({ event: 'speech-start' });
+  assert.equal(s.session.announce(notice, { whileListening: true }), false, 'o usuario esta falando');
+  s.worker.fire({ event: 'speech-drop' });
+  assert.equal(s.session.announce(notice, { whileListening: true }), true);
+  assert.equal(s.session.state, 'speaking');
+  s.session.client({ type: 'played', id: s.worker.speaks().at(-1)!.id });
+  assert.equal(s.session.state, 'listening', 'continua a conversa');
+  s.worker.fire({ event: 'transcript', id: 2, text: 'conta mais' });
+  await waitFor(() => s.brain.calls.length === 2);
+  assert.equal(s.brain.calls[1], `[você avisou o usuário, sem ele pedir agora: "${notice}"]\nconta mais`);
+});
+
 test('interromper na hora: fala detectada + microfone acima do eco (o usuario, nao o eco)', async () => {
   let t = 0;
   const s = await started([['Hoje o dia está nublado e vai chover à tarde. ', 'Leve guarda-chuva.']], () => t);
