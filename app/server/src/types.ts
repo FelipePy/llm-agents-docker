@@ -109,6 +109,8 @@ export type ServerMessage =
   | { type: 'history'; id: string; data: string }
   | { type: 'exit'; id: string; code: number }
   | { type: 'changed' }
+  /** Estado da voz e ultima fala do Jarvis (para a bolinha flutuante do app desktop). */
+  | { type: 'voice'; state: VoiceState; text?: string }
   | { type: 'error'; message: string };
 
 // Voz (etapa 3a). "off": escuta desligada; "preparing": instalando/carregando.

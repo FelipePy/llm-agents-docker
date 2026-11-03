@@ -27,6 +27,8 @@ test('tokenMatches e originAllowed', () => {
   assert.equal(originAllowed('http://127.0.0.1:7777', 7777, []), true);
   assert.equal(originAllowed('http://localhost:7777', 7777, []), true);
   assert.equal(originAllowed('http://evil.com', 7777, []), false);
+  assert.equal(originAllowed('http://tauri.localhost', 7777, []), true, 'bolinha do app desktop (Windows)');
+  assert.equal(originAllowed('tauri://localhost', 7777, []), true, 'bolinha do app desktop (Linux)');
   assert.equal(originAllowed('http://dev:5173', 7777, ['http://dev:5173']), true);
 });
 

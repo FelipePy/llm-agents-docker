@@ -22,6 +22,9 @@ import { SkillDetail } from './components/SkillDetail.tsx';
 import { SkillsPanel } from './components/SkillsPanel.tsx';
 import { TerminalDrawer } from './components/TerminalDrawer.tsx';
 import { OFF_VIEW, VoiceClient, timingText, voiceStatus, type VoiceView } from './voice/client.ts';
+import { floatSupported, openFloatingOrb, type FloatingOrb } from './voice/float.ts';
+import { SettingsPanel } from './components/SettingsPanel.tsx';
+import { setAutostart, useDesktop } from './desktop.ts';
 
 // A cena 3D (three.js) so e baixada quando o modo 3D esta ligado.
 const CoreScene = lazy(() => import('./scene/CoreScene.tsx').then((m) => ({ default: m.CoreScene })));
@@ -52,7 +55,10 @@ function Connected({ token }: { token: string }) {
   // O Jarvis ja comeca ouvindo a cada abertura do app (desligar vale so ate fechar).
   const [voiceOn, setVoiceOn] = useState(true);
   // Painel do dia (clima, noticias, opcoes): gaveta que comeca fechada.
-  const [dayOpen, setDayOpen] = useState(false);
+  const [drawer, setDrawer] = useState<'day' | 'settings' | null>(null);
+  const desktop = useDesktop();
+  // Janela flutuante do navegador (Picture-in-Picture): aberta por um clique nas configuracoes.
+  const [floating, setFloating] = useState<FloatingOrb | null>(null);
   const [planets, setPlanets] = usePref('llm-agent-planets', true);
   const [sounds, setSounds] = usePref('llm-agent-sounds', true);
   const [voice, setVoice] = useState<VoiceView>(OFF_VIEW);
@@ -302,6 +308,27 @@ function Connected({ token }: { token: string }) {
     return () => window.removeEventListener('pointerdown', onDown, true);
   }, [sounds]);
 
+  const fullVoiceStatus = [voiceStatus(voice), timingText(voice)].filter(Boolean).join('\n');
+
+  // Janela flutuante (navegador): acompanha o estado da voz e a ultima fala do Jarvis.
+  const toggleFloating = useCallback(() => {
+    if (floating) {
+      floating.close();
+      setFloating(null);
+      return;
+    }
+    openFloatingOrb(
+      () => window.focus(),
+      () => setFloating(null),
+    ).then(
+      (orb) => setFloating(orb),
+      (err: Error) => setError(`Não consegui abrir a janela flutuante: ${err.message}`),
+    );
+  }, [floating]);
+  useEffect(() => {
+    floating?.update(coreMode, voice.jarvis || voice.user);
+  }, [floating, coreMode, voice.jarvis, voice.user]);
+
   onUiRef.current = (command: UiCommand) => {
     if (command.kind === 'back') return dispatch({ type: 'back' });
     if (command.kind === 'focus-session') return focusTab(command.id);
@@ -385,20 +412,34 @@ function Connected({ token }: { token: string }) {
   return (
     <div className={use3d ? 'app full' : 'app'}>
       {use3d ? (
-        <div className={dayOpen ? 'day-drawer open' : 'day-drawer'}>
-          <DayPanel
-            api={api}
-            settings={settings}
-            toggles={toggles}
-            voiceStatus={[voiceStatus(voice), timingText(voice)].filter(Boolean).join('\n')}
-          />
+        <div className={drawer ? 'day-drawer open' : 'day-drawer'}>
+          {drawer === 'settings' ? (
+            <SettingsPanel
+              settings={settings}
+              toggles={toggles}
+              voiceStatus={fullVoiceStatus}
+              desktop={desktop}
+              onAutostart={setAutostart}
+              floating={floatSupported() && !desktop ? { open: !!floating, toggle: toggleFloating } : null}
+            />
+          ) : (
+            <DayPanel api={api} voiceStatus={fullVoiceStatus} />
+          )}
           <button
             className="day-toggle"
-            onClick={() => setDayOpen(!dayOpen)}
-            aria-label={dayOpen ? 'Fechar o painel do dia' : 'Abrir o painel do dia'}
-            title={dayOpen ? 'Fechar' : 'Clima, notícias e opções'}
+            onClick={() => setDrawer(drawer === 'day' ? null : 'day')}
+            aria-label={drawer === 'day' ? 'Fechar o painel do dia' : 'Abrir o painel do dia'}
+            title={drawer === 'day' ? 'Fechar' : 'Hora, clima e notícias'}
           >
-            {dayOpen ? '‹' : '›'}
+            {drawer === 'day' ? '‹' : '›'}
+          </button>
+          <button
+            className="settings-toggle"
+            onClick={() => setDrawer(drawer === 'settings' ? null : 'settings')}
+            aria-label={drawer === 'settings' ? 'Fechar as configurações' : 'Abrir as configurações'}
+            title="Configurações"
+          >
+            ⚙
           </button>
         </div>
       ) : (

@@ -90,3 +90,22 @@ test('as ferramentas do Jarvis chegam a interface pelo /ws/voice e abrem sessoes
     await app.close();
   }
 });
+
+test('o estado da voz e a fala do Jarvis chegam tambem ao /ws principal (bolinha flutuante)', async () => {
+  const worker = new FakeWorker();
+  const { app, port } = await startApp(tempHome(), { voice: { worker, brain } });
+  try {
+    const main = new WebSocket(`ws://127.0.0.1:${port}/ws?token=tok`, { origin: 'http://tauri.localhost' });
+    const seen: any[] = [];
+    main.on('message', (d) => seen.push(JSON.parse(d.toString())));
+    await new Promise<void>((ok, fail) => (main.once('open', () => ok()), main.once('error', fail)));
+    const v = open(port);
+    await v.ready;
+    v.ws.send(JSON.stringify({ type: 'start' }));
+    await waitFor(() => seen.some((m) => m.type === 'voice' && m.state === 'sleeping'));
+    main.close();
+    v.ws.close();
+  } finally {
+    await app.close();
+  }
+});

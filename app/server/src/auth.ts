@@ -30,7 +30,10 @@ export function bearer(header: string | undefined): string | null {
 }
 
 /** Sem Origin (curl, app) passa; com Origin, so a propria UI e as extras. */
+/** Paginas locais do app desktop (Tauri no Windows e no Linux), como a bolinha flutuante. */
+const DESKTOP_ORIGINS = ['http://tauri.localhost', 'tauri://localhost'];
+
 export function originAllowed(origin: string | undefined, port: number, extra: string[]): boolean {
   if (!origin) return true;
-  return [`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...extra].includes(origin);
+  return [`http://127.0.0.1:${port}`, `http://localhost:${port}`, ...DESKTOP_ORIGINS, ...extra].includes(origin);
 }

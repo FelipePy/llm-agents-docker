@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "So a tela de abertura (local) fala com o app; a interface do llm-agent (remota) nao tem acesso.",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "description": "So as paginas locais do app (tela de abertura e bolinha flutuante) falam com o app; a interface do llm-agent (remota) nao tem acesso.",
+  "windows": ["main", "orb"],
+  "permissions": ["core:default", "core:window:allow-start-dragging"]
 }

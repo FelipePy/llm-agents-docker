@@ -273,6 +273,9 @@ export function createApp(opts: AppOptions): App {
     voiceSocket?.close(4000, 'substituída por outra conexão');
     const sendVoice = (m: VoiceServerMessage) => {
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m));
+      // Resumo para outras janelas (a bolinha flutuante do app desktop): estado e fala do Jarvis.
+      if (m.type === 'state') broadcast({ type: 'voice', state: m.state });
+      else if (m.type === 'caption' && m.who === 'jarvis') broadcast({ type: 'voice', state: voiceSession?.state ?? 'speaking', text: m.text });
     };
     voiceUi = sendVoice;
     // Coordenadas do navegador (mensagem "start"), para o clima da saudacao.

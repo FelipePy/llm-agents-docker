@@ -2,12 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { geoProblem, requestPosition } from '../geo.ts';
 import type { Api } from '../api.ts';
 import type { DayInfo } from '../types.ts';
-import { Settings, type SettingsState, type SettingsToggles } from './Settings.tsx';
-
 interface Props {
   api: Api;
-  settings: SettingsState;
-  toggles: SettingsToggles;
+  /** Estado da voz e tempos da ultima resposta. */
   voiceStatus?: string;
 }
 
@@ -21,7 +18,7 @@ function useNow(ms: number): Date {
 }
 
 /** Coluna esquerda no modo 3D: hora, data, clima e notícias. */
-export function DayPanel({ api, settings, toggles, voiceStatus }: Props) {
+export function DayPanel({ api, voiceStatus }: Props) {
   const now = useNow(1000);
   const [day, setDay] = useState<DayInfo | null>(null);
   // undefined: ainda perguntando ao navegador; null: sem localizacao.
@@ -123,8 +120,8 @@ export function DayPanel({ api, settings, toggles, voiceStatus }: Props) {
           <p className="muted">{day?.newsError ?? 'Carregando…'}</p>
         )}
       </section>
-      <Settings settings={settings} toggles={toggles} voiceStatus={voiceStatus} />
-      <div className="hint">Ctrl+K busca · Esc volta · Ctrl+Tab alterna terminais</div>
+      {voiceStatus && <div className="voice-status day-voice">{voiceStatus}</div>}
+      <div className="hint">Ctrl+K busca · Esc volta · Ctrl+Tab alterna terminais · ⚙ configurações</div>
     </aside>
   );
 }

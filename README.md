@@ -159,7 +159,7 @@ Os botões **+ Sobre mim**, **+ Nova skill** e **+ Novo projeto** abrem uma sess
 
 O espaço ocupa a tela toda. O painel do dia (hora, data, clima, notícias e as opções) fica numa gaveta à esquerda, fechada ao abrir: clique na aba da borda esquerda para abrir. O clima vem do [Open-Meteo](https://open-meteo.com/) (sem cadastro), usando a localização do navegador; para usar uma cidade fixa, defina `LLM_AGENT_UI_CITY` (por exemplo, `LLM_AGENT_UI_CITY="São Paulo" llm-agent ui`). As notícias vêm do RSS do Google Notícias; `LLM_AGENT_UI_NEWS_RSS` troca a fonte. As coordenadas são enviadas ao Open-Meteo para buscar a previsão.
 
-Na barra da esquerda, **Modo 3D** troca para a interface em lista, **Sons** liga os efeitos de clique e **Reduzir movimento** congela as animações. Em GPUs mais fracas, a cena reduz a qualidade sozinha.
+As configurações ficam escondidas atrás do botão ⚙ na borda esquerda (abaixo da aba do painel do dia): escuta ativa, demonstração de voz, **Modo 3D** (troca para a interface em lista), **Planetas**, **Reduzir movimento**, **Sons de clique** e, no app desktop, **Iniciar com o sistema**. No navegador, há também **Abrir janela flutuante**: uma janelinha do Jarvis por cima das outras abas e programas (o navegador só a abre com um clique). Em GPUs mais fracas, a cena reduz a qualidade sozinha.
 
 Atalhos: `Ctrl+1`…`Ctrl+9` vão para uma aba, `Ctrl+Tab` e `Ctrl+Shift+Tab` alternam (no navegador, esses dois são do próprio navegador), `Ctrl+Shift+W` fecha a aba e `Ctrl+K`, fora do terminal, abre a busca.
 
@@ -198,7 +198,9 @@ O **Jarvis** é a mesma interface numa janela própria (Tauri). Ao abrir, ele ex
 - **Instaladores:** baixe do último release `desktop-v*` do repositório, ou dos artefatos do workflow **desktop** no GitHub Actions: `jarvis-windows` (`.msi` ou `.exe`) e `jarvis-linux` (`.deb` ou `.AppImage`).
   - Windows: execute o `.msi` (ou o `.exe`) e abra **Jarvis** pelo menu Iniciar.
   - Ubuntu: `sudo apt install ./Jarvis_*.deb` e abra **Jarvis** pelo menu de aplicativos; ou `chmod +x Jarvis_*.AppImage && ./Jarvis_*.AppImage`.
-- **Bandeja:** fechar a janela só a esconde; o Jarvis continua ouvindo. Pelo ícone na bandeja: mostrar, reiniciar o servidor ou sair.
+- **Bolinha flutuante:** ao sair do app (outro programa em foco, janela minimizada ou fechada), uma bolinha do Jarvis fica na lateral da tela, por cima de tudo; ela brilha conforme ele ouve, pensa e fala, e mostra a última frase dele ao passar o mouse. Clique para voltar ao app; arraste para mudar de lugar. O Jarvis continua ouvindo.
+- **Bandeja:** fechar a janela só a esconde. Pelo ícone na bandeja: mostrar, iniciar com o sistema, reiniciar o servidor ou sair.
+- **Iniciar com o sistema:** nas configurações (⚙) ou na bandeja. O Jarvis abre minimizado, só com a bolinha, já ouvindo.
 - **Atalho global:** `Ctrl+Alt+J` mostra ou esconde a janela de qualquer lugar.
 - **Voz:** no app, o áudio toca sem precisar clicar antes e o microfone é liberado direto.
 - **Outra distribuição do WSL (Windows):** defina a variável de ambiente `JARVIS_WSL_DISTRO` (por exemplo, `Ubuntu-24.04`).
