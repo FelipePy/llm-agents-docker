@@ -57,12 +57,16 @@ export function voiceStatus(v: VoiceView): string {
 }
 
 /** Conversa por voz com o servidor: microfone, reprodução, estado e legendas. */
+/** O servidor de voz nao respondeu ou caiu (reinicio, atualizacao): vale tentar de novo. */
+export class VoiceConnectionError extends Error {}
+
 export class VoiceClient {
   state: VoiceState = 'off';
   private readonly token: string;
   private readonly onView: (patch: Partial<VoiceView>) => void;
   private readonly onError: (message: string) => void;
   private readonly onUi: (command: UiCommand) => void;
+  private readonly onDrop: (() => void) | undefined;
   private ws: WebSocket | undefined;
   private player: Player | undefined;
   private stopCapture: (() => void) | undefined;
@@ -78,7 +82,10 @@ export class VoiceClient {
     onView: (patch: Partial<VoiceView>) => void,
     onError: (message: string) => void,
     onUi: (command: UiCommand) => void,
+    /** A conexao caiu depois de aberta (sem isso, vira um erro na tela). */
+    onDrop?: () => void,
   ) {
+    this.onDrop = onDrop;
     this.onUi = onUi;
     this.token = token;
     this.onView = onView;
@@ -92,7 +99,7 @@ export class VoiceClient {
     this.ws = ws;
     await new Promise<void>((ok, fail) => {
       ws.onopen = () => ok();
-      ws.onerror = () => fail(new Error('Não consegui conectar ao servidor de voz.'));
+      ws.onerror = () => fail(new VoiceConnectionError('Não consegui conectar ao servidor de voz.'));
     });
     ws.onmessage = (e) => {
       try {
@@ -103,9 +110,10 @@ export class VoiceClient {
     };
     ws.onclose = () => {
       if (this.stopped) return;
-      this.onError('A conexão de voz caiu.');
+      if (!this.onDrop) this.onError('A conexão de voz caiu.');
       this.cleanup();
       this.setState('off');
+      this.onDrop?.();
     };
     try {
       // Nivel maximo da voz do Jarvis entre um quadro do microfone e o seguinte.

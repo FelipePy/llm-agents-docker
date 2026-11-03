@@ -13,12 +13,14 @@ export const projectPathFromId = (id: string): string => Buffer.from(id, 'base64
 
 const present = <T>(x: T | null): x is T => x !== null;
 
-/** Conversas por projeto, sem a home, a raiz e as pastas ocultas. */
+/** Conversas por projeto, sem a home, a raiz e as pastas ocultas (com o que houver dentro delas). */
 function groupByProject(home: string, convs: Conversation[], hidden: string[]): Map<string, Conversation[]> {
-  const excluded = new Set([resolve(home), '/', ...hidden.map((h) => resolve(h))]);
+  const excluded = new Set([resolve(home), '/']);
+  // Pastas ocultas (e tudo dentro delas, como os clones de desenvolvimento do Jarvis).
+  const inside = hidden.map((h) => resolve(h));
   const groups = new Map<string, Conversation[]>();
   for (const c of convs) {
-    if (excluded.has(c.cwd)) continue;
+    if (excluded.has(c.cwd) || inside.some((h) => c.cwd === h || c.cwd.startsWith(h + '/'))) continue;
     const list = groups.get(c.cwd) ?? [];
     list.push(c);
     groups.set(c.cwd, list);

@@ -1,5 +1,6 @@
 // Processo do servidor da interface. Normalmente iniciado por "llm-agent ui".
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFile, spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { createApp } from './server.ts';
 import { loadOrCreateToken } from './auth.ts';
@@ -74,6 +75,32 @@ const makeBrain = (ctx: Parameters<typeof createJarvisServer>[0]) =>
     },
   }));
 
+/** Comando com saida (stdout + stderr) e codigo, sem lancar erro. */
+const run = (cmd: string, args: string[], o: { cwd: string; timeoutMs?: number }) =>
+  new Promise<{ code: number; out: string }>((resolveRun) => {
+    execFile(cmd, args, { cwd: o.cwd, timeout: o.timeoutMs ?? 120_000, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) =>
+      resolveRun({ code: err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0, out: `${stdout}${stderr}` }),
+    );
+  });
+
+/** Reinicio verificado depois de aplicar uma evolucao: processo separado, que sobrevive ao fim deste. */
+function restartVerified(from: string): void {
+  const log = openSync(join(stateDir, 'server.log'), 'a');
+  spawn('setsid', ['bash', join(repo, 'app', 'restart.sh'), from], { detached: true, stdio: ['ignore', log, log], env: process.env }).unref();
+}
+
+/** O cerebro responde? (uma pergunta minima, numa sessao a parte) */
+async function brainCheck(): Promise<void> {
+  const check = new ClaudeBrain({ model: voiceModel, cwd: workspaceDir, systemPrompt: 'Responda apenas: ok' });
+  try {
+    let out = '';
+    for await (const d of check.reply('Tudo certo?', AbortSignal.timeout(40_000))) out += d;
+    if (!out.trim()) throw new Error('sem resposta');
+  } finally {
+    check.close();
+  }
+}
+
 const app = createApp({
   home,
   port: Number(process.env.LLM_AGENT_UI_PORT ?? 7777),
@@ -102,6 +129,16 @@ const app = createApp({
     judge: process.env.LLM_AGENT_VOICE_JUDGE === '0' ? undefined : claudeJudge({ model: voiceModel, cwd: workspaceDir }),
   },
   manualPath: join(repo, 'README.md'),
+  evolution: {
+    repoDir: repo,
+    devRoot: join(process.env.XDG_DATA_HOME ?? join(home, '.local', 'share'), 'llm-agent', 'jarvis-dev'),
+    stateFile: join(stateDir, 'evolution.json'),
+    updateFile: join(stateDir, 'update.json'),
+    run,
+    restart: restartVerified,
+    voicePython: join(repo, 'app', 'voice', '.venv', 'bin', 'python'),
+  },
+  selfCheck: { brain: brainCheck },
   memory,
 });
 

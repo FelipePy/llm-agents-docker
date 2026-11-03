@@ -6,6 +6,15 @@ import { normalize } from './text.ts';
 import { TOPICS, type JarvisMemory, type MemoryTopic } from './memory.ts';
 import type { WebSearch } from '../search.ts';
 
+export interface EvolutionApi {
+  draft(title: string, spec: string): string;
+  summarize(summary: string, turn: number): string;
+  start(turn: number): Promise<string>;
+  status(): Promise<string>;
+  apply(opts: { closeSessions?: boolean }): Promise<string>;
+  discard(): Promise<string>;
+}
+
 /** O que as ferramentas do Jarvis podem fazer. Nada alem disto: sem shell nem escrita livre. */
 export interface JarvisContext {
   projects(): Promise<ProjectSummary[]>;
@@ -37,6 +46,10 @@ export interface JarvisContext {
   endConversation(): void;
   /** Memoria do Jarvis entre sessoes (fatos e resumos de conversa). */
   memory: JarvisMemory;
+  /** Funcionalidades novas para o proprio Jarvis (definir, aprovar, desenvolver, aplicar). */
+  evolution?: EvolutionApi;
+  /** Quantas falas do usuario ja foram respondidas (o "pode comecar" vem depois do resumo). */
+  userTurn?(): number;
 }
 
 const LABEL: Record<SessionAgent, string> = { claude: 'Claude', codex: 'Codex', shell: 'Shell' };
@@ -279,6 +292,10 @@ export function formatWebSearch(r: WebSearch): string {
 
 /** Implementacao dos comandos; cada um devolve o texto que o cerebro le (e resume em voz). */
 export function jarvisHandlers(ctx: JarvisContext) {
+  const evolution = (): EvolutionApi => {
+    if (!ctx.evolution) throw new Error('a evolução do Jarvis não está disponível neste servidor');
+    return ctx.evolution;
+  };
   async function pick(spoken: string) {
     const list = await ctx.projects();
     const { project, candidates } = resolveProject(list, spoken);
@@ -494,6 +511,24 @@ export function jarvisHandlers(ctx: JarvisContext) {
       if (!assunto?.trim()) return 'Pergunte ao usuário o que ele quer pesquisar.';
       return formatWebSearch(await ctx.webSearch(assunto));
     },
+    async rascunhar_evolucao({ titulo, especificacao }: { titulo: string; especificacao: string }) {
+      return evolution().draft(titulo, especificacao);
+    },
+    async resumir_evolucao({ resumo }: { resumo: string }) {
+      return evolution().summarize(resumo, ctx.userTurn?.() ?? 0);
+    },
+    async iniciar_evolucao(_args: Record<string, never>) {
+      return evolution().start(ctx.userTurn?.() ?? 0);
+    },
+    async status_evolucao(_args: Record<string, never>) {
+      return evolution().status();
+    },
+    async aplicar_evolucao({ confirmar_fechar_sessoes }: { confirmar_fechar_sessoes?: boolean }) {
+      return evolution().apply({ closeSessions: confirmar_fechar_sessoes === true });
+    },
+    async descartar_evolucao(_args: Record<string, never>) {
+      return evolution().discard();
+    },
     async data_e_hora(_args: Record<string, never>) {
       const now = ctx.now();
       const date = now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -634,6 +669,37 @@ export function createJarvisServer(ctx: JarvisContext) {
         { assunto: z.string().describe('O que pesquisar: palavras-chave claras, em português (ou na língua do assunto).') },
         run(h.pesquisar_na_web),
       ),
+      tool(
+        'rascunhar_evolucao',
+        'Guarda ou atualiza a proposta de uma funcionalidade nova para você mesmo (o Jarvis), enquanto a define com o usuário. Chame a cada resposta dele, com a especificação completa até agora.',
+        {
+          titulo: z.string().describe('Nome curto da funcionalidade.'),
+          especificacao: z
+            .string()
+            .describe('Texto completo: objetivo, o que dispara, o que você faz ou diz, onde aparece na tela, casos especiais e o que fica de fora.'),
+        },
+        run(h.rascunhar_evolucao),
+      ),
+      tool(
+        'resumir_evolucao',
+        'Primeiro OK: quando o usuário disser que a definição está certa, registre o resumo do que será desenvolvido (3 a 5 frases) e leia-o para ele, perguntando se pode começar.',
+        { resumo: z.string() },
+        run(h.resumir_evolucao),
+      ),
+      tool(
+        'iniciar_evolucao',
+        'Segundo OK: começa o desenvolvimento em background. Só chame depois que o usuário ouviu o resumo e aprovou, numa fala seguinte.',
+        {},
+        run(h.iniciar_evolucao),
+      ),
+      tool('status_evolucao', 'Como está a funcionalidade nova (em definição, em desenvolvimento, pronta).', {}, run(h.status_evolucao)),
+      tool(
+        'aplicar_evolucao',
+        'Aplica a funcionalidade nova pronta: verifica, instala e reinicia o Jarvis. Só quando o usuário pedir ou aceitar. Se a resposta pedir confirmação para fechar sessões, pergunte a ele e chame de novo com confirmar_fechar_sessoes.',
+        { confirmar_fechar_sessoes: z.boolean().optional() },
+        run(h.aplicar_evolucao),
+      ),
+      tool('descartar_evolucao', 'Descarta a funcionalidade nova (proposta, desenvolvimento ou pronta, ainda não aplicada).', {}, run(h.descartar_evolucao)),
       tool('data_e_hora', 'Data e hora atuais do usuário. Use sempre que precisar saber que dia ou que horas são.', {}, run(h.data_e_hora)),
       tool(
         'manual_do_app',

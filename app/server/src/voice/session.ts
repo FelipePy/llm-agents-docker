@@ -67,6 +67,8 @@ const CUT_IN_MS = 10_000;
 
 export class VoiceSession {
   state: VoiceState = 'off';
+  /** Falas do usuario respondidas ate agora (a evolucao exige o "pode comecar" depois do resumo). */
+  userTurns = 0;
   private readonly worker: VoiceWorker;
   private readonly brain: Brain;
   private readonly send: (m: VoiceServerMessage) => void;
@@ -467,6 +469,7 @@ export class VoiceSession {
   /** Nova pergunta: ela passa a ser a que fala; roda depois das anteriores. */
   private ask(text: string, ms?: number): void {
     this.held = undefined;
+    this.userTurns++;
     this.cutInAt = -Infinity;
     this.conversation?.request(text);
     this.timing = { heard: this.now(), stt: ms, tools: [] };

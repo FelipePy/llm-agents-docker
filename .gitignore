@@ -3,3 +3,4 @@ app/web/dist/
 app/desktop/src-tauri/target/
 app/desktop/src-tauri/gen/
 app/desktop/src-tauri/icons/
+.jarvis/

@@ -1,5 +1,5 @@
 import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { Api, LiveSocket, takeToken, wsUrl, type Status } from './api.ts';
+import { Api, LiveSocket, backoff, takeToken, wsUrl, type Status } from './api.ts';
 import { bus } from './bus.ts';
 import { playSound } from './sound.ts';
 import { currentNode, initialNav, navReducer, projectIdOf } from './nav.ts';
@@ -22,7 +22,7 @@ import { Sidebar } from './components/Sidebar.tsx';
 import { SkillDetail } from './components/SkillDetail.tsx';
 import { SkillsPanel } from './components/SkillsPanel.tsx';
 import { TerminalDrawer } from './components/TerminalDrawer.tsx';
-import { OFF_VIEW, VoiceClient, timingText, voiceStatus, type VoiceView } from './voice/client.ts';
+import { OFF_VIEW, VoiceClient, VoiceConnectionError, timingText, voiceStatus, type VoiceView } from './voice/client.ts';
 import { floatSupported, openFloatingOrb, type FloatingOrb } from './voice/float.ts';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { setAutostart, useDesktop } from './desktop.ts';
@@ -124,27 +124,43 @@ function Connected({ token }: { token: string }) {
     };
   }, [api, projectId, revision]);
 
-  // Conversa por voz: liga e desliga o cliente junto com a "Escuta ativa".
+  // Conversa por voz: liga e desliga o cliente junto com a "Escuta ativa". Se o
+  // servidor cair (reinicio, atualizacao do Jarvis), reconecta sozinho.
+  const [voiceEpoch, setVoiceEpoch] = useState(0);
+  const voiceRetry = useRef(0);
   useEffect(() => {
     if (!voiceOn) return;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const reconnect = () => {
+      setVoice((v) => ({ ...OFF_VIEW, timing: v.timing, state: 'preparing', detail: 'reconectando a voz' }));
+      retry = setTimeout(() => setVoiceEpoch((e) => e + 1), backoff(voiceRetry.current++));
+    };
     const client = new VoiceClient(
       token,
       (patch) => setVoice((v) => ({ ...v, ...patch })),
       (message) => setError(message),
       (command) => onUiRef.current(command),
+      reconnect,
     );
     voiceRef.current = client;
-    client.start().catch((err: Error) => {
-      setError(err.message);
-      setVoiceOn(false);
-    });
+    client.start().then(
+      () => {
+        voiceRetry.current = 0;
+      },
+      (err: Error) => {
+        if (err instanceof VoiceConnectionError) return reconnect();
+        setError(err.message);
+        setVoiceOn(false);
+      },
+    );
     return () => {
+      clearTimeout(retry);
       client.stop();
       voiceRef.current = null;
       setVoice(OFF_VIEW);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voiceOn, token]);
+  }, [voiceOn, token, voiceEpoch]);
 
   // Legendas somem 8 s depois que a conversa volta a esperar "Hey Jarvis".
   useEffect(() => {
