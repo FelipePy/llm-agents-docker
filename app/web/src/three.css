@@ -143,3 +143,8 @@
 .stt-notice.error { color: #ff8a80; }
 .stt-notice.busy { color: var(--muted); }
 .day-voice { margin: 0; }
+
+.jarvis-facts h3 { margin: 10px 0 4px; font-size: 12px; color: var(--muted); font-weight: 500; }
+.jarvis-facts ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.jarvis-facts li { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+.jarvis-facts .link { background: none; border: none; padding: 0; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: 12px; flex: none; }

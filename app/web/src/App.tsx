@@ -388,7 +388,7 @@ function Connected({ token }: { token: string }) {
     ) : view.kind === 'project' ? (
       <ProjectPanel api={api} id={view.id} revision={revision} onOpen={openSession} />
     ) : (
-      <ProfilePanel profile={overview?.profile} />
+      <ProfilePanel profile={overview?.profile} api={api} />
     );
 
   const readingPanel =

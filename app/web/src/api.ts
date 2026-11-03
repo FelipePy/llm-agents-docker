@@ -15,6 +15,9 @@ export interface VoiceSettingsInput {
   groqKey?: string;
 }
 
+export interface JarvisFact { id: string; about: string; project?: string; text: string; updated: string }
+export interface JarvisMemoryView { facts: JarvisFact[]; conversations: { at: string; text: string }[] }
+
 const TOKEN_KEY = 'llm-agent-token';
 
 /**
@@ -66,6 +69,16 @@ export class Api {
     const body = (await res.json().catch(() => ({}))) as VoiceSettings & { error?: string };
     if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status} ao salvar`);
     return body;
+  }
+
+  jarvisMemory(): Promise<JarvisMemoryView> {
+    return this.get('/api/jarvis/memory');
+  }
+
+  async forgetFact(id: string): Promise<number> {
+    const res = await this.fetchImpl(`/api/jarvis/memory/${id}`, { method: 'DELETE', headers: { authorization: `Bearer ${this.token}` } });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ao apagar`);
+    return ((await res.json()) as { removed: number }).removed;
   }
 
   overview(): Promise<Overview> {

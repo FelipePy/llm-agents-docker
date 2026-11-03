@@ -131,3 +131,14 @@ it('saveVoiceSettings envia PUT com token e mostra o erro do servidor', async ()
   status = 200;
   expect((await api.saveVoiceSettings({ stt: 'groq' })).groqKeyHint).toBe('gsk_…0123');
 });
+
+it('jarvisMemory lista e forgetFact apaga com DELETE', async () => {
+  const calls: { url: string; method?: string }[] = [];
+  const api = new Api('tok', (async (url: string, init?: RequestInit) => {
+    calls.push({ url, method: init?.method });
+    return new Response(init?.method === 'DELETE' ? '{"removed":1}' : '{"facts":[],"conversations":[]}', { status: 200 });
+  }) as unknown as typeof fetch);
+  expect(await api.jarvisMemory()).toEqual({ facts: [], conversations: [] });
+  expect(await api.forgetFact('a1b2c3')).toBe(1);
+  expect(calls).toEqual([{ url: '/api/jarvis/memory', method: undefined }, { url: '/api/jarvis/memory/a1b2c3', method: 'DELETE' }]);
+});
