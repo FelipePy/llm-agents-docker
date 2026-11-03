@@ -123,3 +123,27 @@ test('unwatch para de acompanhar', () => {
   t.advance(60_000);
   assert.deepEqual(t.w.reports(), []);
 });
+
+test('rewatch volta a acompanhar so sessoes ja acompanhadas; unwatch e sessao fechada esquecem', () => {
+  const t = setup();
+  t.add('s1', 'inicio');
+  t.add('s2', 'x');
+  assert.equal(t.w.rewatch('s1'), false, 'nunca acompanhada');
+  t.w.watch('s1', 'Claude de app');
+  t.advance(31_000);
+  assert.equal(t.w.reports().length, 1);
+  assert.equal(t.w.isWatching('s1'), false);
+  t.write('s1', '\nnovo recado');
+  assert.equal(t.w.rewatch('s1'), true);
+  assert.deepEqual(t.w.list(), [{ id: 's1', label: 'Claude de app' }]);
+  t.advance(10_000);
+  assert.deepEqual(t.w.reports(), [], 'o tempo quieto recomeca no recado novo');
+  t.advance(31_000);
+  assert.equal(t.w.reports()[0].label, 'Claude de app');
+  assert.equal(t.w.unwatch('s1'), true, 'parar de acompanhar uma sessao ja avisada');
+  assert.equal(t.w.rewatch('s1'), false);
+  t.w.watch('s2', 'Codex');
+  t.sessions.delete('s2');
+  t.w.reports();
+  assert.equal(t.w.rewatch('s2'), false, 'fechada: esquecida');
+});

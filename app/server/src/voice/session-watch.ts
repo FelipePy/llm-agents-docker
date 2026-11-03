@@ -2,7 +2,8 @@ import type { SessionInfo } from '../types.ts';
 
 // Sessoes que o usuario pediu para acompanhar: o Jarvis le o terminal em
 // segundo plano e avisa por voz uma vez, quando a tarefa termina ou da erro.
-// Depois do aviso a sessao sai da lista (acompanhar de novo e outro pedido).
+// Depois do aviso a sessao sai da lista, mas fica lembrada: um recado novo
+// para ela (rewatch) volta a acompanha-la, ate o usuario pedir para parar.
 
 export type WatchOutcome = 'done' | 'error';
 
@@ -101,6 +102,8 @@ export function plainReport(r: WatchReport): string {
 
 export class SessionWatcher {
   private readonly watched = new Map<string, Watched>();
+  /** Sessoes ja acompanhadas (com o rotulo), mesmo depois do aviso. */
+  private readonly followed = new Map<string, string>();
   private readonly now: () => number;
   private readonly quietMs: number;
   private checking = false;
@@ -113,11 +116,22 @@ export class SessionWatcher {
   }
 
   watch(id: string, label: string): void {
+    this.followed.set(id, label);
     this.watched.set(id, { label, last: (this.opts.output(id) ?? '').slice(-4000), changedAt: this.now() });
   }
 
+  /** Para de acompanhar e esquece a sessao (um recado novo nao a acompanha mais). */
   unwatch(id: string): boolean {
-    return this.watched.delete(id);
+    const followed = this.followed.delete(id);
+    return this.watched.delete(id) || followed;
+  }
+
+  /** Volta a acompanhar uma sessao ja acompanhada antes (recado novo); falso se ela nao era. */
+  rewatch(id: string): boolean {
+    const label = this.followed.get(id);
+    if (label === undefined) return false;
+    this.watch(id, label);
+    return true;
   }
 
   isWatching(id: string): boolean {
@@ -136,7 +150,7 @@ export class SessionWatcher {
       const s = sessions.get(id);
       if (!s) {
         // Fechada pelo usuario: nao ha o que avisar.
-        this.watched.delete(id);
+        this.unwatch(id);
         continue;
       }
       const output = this.opts.output(id) ?? '';
