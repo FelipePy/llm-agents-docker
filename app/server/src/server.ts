@@ -13,7 +13,10 @@ import { isFile } from './files.ts';
 import { PROJECT_NAME, TASKS, isTask, projectPrompt } from './tasks.ts';
 import { TerminalManager } from './terminals.ts';
 import type { Brain, InterruptJudge } from './voice/brain.ts';
-import type { JarvisContext } from './voice/tools.ts';
+import { createJarvisServer, jarvisHandlers, type JarvisContext } from './voice/tools.ts';
+import { COMMANDS } from './voice/commands.ts';
+import { EvolutionManager, markUpdateAnnounced, readUpdate, updateNotice, type EvolutionDeps, type SelfCheck } from './evolution.ts';
+import { writeFile } from 'node:fs/promises';
 import { Announcer } from './voice/announcer.ts';
 import { shortTitle } from './conversations.ts';
 import { gitLines } from './catalog.ts';
@@ -54,6 +57,14 @@ export interface AppOptions {
     /** Configuracoes feitas pela tela (transcricao local ou Groq). */
     settings?: VoiceSettingsStore;
   };
+  /**
+   * Evolucao do Jarvis por voz: repositorio, clones e arquivos de estado (as
+   * sessoes vem do proprio servidor). `updateFile` tambem guarda o resultado
+   * do /api/self-check que o app/restart.sh chama depois de reiniciar.
+   */
+  evolution?: Omit<EvolutionDeps, 'openSession' | 'sessions' | 'sessionOutput' | 'closeSession'>;
+  /** Verificacoes extras do /api/self-check (o cerebro responde?). */
+  selfCheck?: { brain?: () => Promise<void> };
   /** Memoria do Jarvis entre sessoes (sem ela, um arquivo na pasta de trabalho). */
   memory?: JarvisMemory;
   /** Manual do app consultado pelo Jarvis (o README do projeto). */
@@ -118,7 +129,7 @@ export function createApp(opts: AppOptions): App {
   let port = opts.port;
   const webRoot = resolve(opts.webDir);
   const workspace = resolve(opts.workspaceDir);
-  const hidden = [workspace];
+  const hidden = [workspace, ...(opts.evolution ? [opts.evolution.devRoot] : [])];
   const terminals = new TerminalManager(opts.bin);
   const day = createDayService({ fetch: opts.fetch ?? fetch, city: opts.city, newsUrl: opts.newsUrl ?? NEWS_DEFAULT });
   const web = createSearchService({ fetch: opts.fetch ?? fetch, fallback: opts.webSearchFallback });
@@ -148,6 +159,9 @@ export function createApp(opts: AppOptions): App {
       if (!input || typeof input !== 'object') return send(res, 400, { error: 'JSON inválido' });
       const result = await store.update(input);
       return 'error' in result ? send(res, 400, result) : send(res, 200, result.view);
+    }
+    if (url.pathname === '/api/self-check' && req.method === 'GET') {
+      return send(res, 200, await selfCheck(url.searchParams.get('record') === '1'));
     }
     if (url.pathname === '/api/jarvis/memory' && req.method === 'GET') {
       return send(res, 200, { facts: memory.facts(), conversations: memory.conversations() });
@@ -253,8 +267,114 @@ export function createApp(opts: AppOptions): App {
     now: () => new Date(),
     closeSession: (id) => terminals.close(id),
     endConversation: () => voiceSession?.endConversation(),
+    userTurn: () => voiceSession?.userTurns ?? 0,
     memory,
   };
+
+  // Funcionalidades novas para o proprio Jarvis (definidas e aprovadas por voz).
+  const evolution = opts.evolution
+    ? new EvolutionManager({
+        ...opts.evolution,
+        openSession: (dir, prompt, title) => terminals.open({ projectPath: dir, agent: 'claude', prompt, title, cols: 120, rows: 30 }),
+        sessions: () => terminals.list(),
+        sessionOutput: (id) => terminals.history(id),
+        closeSession: (id) => terminals.close(id),
+      })
+    : undefined;
+  // Avisos que esperam o Jarvis ficar livre (ele nao interrompe uma conversa).
+  const notices: string[] = [];
+  if (evolution) {
+    jarvis.evolution = {
+      draft: (t, spec) => evolution.draft(t, spec),
+      summarize: (summary, turn) => evolution.summarize(summary, turn),
+      start: (turn) => evolution.start(turn),
+      status: () => evolution.status(),
+      apply: (o) => evolution.apply(o, (text) => notices.push(text)),
+      discard: () => evolution.discard(),
+    };
+  }
+  let delivering = false;
+  /** Fala o que estiver pendente: avisos, o resultado de uma atualizacao, "terminei". */
+  async function deliverNotices(): Promise<void> {
+    if (delivering) return;
+    delivering = true;
+    try {
+      const say = (text: string) => voiceSession?.announce(text) ?? false;
+      while (notices.length && say(notices[0])) notices.shift();
+      const file = opts.evolution?.updateFile;
+      const u = file ? readUpdate(file) : null;
+      if (file && u && !u.announced) {
+        const verified = u.checks?.length && u.checks.every((c) => c.ok || !c.essential);
+        if ((u.rolledBack || verified) && say(updateNotice(u))) {
+          markUpdateAnnounced(file);
+          if (u.rolledBack) evolution?.rolledBack(u.error ?? 'a verificação falhou');
+          else evolution?.finish();
+        }
+      }
+      const done = await evolution?.poll();
+      if (done && say(done)) evolution!.markNotified();
+    } finally {
+      delivering = false;
+    }
+  }
+  const noticeTimer = setInterval(() => void deliverNotices().catch(() => {}), 15_000);
+
+  /** O worker sobe e sintetiza uma fala curta. */
+  async function voiceCheck(worker: VoiceWorker): Promise<void> {
+    await worker.ensureReady();
+    const id = 1e9 + Math.floor(Math.random() * 1e6);
+    await new Promise<void>((ok, fail) => {
+      const listener = (e: { event: string; id?: number; last?: boolean; message?: string }) => {
+        if (e.id !== id) return;
+        if (e.event === 'audio' && e.last) done(ok);
+        else if (e.event === 'speak-error') done(() => fail(new Error(e.message)));
+      };
+      const done = (then: () => void) => {
+        worker.off('event', listener);
+        then();
+      };
+      worker.on('event', listener);
+      worker.command({ cmd: 'speak', id, text: 'ok' });
+    });
+  }
+
+  /** Verificacoes depois de uma atualizacao (chamadas pelo app/restart.sh). */
+  async function selfCheck(record: boolean): Promise<{ ok: boolean; checks: SelfCheck[] }> {
+    const checks: SelfCheck[] = [];
+    const check = async (name: string, essential: boolean, fn: () => Promise<unknown>, timeoutMs: number) => {
+      const started = Date.now();
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        await Promise.race([
+          fn(),
+          new Promise((_, fail) => {
+            timer = setTimeout(() => fail(new Error(`sem resposta em ${Math.round(timeoutMs / 1000)} s`)), timeoutMs);
+          }),
+        ]);
+        checks.push({ name, ok: true, ms: Date.now() - started, essential });
+      } catch (err) {
+        checks.push({ name, ok: false, ms: Date.now() - started, essential, error: String((err as Error)?.message ?? err).slice(0, 200) });
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    await check('catalogo', true, () => buildOverview(opts.home, { hidden, projectsDir: opts.projectsDir }), 20_000);
+    await check('ferramentas', true, async () => {
+      createJarvisServer(jarvis);
+      const tools = Object.keys(jarvisHandlers(jarvis)).sort().join();
+      if (tools !== COMMANDS.map((c) => c.name).sort().join()) throw new Error('ferramentas e comandos de voz não batem');
+    }, 5_000);
+    await check('web', true, async () => {
+      if (!(await isFile(join(webRoot, 'index.html')))) throw new Error('interface não compilada');
+    }, 2_000);
+    if (opts.voice) await check('voz', true, () => voiceCheck(opts.voice!.worker), 180_000);
+    if (opts.selfCheck?.brain) await check('cerebro', false, opts.selfCheck.brain, 45_000);
+    const ok = checks.every((c) => c.ok || !c.essential);
+    const file = opts.evolution?.updateFile;
+    const u = file && record ? readUpdate(file) : null;
+    if (file && u && !u.announced) await writeFile(file, JSON.stringify({ ...u, checks }, null, 2) + '\n', { mode: 0o600 });
+    return { ok, checks };
+  }
 
   // Conversa direta (ditado): digita, envia (Enter) e apaga no terminal da sessao.
   const isAlive = (id: string) => terminals.list().some((s) => s.id === id && s.alive);
@@ -345,6 +465,8 @@ export function createApp(opts: AppOptions): App {
         // Nomes que o whisper deve acertar: projetos e os agentes.
         vocabulary: async () => ['Jarvis', 'Claude', 'Codex', ...(await jarvis.projects()).map((p) => p.name)],
         onReady: () => {
+          // Voltou (talvez de uma atualizacao): fala o que estiver pendente.
+          setTimeout(() => void deliverNotices().catch(() => {}), 1500);
           if (!voice.announce || announcer) return;
           announcer = new Announcer({
             day: () => day.day(coords.lat, coords.lon),
@@ -424,6 +546,7 @@ export function createApp(opts: AppOptions): App {
         });
       }),
     close: async () => {
+      clearInterval(noticeTimer);
       terminals.closeAll();
       voiceSession?.stop();
       voiceSocket?.terminate();

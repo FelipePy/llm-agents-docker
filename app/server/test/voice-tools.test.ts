@@ -333,3 +333,35 @@ test('enviar, falar direto e fechar aceitam a sessao especifica', async () => {
   assert.match(await h.fechar_sessao({ sessao: 'dddd4444' }), /Shell de meu-app \(sessão nº 4\)/);
   assert.deepEqual(closed, ['dddd4444-0000']);
 });
+
+test('ferramentas da evolucao passam o turno do usuario ao gerenciador', async () => {
+  const calls: string[] = [];
+  let turn = 3;
+  const { h } = ctx({
+    userTurn: () => turn,
+    evolution: {
+      draft: (t, s) => (calls.push(`draft ${t}: ${s}`), 'ok'),
+      summarize: (s, n) => (calls.push(`summarize ${s} @${n}`), 'ok'),
+      start: async (n) => (calls.push(`start @${n}`), 'ok'),
+      status: async () => 'status',
+      apply: async (o) => (calls.push(`apply ${JSON.stringify(o)}`), 'ok'),
+      discard: async () => (calls.push('discard'), 'ok'),
+    },
+  });
+  await h.rascunhar_evolucao({ titulo: 'Previsão', especificacao: '7 dias' });
+  await h.resumir_evolucao({ resumo: 'Vou criar a previsão.' });
+  turn = 4;
+  await h.iniciar_evolucao({});
+  await h.aplicar_evolucao({ confirmar_fechar_sessoes: true });
+  await h.aplicar_evolucao({});
+  await h.descartar_evolucao({});
+  assert.deepEqual(calls, [
+    'draft Previsão: 7 dias',
+    'summarize Vou criar a previsão. @3',
+    'start @4',
+    'apply {"closeSessions":true}',
+    'apply {"closeSessions":false}',
+    'discard',
+  ]);
+  await assert.rejects(ctx().h.status_evolucao({}), /não está disponível/);
+});
