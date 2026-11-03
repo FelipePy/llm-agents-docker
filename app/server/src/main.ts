@@ -11,6 +11,7 @@ import { readProfile } from './catalog.ts';
 import { WorkerProcess } from './voice/worker.ts';
 import { VoiceSettingsStore, sttConfig } from './voice/settings.ts';
 import { JarvisMemory } from './voice/memory.ts';
+import { NewsHistory } from './voice/news-history.ts';
 
 const home = process.env.HOME;
 if (!home) {
@@ -34,6 +35,8 @@ const workspaceDir = join(process.env.XDG_DATA_HOME ?? join(home, '.local', 'sha
 const token = loadOrCreateToken(stateDir);
 // Memoria do Jarvis entre sessoes (fatos e resumos de conversa).
 const memory = new JarvisMemory(join(stateDir, 'jarvis-memory.json'));
+// Manchetes ja apresentadas por voz (2 dias), para nao repetir.
+const newsHistory = new NewsHistory(join(stateDir, 'jarvis-news.json'));
 mkdirSync(workspaceDir, { recursive: true });
 
 // Voz: o worker Python so e preparado e iniciado quando a escuta e ligada.
@@ -140,6 +143,7 @@ const app = createApp({
   },
   selfCheck: { brain: brainCheck },
   memory,
+  newsHistory,
 });
 
 const port = await app.listen();

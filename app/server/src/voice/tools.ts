@@ -5,6 +5,7 @@ import { COMMANDS } from './commands.ts';
 import { normalize } from './text.ts';
 import { TOPICS, type JarvisMemory, type MemoryTopic } from './memory.ts';
 import type { WebSearch } from '../search.ts';
+import type { NewsHistory } from './news-history.ts';
 
 export interface EvolutionApi {
   draft(title: string, spec: string): string;
@@ -46,6 +47,8 @@ export interface JarvisContext {
   endConversation(): void;
   /** Memoria do Jarvis entre sessoes (fatos e resumos de conversa). */
   memory: JarvisMemory;
+  /** Manchetes ja apresentadas por voz (pedidas ou espontaneas), para nao repetir. */
+  newsHistory: NewsHistory;
   /** Funcionalidades novas para o proprio Jarvis (definir, aprovar, desenvolver, aplicar). */
   evolution?: EvolutionApi;
   /** Quantas falas do usuario ja foram respondidas (o "pode comecar" vem depois do resumo). */
@@ -108,6 +111,9 @@ export function rankProjects(projects: ProjectSummary[], spoken: string): { proj
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score);
 }
+
+/** Manchetes por pedido: todas sao marcadas como apresentadas, entao o cerebro conta todas. */
+const NEWS_PER_REQUEST = 3;
 
 const MIN_SCORE = 30;
 const AMBIGUOUS_MARGIN = 8;
@@ -505,7 +511,10 @@ export function jarvisHandlers(ctx: JarvisContext) {
     async noticias_do_dia(_args: Record<string, never>) {
       const d = await ctx.day();
       if (!d.news.length) return `Não consegui as notícias agora${d.newsError ? `: ${d.newsError}` : ''}.`;
-      return `Principais notícias de agora:\n${d.news.map((n) => `- ${n.title}${n.source ? ` (${n.source})` : ''}`).join('\n')}`;
+      const fresh = ctx.newsHistory.fresh(d.news).slice(0, NEWS_PER_REQUEST);
+      if (!fresh.length) return 'Não há notícias novas: todas as manchetes de agora já foram apresentadas ao usuário. Avise isso, sem repetir nenhuma.';
+      ctx.newsHistory.mark(fresh);
+      return `Notícias novas (ainda não apresentadas); conte todas:\n${fresh.map((n) => `- ${n.title}${n.source ? ` (${n.source})` : ''}`).join('\n')}`;
     },
     async pesquisar_na_web({ assunto }: { assunto: string }) {
       if (!assunto?.trim()) return 'Pergunte ao usuário o que ele quer pesquisar.';
@@ -662,7 +671,7 @@ export function createJarvisServer(ctx: JarvisContext) {
         run(h.criar_projeto),
       ),
       tool('clima_agora', 'Temperatura e condição do tempo agora, com máxima e mínima de hoje, na localização do usuário.', {}, run(h.clima_agora)),
-      tool('noticias_do_dia', 'Principais manchetes de agora (Google Notícias). Conte as mais relevantes em poucas frases.', {}, run(h.noticias_do_dia)),
+      tool('noticias_do_dia', 'Manchetes de agora (Google Notícias) que ainda não foram apresentadas ao usuário; chame de novo para mais. Conte todas em poucas frases.', {}, run(h.noticias_do_dia)),
       tool(
         'pesquisar_na_web',
         'Pesquisa um assunto na web (DuckDuckGo e Wikipedia) e devolve os principais resultados com o site de cada um. Use para fatos atuais, preços, pessoas, lugares, definições ou qualquer coisa que você não saiba com certeza ou que pode ter mudado. Resuma em voz, em poucas frases, citando a fonte.',
