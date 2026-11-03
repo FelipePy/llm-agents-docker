@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Instalador MSI: encerra o Jarvis antes de validar os arquivos em uso.
+  Fechar o Jarvis so o esconde na bandeja, entao o pedido de fechar do
+  Windows Installer nao bastava e a atualizacao travava.
+  O ComponentGroup vazio existe para o tauri.conf.json referenciar o fragmento.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <ComponentGroup Id="KillJarvisGroup" />
+    <CustomAction
+      Id="KillJarvis"
+      Directory="TARGETDIR"
+      ExeCommand="&quot;[SystemFolder]taskkill.exe&quot; /F /T /IM jarvis-desktop.exe /IM Jarvis.exe"
+      Execute="immediate"
+      Impersonate="yes"
+      Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="KillJarvis" Before="InstallValidate" />
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>
