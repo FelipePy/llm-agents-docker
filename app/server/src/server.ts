@@ -15,7 +15,7 @@ import { TerminalManager } from './terminals.ts';
 import type { Brain, InterruptJudge } from './voice/brain.ts';
 import { createJarvisServer, jarvisHandlers, type JarvisContext } from './voice/tools.ts';
 import { COMMANDS } from './voice/commands.ts';
-import { EvolutionManager, markUpdateAnnounced, readUpdate, updateNotice, type EvolutionDeps, type SelfCheck } from './evolution.ts';
+import { EvolutionManager, markUpdateAnnounced, readUpdate, updateNotice, updateOutcome, type EvolutionDeps, type SelfCheck } from './evolution.ts';
 import { writeFile } from 'node:fs/promises';
 import { Announcer } from './voice/announcer.ts';
 import { SessionWatcher, type WatchSummarizer } from './voice/session-watch.ts';
@@ -322,13 +322,12 @@ export function createApp(opts: AppOptions): App {
       while (notices.length && say(notices[0])) notices.shift();
       const file = opts.evolution?.updateFile;
       const u = file ? readUpdate(file) : null;
-      if (file && u && !u.announced) {
-        const verified = u.checks?.length && u.checks.every((c) => c.ok || !c.essential);
-        if ((u.rolledBack || verified) && say(updateNotice(u))) {
-          markUpdateAnnounced(file);
-          if (u.rolledBack) evolution?.rolledBack(u.error ?? 'a verificação falhou');
-          else evolution?.finish();
-        }
+      const outcome = updateOutcome(u);
+      if (file && u && outcome !== 'wait' && say(updateNotice(u))) {
+        markUpdateAnnounced(file);
+        // 'failed': o codigo novo ficou no ar (ninguem voltou atras), entao a evolucao termina.
+        if (outcome === 'rolledBack') evolution?.rolledBack(u.error ?? 'a verificação falhou');
+        else evolution?.finish();
       }
       const done = await evolution?.poll();
       if (done && say(done)) evolution!.markNotified();
@@ -392,7 +391,7 @@ export function createApp(opts: AppOptions): App {
     const ok = checks.every((c) => c.ok || !c.essential);
     const file = opts.evolution?.updateFile;
     const u = file && record ? readUpdate(file) : null;
-    if (file && u && !u.announced) await writeFile(file, JSON.stringify({ ...u, checks }, null, 2) + '\n', { mode: 0o600 });
+    if (file && u && !u.announced) await writeFile(file, JSON.stringify({ ...u, checks, checkedAt: new Date().toISOString() }, null, 2) + '\n', { mode: 0o600 });
     return { ok, checks };
   }
 
