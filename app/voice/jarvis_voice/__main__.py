@@ -18,6 +18,7 @@ from .protocol import JSON, encode_json, read_message
 from .hallucination import looks_like_vocabulary, vocab_tokens
 from .segmenter import Segmenter
 from .groq import GroqError, GroqStt
+from .speaker import Clips, SpeakerModel
 
 FRAME_SAMPLES = 1280  # 80 ms a 16 kHz
 FRAME_BYTES = FRAME_SAMPLES * 2
@@ -25,6 +26,11 @@ WAKE_DEBOUNCE_S = 2.0
 AUDIO_CHUNK_BYTES = 2048  # envia a voz em pedacos (~0,3 s), enquanto o edge-tts gera
 GROQ_WARN_EVERY_S = 60  # avisa a falha do Groq no maximo uma vez por minuto
 HEARD_MAX_BYTES = 8 * 32000  # esperando ser chamado, so transcreve falas de ate 8 s
+MAX_EMBED_CLIPS = 8
+# Modelo de reconhecimento da voz do usuario (baixado na primeira vez que for preciso).
+SPEAKER_DIR = os.environ.get("LLM_AGENT_VOICE_SPEAKER_DIR") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".venv", "models"
+)
 # Janela do whisper (o CTranslate2 completa ate 30 s de todo jeito: janelas menores nao aceleram).
 WINDOW_S = int(os.environ.get("LLM_AGENT_VOICE_WINDOW_S", "30"))
 
@@ -104,6 +110,10 @@ def main() -> None:
     end_ms = int(os.environ.get("LLM_AGENT_VOICE_END_MS", "300"))
     segmenter = Segmenter(end_ms=end_ms)
     stt_busy = threading.Event()
+    # Verificacao da voz: o audio de cada ativacao fica guardado; o servidor pede o vetor dele.
+    clips = Clips()
+    speaker = SpeakerModel(SPEAKER_DIR, log)
+    speaker_pool = ThreadPoolExecutor(max_workers=1)
 
     def run_whisper(segment: bytes) -> str:
         audio = np.frombuffer(segment, dtype=np.int16).astype(np.float32) / 32768.0
@@ -156,16 +166,30 @@ def main() -> None:
             log(traceback.format_exc())
             send({"event": "error", "message": f"falha na transcrição: {err}"})
 
-    def transcribe_heard(segment: bytes) -> None:
+    def transcribe_heard(segment: bytes, clip: int) -> None:
         try:
             started = time.monotonic()
             text = run_whisper(segment)
             if text:
-                send({"event": "heard", "text": text, "ms": int((time.monotonic() - started) * 1000)})
+                send({"event": "heard", "text": text, "ms": int((time.monotonic() - started) * 1000), "clip": clip})
         except Exception:
             log(traceback.format_exc())
         finally:
             stt_busy.clear()
+
+    def embed(eid: int, audio: list, clip) -> None:
+        """Vetores da voz: de trechos enviados (cadastro) ou de um trecho guardado (ativacao)."""
+        try:
+            started = time.monotonic()
+            if clip is not None:
+                pcm = clips.get(int(clip))
+                audio = [] if pcm is None else [pcm]
+            vectors = [speaker.embed(pcm) for pcm in audio]
+            log(f"voz do usuario: {len(vectors)} vetor(es) em {int((time.monotonic() - started) * 1000)} ms")
+            send({"event": "embedding", "id": eid, "vectors": vectors})
+        except Exception as err:
+            log(traceback.format_exc())
+            send({"event": "embedding", "id": eid, "error": str(err)})
 
     async def synth_all(text: str) -> bytes:
         chunks = []
@@ -256,6 +280,9 @@ def main() -> None:
                 else:
                     cloud["stt"] = None
                     log("transcricao: whisper local")
+            elif name == "embed":
+                audio = [base64.b64decode(str(a)) for a in cmd.get("audio", [])][:MAX_EMBED_CLIPS]
+                speaker_pool.submit(embed, int(cmd["id"]), audio, cmd.get("clip"))
             elif name == "vocab":
                 words = [str(w) for w in cmd.get("words", [])][:150]
                 state["prompt"] = " ".join(words)
@@ -266,12 +293,13 @@ def main() -> None:
         while len(pending) >= FRAME_BYTES:
             frame, pending = pending[:FRAME_BYTES], pending[FRAME_BYTES:]
             samples = np.frombuffer(frame, dtype=np.int16)
+            clips.feed(frame)
             score = max(wake.predict(samples).values())
             now = time.monotonic()
             if score >= threshold and now - state["last_wake"] >= WAKE_DEBOUNCE_S:
                 state["last_wake"] = now
                 wake.reset()
-                send({"event": "wake", "score": round(float(score), 3)})
+                send({"event": "wake", "score": round(float(score), 3), "clip": clips.save()})
                 continue
             if state["listen"] or name_wake:
                 was_active = segmenter.active
@@ -280,7 +308,7 @@ def main() -> None:
                     # Esperando ser chamado: transcreve falas curtas (sem legenda ao vivo).
                     if segment is not None and len(segment) <= HEARD_MAX_BYTES and not stt_busy.is_set():
                         stt_busy.set()
-                        stt_pool.submit(transcribe_heard, segment)
+                        stt_pool.submit(transcribe_heard, segment, clips.save(segment))
                     continue
                 if started:
                     send({"event": "speech-start"})
