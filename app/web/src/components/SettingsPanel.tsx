@@ -1,5 +1,6 @@
 import type { Api } from '../api.ts';
 import type { DesktopInfo } from '../desktop.ts';
+import { PauseSettings } from './PauseSettings.tsx';
 import { SttSettings } from './SttSettings.tsx';
 import { VoiceProfileSettings } from './VoiceProfileSettings.tsx';
 import { GLOBE_COLORS, isGlobeColor } from '../scene/globe.ts';
@@ -35,6 +36,7 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
           <input type="checkbox" checked={settings.voiceDemo} disabled={!use3d || settings.voice} onChange={toggles.onVoiceDemo} />
           Demonstração de voz
         </label>
+        <PauseSettings api={api} />
         <SttSettings api={api} />
         <VoiceProfileSettings api={api} />
       </section>

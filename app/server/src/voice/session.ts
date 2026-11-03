@@ -1,7 +1,7 @@
 import type { VoiceClientMessage, VoiceServerMessage, VoiceState } from '../types.ts';
 import type { Brain, InterruptJudge } from './brain.ts';
 import {
-  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isShortStop, isStopRequest, isSubmit, isUnintelligible, looksLikeRequest, matchWake, mergeUtterances, normalize, stripMarkdown,
+  DEFAULT_CONTINUATION_WORDS, SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isShortStop, isStopRequest, isSubmit, isUnintelligible, looksIncomplete, looksLikeRequest, matchWake, mergeUtterances, normalize, stripMarkdown,
 } from './text.ts';
 
 export type WorkerCommand =
@@ -15,6 +15,8 @@ export type WorkerCommand =
   | { cmd: 'prefetch'; texts: string[] }
   /** Quem transcreve a fala: o whisper local ou o Groq (nuvem). */
   | { cmd: 'stt'; provider: 'local' | 'groq'; key?: string; model?: string }
+  /** Silencio (ms) que encerra a fala do usuario. */
+  | { cmd: 'pauses'; end_ms: number }
   /** Vetores da voz (reconhecer o usuario): de trechos PCM em base64 ou de um trecho guardado pelo worker. */
   | { cmd: 'embed'; id: number; audio?: string[]; clip?: number };
 
@@ -86,6 +88,18 @@ const ANNOUNCE_QUIET_MS = 10_000;
 const NOTICE_CONTEXT_MS = 10 * 60_000;
 /** Depois de falar "acesso negado", outros chamados recusados neste intervalo so aparecem na legenda. */
 const REFUSE_REPEAT_MS = 30_000;
+/**
+ * Fala que parou no meio da frase ("abre o projeto e"): o worker ja esperou 1 s de
+ * silencio; o Jarvis espera mais isto pela continuacao (3 s no total) e entao responde.
+ * Padrao sem configuracao; as configuracoes da voz trocam o tempo e as palavras.
+ */
+const INCOMPLETE_WAIT_MS = 2000;
+
+/** Espera extra por uma fala incompleta e as palavras que a indicam. */
+export interface PauseConfig {
+  extraWaitMs: number;
+  words: readonly string[];
+}
 
 export class VoiceSession {
   state: VoiceState = 'off';
@@ -158,6 +172,9 @@ export class VoiceSession {
   private refusing = false;
   /** Quando o Jarvis falou "acesso negado" por ultimo (para nao repetir o aviso sem parar). */
   private lastRefusal = -Infinity;
+  /** Fala incompleta esperando a continuacao (e o prazo para responder a ela assim mesmo). */
+  private unfinished: { text: string; ms?: number; timer?: ReturnType<typeof setTimeout> } | undefined;
+  private readonly pauses: () => PauseConfig;
   private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number; tools: string[] } | undefined;
 
   constructor(
@@ -182,8 +199,11 @@ export class VoiceSession {
       judge?: InterruptJudge;
       /** Confere a voz de quem chamou (perfil cadastrado). Sem ele, qualquer voz vale. */
       speaker?: SpeakerCheck;
+      /** Pausas salvas nas configuracoes, lidas a cada fala (o que foi salvo vale na proxima). */
+      pauses?: () => PauseConfig;
     } = {},
   ) {
+    this.pauses = opts.pauses ?? (() => ({ extraWaitMs: INCOMPLETE_WAIT_MS, words: DEFAULT_CONTINUATION_WORDS }));
     this.onReady = opts.onReady;
     this.conversation = opts.conversation;
     this.judge = opts.judge;
@@ -211,6 +231,7 @@ export class VoiceSession {
     if (this.state === 'off') return;
     if (this.state !== 'sleeping' && this.state !== 'preparing') this.conversation?.end();
     this.stopController.abort();
+    this.dropUnfinished();
     this.refusing = false;
     this.checkingVoice = false;
     this.mute();
@@ -495,6 +516,8 @@ export class VoiceSession {
         return;
       case 'speech-start':
         this.userSpeaking = true;
+        // Continuando a fala incompleta: o prazo para de correr ate a transcricao chegar.
+        if (this.unfinished) clearTimeout(this.unfinished.timer);
         // Pensando (sem audio tocando): o usuario fez uma pausa e continuou falando.
         // A resposta para (por enquanto) e a fala nova sera emendada na anterior.
         if (this.state === 'thinking') {
@@ -516,6 +539,7 @@ export class VoiceSession {
         if (this.state === 'listening') {
           this.cutInAt = -Infinity;
           if (this.held) return this.resume();
+          if (this.unfinished) return this.finishUnfinished();
           this.resumeContinuation();
         }
         return;
@@ -538,21 +562,31 @@ export class VoiceSession {
         if (this.held) return this.onCutIn(text, e.ms);
         const cutIn = this.now() - this.cutInAt <= CUT_IN_MS;
         this.cutInAt = -Infinity;
-        if (!text) return this.resumeContinuation();
+        if (!text) return this.unfinished ? this.finishUnfinished() : this.resumeContinuation();
         // Fala que cortou a resposta mas nao foi entendida: descarta. Se ela tinha
         // calado uma pergunta a meio caminho, essa pergunta e respondida de novo.
         if (cutIn && !this.relay && isUnintelligible(text)) {
           this.discard(text, 'interrupcao');
-          return this.resumeContinuation();
+          return this.unfinished ? this.finishUnfinished() : this.resumeContinuation();
+        }
+        let heard = text;
+        if (this.unfinished) {
+          // Continuacao da fala incompleta: junta as duas.
+          heard = mergeUtterances(this.unfinished.text, heard);
+          this.dropUnfinished();
         }
         if (this.continuation !== undefined) {
           // Continuacao da fala anterior: cancela a resposta a ela e responde a fala completa.
-          const previous = this.continuation;
+          heard = mergeUtterances(this.continuation, heard);
           this.continuation = undefined;
           this.turnAbort.abort();
-          return this.utterance(mergeUtterances(previous, text), e.ms);
         }
-        this.utterance(text, e.ms);
+        // Parou no meio da frase: espera a continuacao (o ditado vai direto para o terminal).
+        if (!this.relay) {
+          const pauses = this.pauses();
+          if (pauses.extraWaitMs > 0 && looksIncomplete(heard, pauses.words)) return this.waitUnfinished(heard, pauses.extraWaitMs, e.ms);
+        }
+        this.utterance(heard, e.ms);
         return;
       }
       case 'audio':
@@ -593,6 +627,7 @@ export class VoiceSession {
 
   /** Nova pergunta: ela passa a ser a que fala; roda depois das anteriores. */
   private ask(text: string, ms?: number): void {
+    this.dropUnfinished();
     this.held = undefined;
     this.userTurns++;
     this.cutInAt = -Infinity;
@@ -711,6 +746,27 @@ export class VoiceSession {
   /** Fala nao entendida captada durante a resposta: fica so no log, nao vira pedido. */
   private discard(text: string, when: string): void {
     this.log(`fala descartada (${when}, não entendida): ${JSON.stringify(text)}`);
+  }
+
+  /** Guarda a fala incompleta; sem continuacao no prazo, responde a ela assim mesmo. */
+  private waitUnfinished(text: string, waitMs: number, ms?: number): void {
+    this.log(`fala incompleta, esperando a continuação: ${JSON.stringify(text)}`);
+    const timer = setTimeout(() => this.finishUnfinished(), waitMs);
+    timer.unref?.();
+    this.unfinished = { text, ms, timer };
+  }
+
+  /** O prazo acabou (ou veio so ruido): a fala incompleta e respondida como esta. */
+  private finishUnfinished(): void {
+    const u = this.unfinished;
+    this.dropUnfinished();
+    if (!u || this.state !== 'listening') return;
+    this.utterance(u.text, u.ms);
+  }
+
+  private dropUnfinished(): void {
+    if (this.unfinished) clearTimeout(this.unfinished.timer);
+    this.unfinished = undefined;
   }
 
   /** A continuacao esperada nao veio (ruido): responde a fala anterior. */

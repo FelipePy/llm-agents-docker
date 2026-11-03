@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isShortStop, looksLikeRequest,
+  isShortStop, looksIncomplete, continuationWord, looksLikeRequest,
   SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isStopRequest, isSubmit, isUnintelligible, matchWake, normalize, stripMarkdown,
 } from '../src/voice/text.ts';
 import { AUDIO, FrameDecoder, JSON_KIND, encodeFrame, encodeJson } from '../src/voice/protocol.ts';
@@ -110,4 +110,26 @@ test('looksLikeRequest e isShortStop (interrupcoes)', () => {
   for (const t of ['batata voadora azul', 'o cachorro do vizinho', 'mãe, já vou']) assert.equal(looksLikeRequest(t), false, t);
   for (const t of ['para', 'Espera aí.', 'chega, Jarvis', 'pera um pouco', 'Jarvis']) assert.equal(isShortStop(t), true, t);
   for (const t of ['espera, e amanhã?', 'isso é para mim', 'para de falar do tempo e me diz o dólar']) assert.equal(isShortStop(t), false, t);
+});
+
+test('looksIncomplete: fala que para em palavra de ligacao ou sem conclusao', () => {
+  for (const t of [
+    'abre o projeto meu-app e', 'manda uma mensagem que', 'quero ir pra', 'qual é a previsão de', 'abre o',
+    'liga o terminal do', 'abre o meu...', 'Abre o projeto,', 'cria uma tarefa para.', 'abre o projeto, hum',
+  ])
+    assert.equal(looksIncomplete(t), true, t);
+  for (const t of ['abre o projeto meu-app', 'que horas são', 'o que é?', 'Como está o tempo hoje?', 'O que é', 'tchau', 'Oi!', 'quero ir de?', ''])
+    assert.equal(looksIncomplete(t), false, t);
+});
+
+test('looksIncomplete com lista propria: varias palavras, lista vazia', () => {
+  assert.equal(looksIncomplete('abre o projeto', ['projeto']), true);
+  assert.equal(looksIncomplete('abre o meu', ['o meu']), true);
+  assert.equal(looksIncomplete('abre o teu', ['o meu']), false);
+  // Entrada so casa com palavra inteira: "se" nao vale para "chinese".
+  assert.equal(looksIncomplete('traduz chinese', ['se']), false);
+  assert.equal(looksIncomplete('abre o projeto e', []), false);
+  assert.equal(looksIncomplete('abre o projeto,', []), false);
+  assert.equal(continuationWord('  O Meu, '), 'o meu');
+  assert.equal(continuationWord('...'), '');
 });

@@ -9,7 +9,7 @@ import { ClaudeBrain, claudeJudge, claudeWatchSummary, claudeWebSearch } from '.
 import { createJarvisServer } from './voice/tools.ts';
 import { readProfile } from './catalog.ts';
 import { WorkerProcess } from './voice/worker.ts';
-import { VoiceSettingsStore, sttConfig } from './voice/settings.ts';
+import { VoiceSettingsStore, pauseConfig, sttConfig } from './voice/settings.ts';
 import { JarvisMemory } from './voice/memory.ts';
 import { NewsHistory } from './voice/news-history.ts';
 import { parseSmtpUrl, sendMail } from './mail.ts';
@@ -47,12 +47,16 @@ const voiceWorker = new WorkerProcess({
   env: { ...process.env },
   log: (line) => console.error(`[voz] ${line}`),
 });
-// Transcricao local ou Groq, escolhida no painel de configuracoes.
+// Transcricao local ou Groq e as pausas da fala, escolhidas no painel de configuracoes.
 const voiceSettings = new VoiceSettingsStore(join(stateDir, 'voice.json'), {
   fetch,
-  onChange: (s) => voiceWorker.configureStt(sttConfig(s)),
+  onChange: (s) => {
+    voiceWorker.configureStt(sttConfig(s));
+    voiceWorker.configurePauses(pauseConfig(s.pauses).endMs);
+  },
 });
 voiceWorker.configureStt(sttConfig(voiceSettings.get()));
+voiceWorker.configurePauses(pauseConfig(voiceSettings.get().pauses).endMs);
 // Codigo de recuperacao da senha da voz por e-mail (opcional): smtps://usuario:senha@host:465.
 let mailer: Mailer | undefined;
 if (process.env.LLM_AGENT_SMTP_URL) {

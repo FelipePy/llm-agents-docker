@@ -6,10 +6,12 @@ import { request } from 'node:http';
 import { join } from 'node:path';
 import { startApp } from './app.ts';
 import { tempHome } from './helpers.ts';
-import { VoiceSettingsStore, keyHint, sttConfig, type VoiceSettings } from '../src/voice/settings.ts';
+import { DEFAULT_PAUSES, VoiceSettingsStore, keyHint, pauseConfig, sttConfig, type VoiceSettings } from '../src/voice/settings.ts';
 import type { VoiceWorker } from '../src/voice/session.ts';
 
 const KEY = 'gsk_abcdefghijklmnopqrstuvwxyz0123';
+/** Pausas padrao, como a tela as ve. */
+const P = { pauses: DEFAULT_PAUSES, pauseDefaults: DEFAULT_PAUSES };
 
 /** Groq falso: aceita so a chave KEY. */
 function groqFetch(calls: string[] = []): typeof fetch {
@@ -25,7 +27,7 @@ test('VoiceSettingsStore valida a chave no Groq, salva 0600 e nunca devolve a ch
   const calls: string[] = [];
   const changes: VoiceSettings[] = [];
   const store = new VoiceSettingsStore(file, { fetch: groqFetch(calls), onChange: (s) => changes.push(s) });
-  assert.deepEqual(store.view(), { stt: 'local', groqModel: 'whisper-large-v3-turbo', groqKeyHint: null });
+  assert.deepEqual(store.view(), { stt: 'local', groqModel: 'whisper-large-v3-turbo', groqKeyHint: null, ...P });
 
   assert.match(JSON.stringify(await store.update({ stt: 'groq' })), /Cole a chave/);
   assert.match(JSON.stringify(await store.update({ stt: 'groq', groqKey: 'gsk_errada_mas_comprida_0000' })), /recusou a chave/);
@@ -33,7 +35,7 @@ test('VoiceSettingsStore valida a chave no Groq, salva 0600 e nunca devolve a ch
   assert.equal(changes.length, 0, 'erros nao mudam nada');
 
   const ok = await store.update({ stt: 'groq', groqKey: `  ${KEY} `, groqModel: 'whisper-large-v3' });
-  assert.deepEqual(ok, { view: { stt: 'groq', groqModel: 'whisper-large-v3', groqKeyHint: 'gsk_…0123' } });
+  assert.deepEqual(ok, { view: { stt: 'groq', groqModel: 'whisper-large-v3', groqKeyHint: 'gsk_…0123', ...P } });
   assert.ok(!JSON.stringify(ok).includes(KEY));
   assert.equal(statSync(file).mode & 0o777, 0o600);
   assert.equal(JSON.parse(readFileSync(file, 'utf8')).groqKey, KEY);
@@ -44,12 +46,43 @@ test('VoiceSettingsStore valida a chave no Groq, salva 0600 e nunca devolve a ch
   await store.update({ groqKey: KEY, stt: 'local' });
   assert.equal(calls.length, before);
   const again = new VoiceSettingsStore(file, { fetch: groqFetch() });
-  assert.deepEqual(again.view(), { stt: 'local', groqModel: 'whisper-large-v3', groqKeyHint: 'gsk_…0123' });
+  assert.deepEqual(again.view(), { stt: 'local', groqModel: 'whisper-large-v3', groqKeyHint: 'gsk_…0123', ...P });
   assert.deepEqual(sttConfig(again.get()), { provider: 'local' });
 
   // "" apaga a chave.
-  assert.deepEqual(await again.update({ groqKey: '' }), { view: { stt: 'local', groqModel: 'whisper-large-v3', groqKeyHint: null } });
+  assert.deepEqual(await again.update({ groqKey: '' }), { view: { stt: 'local', groqModel: 'whisper-large-v3', groqKeyHint: null, ...P } });
   assert.equal(keyHint(''), null);
+});
+
+test('pausas: limita os tempos, limpa a lista, salva e restaura', async () => {
+  const file = join(tempHome(), 'ui', 'voice.json');
+  const changes: VoiceSettings[] = [];
+  const store = new VoiceSettingsStore(file, { fetch: groqFetch(), onChange: (s) => changes.push(s) });
+  assert.deepEqual(pauseConfig(store.get().pauses).extraWaitMs, 2000);
+
+  for (const bad of [{ pauses: 'x' }, { pauses: { silenceMs: '2' } }, { pauses: { incompleteMs: null } }, { pauses: { continuationWords: [1] } }])
+    assert.ok('error' in (await store.update(bad)), JSON.stringify(bad));
+  assert.equal(changes.length, 0);
+
+  const ok = await store.update({ pauses: { silenceMs: 50, incompleteMs: 99_999, continuationWords: [' O Meu, ', 'e', 'E', '...', 'projeto'] } });
+  assert.ok('view' in ok);
+  assert.deepEqual(ok.view.pauses, { silenceMs: 300, incompleteMs: 15_000, continuationWords: ['o meu', 'e', 'projeto'] });
+  assert.deepEqual(pauseConfig(changes.at(-1)!.pauses), { endMs: 300, extraWaitMs: 14_700, words: ['o meu', 'e', 'projeto'] });
+
+  // Espera menor que o silencio sobe ate ele; lista vazia vale.
+  const short = await store.update({ pauses: { silenceMs: 9000, incompleteMs: 1000, continuationWords: [] } });
+  assert.ok('view' in short);
+  assert.deepEqual(short.view.pauses, { silenceMs: 5000, incompleteMs: 5000, continuationWords: [] });
+  assert.equal(pauseConfig(short.view.pauses).extraWaitMs, 0);
+
+  // Recarrega do arquivo; campos ausentes mantem; restaurar = mandar os padroes.
+  const again = new VoiceSettingsStore(file, { fetch: groqFetch() });
+  assert.deepEqual(again.view().pauses, { silenceMs: 5000, incompleteMs: 5000, continuationWords: [] });
+  const restored = await again.update({ pauses: { continuationWords: again.view().pauseDefaults.continuationWords } });
+  assert.ok('view' in restored);
+  assert.deepEqual(restored.view.pauses, { silenceMs: 5000, incompleteMs: 5000, continuationWords: DEFAULT_PAUSES.continuationWords });
+  // Arquivo antigo (sem pausas): padroes.
+  assert.deepEqual(new VoiceSettingsStore(join(tempHome(), 'nada.json'), { fetch: groqFetch() }).view().pauses, DEFAULT_PAUSES);
 });
 
 test('checkGroqKey: sem internet vira mensagem clara', async () => {
@@ -85,7 +118,7 @@ test('/api/voice/settings: GET e PUT com token', async () => {
   try {
     const auth = { authorization: 'Bearer tok' };
     const get = await fetch(`${base}/api/voice/settings`, { headers: auth });
-    assert.deepEqual(await get.json(), { stt: 'local', groqModel: 'whisper-large-v3-turbo', groqKeyHint: null });
+    assert.deepEqual(await get.json(), { stt: 'local', groqModel: 'whisper-large-v3-turbo', groqKeyHint: null, ...P });
     assert.equal((await put(`${base}/api/voice/settings`, '{"stt":"groq"}', {})).status, 401);
     assert.equal((await put(`${base}/api/voice/settings`, '{"stt":"groq"}', { ...auth, origin: 'http://evil.com' })).status, 403);
     assert.equal((await put(`${base}/api/voice/settings`, 'nao e json', auth)).status, 400);
@@ -94,7 +127,7 @@ test('/api/voice/settings: GET e PUT com token', async () => {
     assert.match(bad.body, /Cole a chave/);
     const ok = await put(`${base}/api/voice/settings`, JSON.stringify({ stt: 'groq', groqKey: KEY }), auth);
     assert.equal(ok.status, 200);
-    assert.deepEqual(JSON.parse(ok.body), { stt: 'groq', groqModel: 'whisper-large-v3-turbo', groqKeyHint: 'gsk_…0123' });
+    assert.deepEqual(JSON.parse(ok.body), { stt: 'groq', groqModel: 'whisper-large-v3-turbo', groqKeyHint: 'gsk_…0123', ...P });
     assert.equal((await put(`${base}/api/overview`, '{}', auth)).status, 405);
   } finally {
     await app.close();

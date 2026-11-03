@@ -133,9 +133,10 @@
 .stt-groq { display: flex; flex-direction: column; gap: 8px; padding-left: 22px; }
 .settings-panel .field { flex-direction: column; align-items: stretch; gap: 4px; cursor: default; }
 .settings-panel .field span { font-size: 12px; color: var(--muted); }
-.settings-panel .field input, .settings-panel .field select { width: 100%; box-sizing: border-box; padding: 6px 8px; font: inherit; font-size: 12px; color: inherit; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); border-radius: 6px; }
+.settings-panel .field input, .settings-panel .field select, .settings-panel .field textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; font: inherit; font-size: 12px; color: inherit; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); border-radius: 6px; }
 .settings-panel .field select option { background: #111; }
 .settings-panel a { color: inherit; }
+.settings-panel .field textarea { resize: vertical; line-height: 1.4; }
 .stt-actions { display: flex; gap: 10px; align-items: center; }
 .stt-actions .link { background: none; border: none; padding: 0; color: var(--muted); text-decoration: underline; cursor: pointer; }
 .stt-notice { font-size: 12px; }

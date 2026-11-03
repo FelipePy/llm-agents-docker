@@ -2,6 +2,18 @@
 from typing import List, Optional, Tuple
 
 FRAME_MS = 80
+# Faixa do silencio que encerra a fala (o servidor ja limita; aqui e so por garantia).
+END_MS_MIN = 300
+END_MS_MAX = 5000
+
+
+def end_ms_from(value, fallback: int) -> int:
+    """Silencio pedido pelo servidor (comando "pauses"), limitado a faixa; invalido mantem o anterior."""
+    try:
+        ms = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return min(END_MS_MAX, max(END_MS_MIN, ms))
 
 
 class Segmenter:

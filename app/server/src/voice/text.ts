@@ -216,3 +216,37 @@ export function isShortStop(text: string): boolean {
   const words = normalize(text).split(' ').filter(Boolean);
   return words.length > 0 && words.length <= 5 && words.some((w) => STOP_TRIGGERS.has(w)) && words.every((w) => STOP_ONLY.has(w));
 }
+
+// Palavras que nao fecham uma frase: conjuncoes, preposicoes, artigos, possessivos e hesitacoes.
+// Comparadas com acento ("é" e verbo e fecha a frase; "e" e ligacao). O usuario pode trocar a lista.
+export const DEFAULT_CONTINUATION_WORDS: readonly string[] = [
+  'e', 'ou', 'mas', 'nem', 'que', 'porque', 'pois', 'quando', 'como', 'se', 'então', 'entao', 'tipo',
+  'pra', 'pro', 'pras', 'pros', 'para', 'de', 'do', 'da', 'dos', 'das', 'em', 'no', 'na', 'nos', 'nas',
+  'num', 'numa', 'com', 'sem', 'por', 'pelo', 'pela', 'pelos', 'pelas', 'sobre', 'entre', 'até', 'ate', 'ao', 'aos',
+  'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas',
+  'meu', 'minha', 'meus', 'minhas', 'seu', 'sua', 'seus', 'suas', 'nosso', 'nossa', 'esse', 'essa', 'este', 'esta',
+  'o meu', 'a minha', 'hum', 'hmm', 'ahn', 'eh', 'tipo assim',
+];
+
+/** Palavras de uma fala, minusculas, sem pontuacao (o acento fica). */
+const spokenWords = (text: string): string[] => text.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ').split(/\s+/).filter(Boolean);
+
+/** Uma entrada da lista de palavras de continuacao como sera comparada ("O meu," -> "o meu"); vazia se nao sobrar nada. */
+export const continuationWord = (word: string): string => spokenWords(word).join(' ');
+
+/**
+ * A fala parou no meio da frase? Termina numa das palavras de continuacao ("abre o projeto e",
+ * "qual o tempo em"; uma entrada pode ter varias palavras, como "o meu"), em virgula ou
+ * reticencias. Pergunta e exclamacao fecham a frase. Com a lista vazia, nenhuma fala e
+ * tratada como incompleta.
+ */
+export function looksIncomplete(text: string, words: readonly string[] = DEFAULT_CONTINUATION_WORDS): boolean {
+  const t = text.trim();
+  if (!t || !words.length || /[?!]\s*$/.test(t)) return false;
+  if (/(\.\.\.|…|[,;:—-])\s*$/.test(t)) return true;
+  const tail = ` ${spokenWords(t).join(' ')}`;
+  return words.some((w) => {
+    const entry = continuationWord(w);
+    return entry !== '' && tail.endsWith(` ${entry}`);
+  });
+}
