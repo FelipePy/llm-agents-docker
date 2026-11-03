@@ -40,6 +40,15 @@ class SegmenterTest(unittest.TestCase):
         self.assertFalse(seg.active)
         self.assertTrue(all(e[1] is None for e in events[:-1]))
 
+    def test_one_second_pause_ends_the_speech(self):
+        # Fim da fala do Jarvis: 1 s de silencio; pausas menores nao cortam a frase.
+        seg = Segmenter(end_ms=1000)
+        events = self.feed(seg, [LOUD] * 8 + [QUIET] * 12 + [LOUD] * 4 + [QUIET] * 12)
+        self.assertTrue(all(segment is None for _, segment in events))
+        self.assertTrue(seg.active)
+        _, segment = seg.feed(frame(99), QUIET)
+        self.assertIsNotNone(segment)
+
     def test_short_blip_is_dropped(self):
         seg = Segmenter()
         events = self.feed(seg, [QUIET] * 4 + [LOUD] * 2 + [QUIET] * 10)

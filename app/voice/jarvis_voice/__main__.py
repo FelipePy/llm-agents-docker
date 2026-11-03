@@ -106,8 +106,9 @@ def main() -> None:
     cloud = {"stt": None, "warned": 0.0}
     # Chamado pelo nome ("Jarvis, ..."): esperando, transcreve falas curtas e o servidor procura o nome.
     name_wake = os.environ.get("LLM_AGENT_VOICE_NAME_WAKE", "1") != "0"
-    # Fim da fala no primeiro silencio; se o usuario continuar, o servidor emenda as falas.
-    end_ms = int(os.environ.get("LLM_AGENT_VOICE_END_MS", "300"))
+    # Fim da fala depois de 1 s de silencio; se a fala parecer incompleta, o servidor
+    # espera mais um pouco, e se o usuario continuar, emenda as falas.
+    end_ms = int(os.environ.get("LLM_AGENT_VOICE_END_MS", "1000"))
     segmenter = Segmenter(end_ms=end_ms)
     stt_busy = threading.Event()
     # Verificacao da voz: o audio de cada ativacao fica guardado; o servidor pede o vetor dele.
