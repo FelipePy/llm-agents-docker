@@ -464,6 +464,21 @@ function Connected({ token }: { token: string }) {
               onPage={(delta) => dispatch({ type: 'page', delta })}
               onActivate={activate}
             />
+            {voice.relay && (
+              <div className="dictation">
+                <div className="dictation-head">Ditando para o {voice.relay}</div>
+                <div className="dictation-text">{voice.relayDraft || 'Fale; o texto aparece aqui e no terminal, sem enviar.'}</div>
+                <div className="dictation-actions">
+                  <button className="send" disabled={!voice.relayDraft} onClick={() => voiceRef.current?.relaySubmit()}>
+                    ▶ Enviar
+                  </button>
+                  <button disabled={!voice.relayDraft} onClick={() => voiceRef.current?.relayClear()}>
+                    Apagar
+                  </button>
+                  <button onClick={() => voiceRef.current?.relayExit()}>Sair</button>
+                </div>
+              </div>
+            )}
             {(voice.user || voice.jarvis) ? (
               <div className="captions">
                 {voice.user && <p className="you">você: {voice.user}</p>}

@@ -203,6 +203,16 @@ export function createApp(opts: AppOptions): App {
     relay: (target) => voiceSession?.setRelay(target),
     day: () => day.day(voiceCoords.lat, voiceCoords.lon),
     now: () => new Date(),
+    closeSession: (id) => terminals.close(id),
+    endConversation: () => voiceSession?.endConversation(),
+  };
+
+  // Conversa direta (ditado): digita, envia (Enter) e apaga no terminal da sessao.
+  const isAlive = (id: string) => terminals.list().some((s) => s.id === id && s.alive);
+  const relayIo = {
+    type: (id: string, text: string) => isAlive(id) && (terminals.write(id, text), true),
+    submit: (id: string) => isAlive(id) && (terminals.write(id, '\r'), true),
+    erase: (id: string, chars: number) => isAlive(id) && (terminals.write(id, '\x7f'.repeat(chars)), true),
   };
   /** Localizacao enviada pelo navegador ao ligar a voz (para clima por voz e saudacao). */
   let voiceCoords: { lat?: number; lon?: number } = {};
@@ -277,7 +287,7 @@ export function createApp(opts: AppOptions): App {
       {
         bargeIn: voice.bargeIn ?? true,
         greetings: voice.greetings,
-        relaySend: (id, text) => jarvis.sendToSession(id, text),
+        relay: relayIo,
         // Nomes que o whisper deve acertar: projetos e os agentes.
         vocabulary: async () => ['Jarvis', 'Claude', 'Codex', ...(await jarvis.projects()).map((p) => p.name)],
         onReady: () => {

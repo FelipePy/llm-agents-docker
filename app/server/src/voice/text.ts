@@ -1,6 +1,7 @@
 // Texto falado: despedidas, limpeza de markdown e divisao em frases.
 
-const GOODBYES = new Set(['tchau', 'tchau jarvis', 'ate mais', 'ate logo', 'ate mais jarvis', 'obrigado tchau', 'valeu tchau']);
+// Despedidas: uma fala curta (ate 7 palavras) que contenha uma destas.
+const GOODBYE = /\b(tchau|xau|ate mais|ate logo|ate amanha|ate depois|ate a proxima|por hoje e so|e so isso|pode descansar|pode dormir|boa noite jarvis|falou jarvis)\b/;
 
 export function normalize(text: string): string {
   return text
@@ -12,7 +13,22 @@ export function normalize(text: string): string {
     .trim();
 }
 
-export const isGoodbye = (text: string): boolean => GOODBYES.has(normalize(text));
+export function isGoodbye(text: string): boolean {
+  const n = normalize(text);
+  return n.split(' ').length <= 7 && GOODBYE.test(n);
+}
+
+/** Ditado na sessao: "envia", "manda", "play"... (a fala inteira e so o comando). */
+export const isSubmit = (text: string): boolean =>
+  /^(envia|enviar|envie|manda|mandar|pode enviar|pode mandar|play|da play|da o play|envia ai|manda ai|manda ver)$/.test(normalize(text));
+
+/** Ditado: "apaga" desfaz o ultimo trecho; "limpa" apaga tudo o que foi ditado. */
+export const isErase = (text: string): boolean => /^(apaga|apaga isso|desfaz|desfaz isso|apaga o ultimo)$/.test(normalize(text));
+export const isClear = (text: string): boolean => /^(limpa|limpa tudo|apaga tudo|limpar)$/.test(normalize(text));
+
+/** Pedido para o Jarvis parar de falar, dito por cima da fala dele. */
+export const isStopRequest = (text: string): boolean =>
+  /\b(jarvis|javis|jarbas|para|pare|parar|espera|espere|chega|silencio|cala)\b/.test(normalize(text));
 
 const GREETINGS = new Set(['hey', 'hei', 'ei', 'oi', 'ola', 'fala', 'ok', 'okay', 'alo']);
 // Grafias que o whisper costuma produzir para "Jarvis".
@@ -52,6 +68,8 @@ export function stripMarkdown(text: string): string {
  * primeira virgula (ou ";" / ":") depois de `firstMin` caracteres, para a voz
  * comecar logo.
  */
+const FIRST_MAX = 48;
+
 export class SentenceSplitter {
   private buf = '';
   private emitted = false;
@@ -78,6 +96,16 @@ export class SentenceSplitter {
       last = end;
     }
     this.buf = this.buf.slice(last);
+    // Primeiro trecho sem pontuacao ate agora: depois de ~8 palavras, corta no ultimo espaco
+    // para a voz comecar (o resto segue no proximo trecho).
+    if (!this.emitted && this.buf.length >= FIRST_MAX) {
+      const cut = this.buf.lastIndexOf(' ');
+      if (cut > this.firstMin) {
+        out.push(this.buf.slice(0, cut).trim());
+        this.buf = this.buf.slice(cut + 1);
+        this.emitted = true;
+      }
+    }
     return out;
   }
 

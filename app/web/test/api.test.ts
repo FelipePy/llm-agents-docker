@@ -108,4 +108,7 @@ it('timingText resume os tempos da ultima resposta', async () => {
     'última resposta: transcrição 1,2 s · 1ª palavra 2,1 s · voz 3,0 s',
   );
   expect(timingText({ state: 'sleeping', user: '', jarvis: '' })).toBe('');
+  expect(timingText({ state: 'sleeping', user: '', jarvis: '', timing: { stt: 1300, firstToken: 4600, firstAudio: 6400, tools: ['clima_agora'] } })).toBe(
+    'última resposta: transcrição 1,3 s · 1ª palavra 4,6 s (usou clima_agora) · voz 6,4 s',
+  );
 });

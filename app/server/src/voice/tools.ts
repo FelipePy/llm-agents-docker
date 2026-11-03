@@ -27,6 +27,10 @@ export interface JarvisContext {
   /** Clima e notícias (o mesmo servico do painel do dia, na localizacao do usuario). */
   day(): Promise<DayInfo>;
   now(): Date;
+  /** Fecha o terminal de uma sessao. */
+  closeSession(id: string): void;
+  /** Depois da resposta atual, o Jarvis volta a esperar ser chamado. */
+  endConversation(): void;
 }
 
 const LABEL: Record<SessionAgent, string> = { claude: 'Claude', codex: 'Codex', shell: 'Shell' };
@@ -270,6 +274,16 @@ export function jarvisHandlers(ctx: JarvisContext) {
       ctx.ui({ kind: 'focus-session', id: s.id });
       return `Pronto para a conversa direta com o ${label}: depois que você responder, tudo o que o usuário falar vai direto para lá. Avise que, para voltar a falar com você, é só dizer "Jarvis, volta".`;
     },
+    async fechar_sessao({ projeto }: { projeto?: string }) {
+      const { list, session: s, error } = await pickSession(projeto);
+      if (!s) return error;
+      ctx.closeSession(s.id);
+      return `Fechei o terminal do ${LABEL[s.agent]} de ${projectName(s.projectPath, list)}.`;
+    },
+    async encerrar_conversa(_args: Record<string, never>) {
+      ctx.endConversation();
+      return 'Conversa encerrada: depois desta resposta, você volta a esperar ser chamado pelo nome.';
+    },
     async criar_skill(_args: Record<string, never>) {
       const s = await ctx.runTask('new-skill');
       ctx.ui({ kind: 'focus-session', id: s.id });
@@ -380,6 +394,18 @@ export function createJarvisServer(ctx: JarvisContext) {
         'Liga a conversa direta por voz com uma sessão: as próximas falas do usuário vão direto para o agente dela, sem passar por você, até ele dizer "Jarvis, volta".',
         { projeto: z.string().optional().describe('Projeto da sessão.') },
         run(h.falar_direto_com_sessao),
+      ),
+      tool(
+        'fechar_sessao',
+        'Fecha o terminal de uma sessão aberta (a mais recente do projeto, ou a mais recente de todas), encerrando o agente dela.',
+        { projeto: z.string().optional().describe('Projeto da sessão.') },
+        run(h.fechar_sessao),
+      ),
+      tool(
+        'encerrar_conversa',
+        'Encerra a conversa por voz: depois da sua resposta, você volta a esperar o usuário chamar "Jarvis". Use quando ele se despedir ou disser que é só isso.',
+        {},
+        run(h.encerrar_conversa),
       ),
       tool('criar_skill', 'Abre uma sessão do Claude dedicada a criar uma skill nova com o usuário.', {}, run(h.criar_skill)),
       tool('registrar_sobre_mim', 'Abre uma sessão do Claude dedicada a registrar informações sobre o usuário na memória.', {}, run(h.registrar_sobre_mim)),

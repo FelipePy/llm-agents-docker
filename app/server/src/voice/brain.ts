@@ -3,8 +3,14 @@ import { COMMANDS } from './commands.ts';
 import { JARVIS_TOOL_NAMES } from './tools.ts';
 
 /** Responde a uma fala do usuario, em pedacos de texto (streaming). */
+/** Avisos do cerebro durante uma resposta (para medir a latencia). */
+export interface BrainHooks {
+  /** Uma ferramenta comecou a ser chamada (nome sem o prefixo mcp__jarvis__). */
+  onTool?(name: string): void;
+}
+
 export interface Brain {
-  reply(text: string, signal: AbortSignal): AsyncIterable<string>;
+  reply(text: string, signal: AbortSignal, hooks?: BrainHooks): AsyncIterable<string>;
   /** Abre a sessao antes da primeira fala (opcional). */
   warm?(): void;
 }
@@ -21,11 +27,11 @@ export const JARVIS_PROMPT = [
   'Suas respostas viram fala: em geral, uma a três frases curtas, a menos que peçam mais. Não use markdown, listas, tabelas, emojis nem código; escreva números e siglas do jeito que se fala.',
   // Conhecimento e ferramentas.
   'Você vive dentro do llm-agent, o app do usuário para conversar com agentes de código e acompanhar os projetos dele. Quando ele perguntar como fazer algo no app ou para que serve alguma parte dele, consulte a ferramenta manual_do_app e responda com base nela; não invente funcionalidades.',
-  'Para clima, notícias, data e hora, use as ferramentas clima_agora, noticias_do_dia e data_e_hora; nunca diga que não sabe sem consultá-las antes.',
+  'Cada fala do usuário chega com a data e a hora atuais entre colchetes no fim; use-as direto, sem ferramenta. Para clima e notícias, use clima_agora e noticias_do_dia; nunca diga que não sabe sem consultá-las antes.',
   'Você controla a interface e os projetos pelas ferramentas do servidor jarvis; use-as sempre que o pedido for uma ação, sem pedir confirmação para o que só mostra coisas.',
-  'Antes de usar uma ferramenta, avise com naturalidade e em poucas palavras o que vai fazer; depois, conte o resultado como contaria a alguém, sem ler listas inteiras.',
+  'Importante para a fala não travar: sempre que for usar uma ferramenta, escreva ANTES dela uma frase curta, com suas palavras, dizendo o que vai fazer; o usuário escuta essa frase enquanto a ferramenta roda. Depois, conte o resultado como contaria a alguém, sem ler listas inteiras.',
   'Trabalho de verdade nos projetos (corrigir, implementar, investigar) vai para uma sessão com iniciar_sessao, com a tarefa completa e clara; diga que ela segue em background.',
-  'Se o usuário perguntar o que você sabe fazer, use a ferramenta comandos. Se ele se despedir, despeça-se em poucas palavras, do seu jeito.',
+  'Se o usuário perguntar o que você sabe fazer, use a ferramenta comandos. Se ele se despedir ou disser que é só isso, despeça-se uma única vez, em poucas palavras e do seu jeito, chame encerrar_conversa e não diga mais nada depois da ferramenta.',
   `Comandos disponíveis: ${COMMANDS.map((c) => `${c.title} (ex.: "${c.examples[0]}")`).join('; ')}.`,
 ].join(' ');
 
@@ -35,6 +41,8 @@ export function brainEnv(env: Record<string, string | undefined> = process.env):
   for (const [key, value] of Object.entries(env)) {
     if (!key.startsWith('ANTHROPIC_') && key !== 'CLAUDECODE') out[key] = value;
   }
+  // Sem chamadas extras do Claude Code (telemetria, titulos...) disputando com a resposta.
+  out.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
   return out;
 }
 
@@ -83,10 +91,19 @@ export class ClaudeBrain implements Brain {
   private messages: AsyncIterator<SDKMessage> | undefined;
   /** A resposta anterior ainda nao chegou ao "result" (foi interrompida). */
   private inTurn = false;
+  private readonly now: () => Date;
 
   /** `mcp`: cria o servidor de ferramentas do Jarvis (uma instancia por sessao). */
   /** `about`: o que os agentes ja sabem sobre o usuario (memorias), para respostas pessoais. */
-  constructor(opts: { model: string; cwd: string; query?: QueryFn; mcp?: () => McpServerConfig; about?: () => Promise<string> }) {
+  constructor(opts: {
+    model: string;
+    cwd: string;
+    query?: QueryFn;
+    mcp?: () => McpServerConfig;
+    about?: () => Promise<string>;
+    now?: () => Date;
+  }) {
+    this.now = opts.now ?? (() => new Date());
     this.mcp = opts.mcp;
     this.about = opts.about;
     this.model = opts.model;
@@ -157,7 +174,7 @@ export class ClaudeBrain implements Brain {
     return m;
   }
 
-  async *reply(text: string, signal: AbortSignal): AsyncGenerator<string> {
+  async *reply(text: string, signal: AbortSignal, hooks: BrainHooks = {}): AsyncGenerator<string> {
     if (signal.aborted) return;
     await this.ensureOpen();
     // Descarta o resto de uma resposta interrompida antes de comecar outra.
@@ -168,7 +185,9 @@ export class ClaudeBrain implements Brain {
     signal.addEventListener('abort', onAbort, { once: true });
     this.inTurn = true;
     let spoke = false;
-    this.input!.push({ type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null } as SDKUserMessage);
+    // Data e hora vao junto com a fala: perguntas de hora nao precisam de ferramenta.
+    const content = `${text}\n\n[${this.now().toLocaleString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}]`;
+    this.input!.push({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null } as SDKUserMessage);
     try {
       for (;;) {
         const m = await this.next();
@@ -184,6 +203,9 @@ export class ClaudeBrain implements Brain {
         if (m.type === 'stream_event') {
           const e = m.event;
           // Um bloco de texto novo (ex.: depois de uma ferramenta) comeca com espaco.
+          if (e.type === 'content_block_start' && e.content_block.type === 'tool_use') {
+            hooks.onTool?.(e.content_block.name.replace(/^mcp__jarvis__/, ''));
+          }
           if (e.type === 'content_block_start' && e.content_block.type === 'text' && spoke) yield ' ';
           if (e.type === 'content_block_delta' && e.delta.type === 'text_delta') {
             spoke = true;

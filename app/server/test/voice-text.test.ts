@@ -1,15 +1,35 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SentenceSplitter, isGoodbye, isReturn, matchWake, normalize, stripMarkdown } from '../src/voice/text.ts';
+import {
+  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isStopRequest, isSubmit, matchWake, normalize, stripMarkdown,
+} from '../src/voice/text.ts';
 import { AUDIO, FrameDecoder, JSON_KIND, encodeFrame, encodeJson } from '../src/voice/protocol.ts';
 
 test('normalize tira acentos, pontuacao e caixa', () => {
   assert.equal(normalize('  Até   mais, JARVIS! '), 'ate mais jarvis');
 });
 
-test('isGoodbye reconhece so despedidas exatas', () => {
-  for (const t of ['Tchau.', 'tchau, Jarvis!', 'Até mais', 'até logo', 'Valeu, tchau']) assert.equal(isGoodbye(t), true, t);
-  for (const t of ['tchau para o projeto antigo', 'qual o tempo', '']) assert.equal(isGoodbye(t), false, t);
+test('isGoodbye reconhece despedidas curtas, mesmo com outras palavras', () => {
+  for (const t of ['Tchau.', 'tchau, Jarvis!', 'Até mais', 'até logo', 'Valeu, tchau', 'Obrigado, Jarvis, tchau!', 'Valeu, até amanhã.', 'Por hoje é só.'])
+    assert.equal(isGoodbye(t), true, t);
+  for (const t of ['manda pro Claude do projeto antigo que eu disse tchau pra versão velha', 'qual o tempo', ''])
+    assert.equal(isGoodbye(t), false, t);
+});
+
+test('comandos do ditado e pedidos de parada', () => {
+  for (const t of ['Envia.', 'pode mandar', 'Play!', 'manda aí']) assert.equal(isSubmit(t), true, t);
+  assert.equal(isSubmit('envia o relatório pro cliente'), false, 'frase com mais coisa e ditado, nao comando');
+  assert.equal(isErase('Apaga isso.'), true);
+  assert.equal(isClear('limpa tudo'), true);
+  for (const t of ['Jarvis', 'para, para', 'espera aí', 'chega']) assert.equal(isStopRequest(t), true, t);
+  assert.equal(isStopRequest('abre o projeto meu-app'), false);
+});
+
+test('SentenceSplitter: sem pontuacao, o primeiro trecho sai depois de ~8 palavras', () => {
+  const s = new SentenceSplitter(20);
+  assert.deepEqual(s.push('Olha só, o projeto '), []);
+  assert.deepEqual(s.push('tem três mudanças pendentes no branch principal agora'), ['Olha só, o projeto tem três mudanças pendentes no branch principal']);
+  assert.deepEqual(s.push(' e mais. Fim'), ['agora e mais.']);
 });
 
 test('stripMarkdown deixa so o texto falavel', () => {

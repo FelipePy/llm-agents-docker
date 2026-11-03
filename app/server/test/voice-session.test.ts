@@ -301,31 +301,110 @@ test('"Hey Jarvis, ..." no meio da escuta tira o chamado do pedido', async () =>
   assert.equal(s.brain.calls.length, 1, 'so o nome nao vira pergunta');
 });
 
-test('conversa direta: a voz vai para a sessao ate "Jarvis, volta"', async () => {
+test('conversa direta: ditado digita sem enviar; "envia", "apaga", "limpa" e os botoes', async () => {
   const worker = new FakeWorker();
   const brain = new FakeBrain([['Voltei.']]);
   const sent: VoiceServerMessage[] = [];
-  const relayed: string[] = [];
+  const io: string[] = [];
   const session = new VoiceSession(worker, brain, (m) => sent.push(m), () => 0, () => {}, {
-    relaySend: (_id, text) => {
-      relayed.push(text);
-      return true;
+    relay: {
+      type: (_id, text) => (io.push(`type:${text}`), true),
+      submit: () => (io.push('submit'), true),
+      erase: (_id, n) => (io.push(`erase:${n}`), true),
     },
     vocabulary: async () => ['Nowcasting-Geoserver'],
   });
+  const lastRelay = () => sent.filter((m) => m.type === 'relay').at(-1);
   await session.start();
   await waitFor(() => worker.commands.some((c) => c.cmd === 'vocab'));
   worker.fire({ event: 'wake', score: 0.9 });
   session.setRelay({ id: 's1', label: 'Claude de meu-app' });
-  assert.deepEqual(sent.find((m) => m.type === 'relay'), { type: 'relay', target: 'Claude de meu-app' });
-  worker.fire({ event: 'transcript', id: 1, text: 'roda os testes de login' });
-  assert.deepEqual(relayed, ['roda os testes de login']);
-  assert.equal(brain.calls.length, 0);
-  worker.fire({ event: 'transcript', id: 2, text: 'Jarvis, volta' });
-  assert.deepEqual(sent.filter((m) => m.type === 'relay').at(-1), { type: 'relay', target: null });
-  assert.equal(brain.calls.length, 0, '"volta" so sai da conversa direta');
-  worker.fire({ event: 'transcript', id: 3, text: 'abre as skills' });
+  assert.deepEqual(lastRelay(), { type: 'relay', target: 'Claude de meu-app', draft: '' });
+
+  worker.fire({ event: 'transcript', id: 1, text: 'roda os testes' });
+  worker.fire({ event: 'transcript', id: 2, text: 'de login' });
+  assert.deepEqual(io, ['type:roda os testes', 'type: de login'], 'digita sem Enter');
+  assert.deepEqual(lastRelay(), { type: 'relay', target: 'Claude de meu-app', draft: 'roda os testes de login' });
+  worker.fire({ event: 'transcript', id: 3, text: 'Apaga isso.' });
+  assert.equal(io.at(-1), 'erase:9', 'apaga o ultimo trecho (" de login")');
+  worker.fire({ event: 'transcript', id: 4, text: 'Envia.' });
+  assert.equal(io.at(-1), 'submit');
+  assert.deepEqual(lastRelay(), { type: 'relay', target: 'Claude de meu-app', draft: '' });
+
+  worker.fire({ event: 'transcript', id: 5, text: 'outra coisa' });
+  session.client({ type: 'relay-clear' });
+  assert.equal(io.at(-1), 'erase:11');
+  worker.fire({ event: 'transcript', id: 6, text: 'mais uma' });
+  session.client({ type: 'relay-submit' });
+  assert.equal(io.at(-1), 'submit');
+  assert.equal(brain.calls.length, 0, 'nada disso passa pelo cerebro');
+
+  worker.fire({ event: 'transcript', id: 7, text: 'Jarvis, volta' });
+  assert.deepEqual(lastRelay(), { type: 'relay', target: null, draft: '' });
+  worker.fire({ event: 'transcript', id: 8, text: 'abre as skills' });
   await waitFor(() => brain.calls.length === 1);
+});
+
+test('botao Sair encerra a conversa direta sem enviar', async () => {
+  const worker = new FakeWorker();
+  const io: string[] = [];
+  const sent: VoiceServerMessage[] = [];
+  const session = new VoiceSession(worker, new FakeBrain([]), (m) => sent.push(m), () => 0, () => {}, {
+    relay: { type: () => (io.push('type'), true), submit: () => (io.push('submit'), true), erase: () => true },
+  });
+  await session.start();
+  worker.fire({ event: 'wake', score: 0.9 });
+  session.setRelay({ id: 's1', label: 'Claude' });
+  worker.fire({ event: 'transcript', id: 1, text: 'rascunho' });
+  session.client({ type: 'relay-exit' });
+  assert.deepEqual(io, ['type']);
+  assert.deepEqual(sent.filter((m) => m.type === 'relay').at(-1), { type: 'relay', target: null, draft: '' });
+});
+
+test('encerrar_conversa: depois da resposta, volta a dormir', async () => {
+  const s = await started([['Valeu, até mais!']]);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'beleza, era isso então' });
+  await waitFor(() => s.session.state === 'speaking');
+  s.session.endConversation();
+  s.session.client({ type: 'played', id: s.worker.speaks()[0].id });
+  assert.equal(s.session.state, 'sleeping');
+});
+
+test('interromper: a deteccao de fala abaixa a voz; "para" ou "Jarvis" no meio do eco interrompem', async () => {
+  const s = await started([['Hoje o dia está nublado e vai chover à tarde. ', 'Leve guarda-chuva.']]);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'como está o tempo' });
+  await waitFor(() => s.session.state === 'speaking' && s.worker.speaks().length === 2);
+  s.worker.fire({ event: 'speech-start' });
+  assert.deepEqual(s.sent.filter((m) => m.type === 'duck'), [{ type: 'duck', on: true }]);
+  // Eco puro: volta o volume e segue falando.
+  s.worker.fire({ event: 'transcript', id: 2, text: 'o dia está nublado e vai chover' });
+  assert.equal(s.session.state, 'speaking');
+  assert.deepEqual(s.sent.filter((m) => m.type === 'duck').at(-1), { type: 'duck', on: false });
+  // A fala do usuario misturada ao eco, com uma palavra de parada: interrompe.
+  s.worker.fire({ event: 'partial', text: 'vai chover à tarde para Jarvis' });
+  assert.equal(s.session.state, 'listening');
+  assert.ok(s.sent.some((m) => m.type === 'stop-audio'));
+});
+
+test('as ferramentas usadas aparecem nos tempos da resposta', async () => {
+  const worker = new FakeWorker();
+  const sent: VoiceServerMessage[] = [];
+  const brain: Brain = {
+    async *reply(_text, _signal, hooks) {
+      hooks?.onTool?.('clima_agora');
+      yield 'Faz 23 graus.';
+    },
+  };
+  const session = new VoiceSession(worker, brain, (m) => sent.push(m), () => 0);
+  await session.start();
+  worker.fire({ event: 'wake', score: 0.9 });
+  worker.fire({ event: 'transcript', id: 1, text: 'qual a temperatura' });
+  await waitFor(() => worker.speaks().length === 1);
+  worker.fire({ event: 'audio', id: worker.speaks()[0].id, data: 'QQ==', last: true });
+  const timing = sent.find((m) => m.type === 'timing') as { tools: string[] } | undefined;
+  assert.deepEqual(timing?.tools, ['clima_agora']);
 });
 
 test('chamado sem pedido: responde com uma saudacao sorteada, sem repetir', async () => {

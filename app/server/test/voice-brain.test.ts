@@ -86,7 +86,7 @@ test('erro na resposta fecha a sessao; a proxima fala retoma a conversa', async 
 
 test('brainEnv remove credenciais de API do ambiente', () => {
   const env = brainEnv({ PATH: '/bin', ANTHROPIC_API_KEY: 'k', ANTHROPIC_BASE_URL: 'u', CLAUDECODE: '1', HOME: '/h' });
-  assert.deepEqual(env, { PATH: '/bin', HOME: '/h' });
+  assert.deepEqual(env, { PATH: '/bin', HOME: '/h', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
 });
 
 test('warm abre a sessao antes da primeira fala', async () => {
@@ -105,5 +105,28 @@ test('as memorias sobre o usuario entram nas instrucoes', async () => {
   const brain = new ClaudeBrain({ model: 'haiku', cwd: '/w', query: q.fn, about: async () => 'Chama-se Felipe; prefere respostas curtas.' });
   assert.deepEqual(await collect(brain, 'oi'), ['Oi, Felipe!']);
   assert.match(q.calls[0].options.systemPrompt, /O que você já sabe sobre o usuário[\s\S]*Felipe/);
+  brain.close();
+});
+
+test('avisa as ferramentas usadas e manda data e hora junto com a fala', async () => {
+  const toolStart = { type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', name: 'mcp__jarvis__clima_agora' } } };
+  const prompts: string[] = [];
+  const base = fakeQuery([[toolStart, delta('Faz 23 graus.'), ok]]);
+  const spy = ((params: any) => {
+    const wrapped = (async function* () {
+      for await (const m of params.prompt) {
+        prompts.push(m.message.content);
+        yield m;
+      }
+    })();
+    return base.fn({ ...params, prompt: wrapped });
+  }) as unknown as QueryFn;
+  const brain = new ClaudeBrain({ model: 'haiku', cwd: '/w', query: spy, now: () => new Date(2026, 10, 3, 22, 10) });
+  const tools: string[] = [];
+  const out: string[] = [];
+  for await (const t of brain.reply('qual a temperatura?', new AbortController().signal, { onTool: (n) => tools.push(n) })) out.push(t);
+  assert.deepEqual(tools, ['clima_agora']);
+  assert.deepEqual(out, ['Faz 23 graus.']);
+  assert.match(prompts[0], /^qual a temperatura\?\n\n\[terça-feira, 3 de novembro.*22:10\]$/);
   brain.close();
 });

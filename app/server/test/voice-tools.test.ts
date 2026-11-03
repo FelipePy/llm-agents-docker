@@ -14,6 +14,8 @@ function ctx(over: Partial<JarvisContext> = {}) {
   const opened: { path: string; agent: string; prompt?: string }[] = [];
   const sent: { id: string; text: string }[] = [];
   const relays: ({ id: string; label: string } | null)[] = [];
+  const closed: string[] = [];
+  const ended: boolean[] = [];
   const session = (id: string, projectPath: string, alive = true): SessionInfo => ({
     id, projectPath, agent: 'claude', title: 't', startedAt: '2026-11-02T10:00:00Z', alive,
   });
@@ -53,9 +55,11 @@ function ctx(over: Partial<JarvisContext> = {}) {
       news: [{ title: 'Chuva forte em SP', source: 'G1', link: '', published: '' }],
     }),
     now: () => new Date(2026, 10, 2, 14, 5),
+    closeSession: (id) => closed.push(id),
+    endConversation: () => ended.push(true),
     ...over,
   };
-  return { c, ui, opened, sent, relays, h: jarvisHandlers(c) };
+  return { c, ui, opened, sent, relays, closed, ended, h: jarvisHandlers(c) };
 }
 
 test('findProject: exato, prefixo, parte do nome e sem acento/caixa', () => {
@@ -173,4 +177,13 @@ test('clima, noticias e hora vem das ferramentas', async () => {
   assert.match(await h.data_e_hora({}), /^Agora são 14:05 de segunda-feira, 2 de novembro de 2026\.$/);
   const off = ctx({ day: async () => ({ weather: null, weatherError: 'Permita a localização', news: [] }) });
   assert.match(await off.h.clima_agora({}), /Não consegui o clima agora: Permita a localização/);
+});
+
+test('fechar_sessao fecha o terminal; encerrar_conversa poe o Jarvis para esperar', async () => {
+  const { h, closed, ended } = ctx();
+  assert.match(await h.fechar_sessao({ projeto: 'meu app' }), /Fechei o terminal do Claude de meu-app/);
+  assert.deepEqual(closed, ['s1']);
+  assert.match(await h.fechar_sessao({ projeto: 'nowcasting-api' }), /Não há sessão/);
+  assert.match(await h.encerrar_conversa({}), /encerrada/);
+  assert.deepEqual(ended, [true]);
 });

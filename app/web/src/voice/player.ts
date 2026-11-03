@@ -64,6 +64,7 @@ class Utterance {
 export class Player {
   private readonly ctx = new AudioContext();
   private readonly analyser: AnalyserNode;
+  private readonly volume: GainNode;
   private readonly samples: Float32Array<ArrayBuffer>;
   private readonly onPlayed: (id: number) => void;
   private readonly queue: Utterance[] = [];
@@ -72,7 +73,10 @@ export class Player {
 
   constructor(onPlayed: (id: number) => void) {
     this.onPlayed = onPlayed;
+    // fonte -> volume (abaixa quando o usuario comeca a falar) -> analisador -> saida
+    this.volume = this.ctx.createGain();
     this.analyser = this.ctx.createAnalyser();
+    this.volume.connect(this.analyser);
     this.analyser.fftSize = 1024;
     this.analyser.connect(this.ctx.destination);
     this.samples = new Float32Array(this.analyser.fftSize);
@@ -91,7 +95,7 @@ export class Player {
     let u = this.byId.get(id);
     if (!u) {
       u = new Utterance(id);
-      this.ctx.createMediaElementSource(u.audio).connect(this.analyser);
+      this.ctx.createMediaElementSource(u.audio).connect(this.volume);
       this.byId.set(id, u);
       this.queue.push(u);
     }
@@ -122,6 +126,11 @@ export class Player {
     this.queue.length = 0;
     this.byId.clear();
     for (const u of all) u.dispose();
+  }
+
+  /** Abaixa a voz (enquanto decide se o usuario esta interrompendo) ou volta ao normal. */
+  duck(on: boolean): void {
+    this.volume.gain.setTargetAtTime(on ? 0.25 : 1, this.ctx.currentTime, 0.05);
   }
 
   level(): number {

@@ -10,8 +10,10 @@ export interface VoiceView {
   jarvis: string;
   /** Conversa direta com uma sessao (nome dela), ou null. */
   relay?: string | null;
-  /** Tempos da ultima resposta (ms desde o fim da fala). */
-  timing?: { stt: number | null; firstToken: number | null; firstAudio: number | null };
+  /** Texto ditado na conversa direta, ainda nao enviado. */
+  relayDraft?: string;
+  /** Tempos da ultima resposta (ms desde o fim da fala) e as ferramentas que ela usou. */
+  timing?: { stt: number | null; firstToken: number | null; firstAudio: number | null; tools?: string[] };
 }
 
 export const OFF_VIEW: VoiceView = { state: 'off', user: '', jarvis: '' };
@@ -22,7 +24,8 @@ const seconds = (ms: number | null): string => (ms === null ? '?' : `${(ms / 100
 export function timingText(v: VoiceView): string {
   const t = v.timing;
   if (!t || v.state === 'off') return '';
-  return `última resposta: transcrição ${seconds(t.stt)} · 1ª palavra ${seconds(t.firstToken)} · voz ${seconds(t.firstAudio)}`;
+  const tools = t.tools?.length ? ` (usou ${t.tools.join(', ')})` : '';
+  return `última resposta: transcrição ${seconds(t.stt)} · 1ª palavra ${seconds(t.firstToken)}${tools} · voz ${seconds(t.firstAudio)}`;
 }
 
 const MODE: Record<VoiceState, CoreMode> = {
@@ -35,7 +38,7 @@ const MODE: Record<VoiceState, CoreMode> = {
 };
 
 export function voiceStatus(v: VoiceView): string {
-  if (v.relay && v.state !== 'off') return `falando direto com o ${v.relay} — diga “Jarvis, volta”`;
+  if (v.relay && v.state !== 'off') return `ditando para o ${v.relay} — diga “envia” para enviar, “Jarvis, volta” para sair`;
   switch (v.state) {
     case 'off':
       return '';
@@ -126,6 +129,19 @@ export class VoiceClient {
     this.send({ type: 'interrupt' });
   }
 
+  /** Conversa direta: envia o ditado, apaga o ditado, ou sai sem enviar. */
+  relaySubmit(): void {
+    this.send({ type: 'relay-submit' });
+  }
+
+  relayClear(): void {
+    this.send({ type: 'relay-clear' });
+  }
+
+  relayExit(): void {
+    this.send({ type: 'relay-exit' });
+  }
+
   signal(): CoreSignal {
     return { mode: MODE[this.state], level: this.state === 'speaking' ? (this.player?.level() ?? 0) : 0 };
   }
@@ -143,6 +159,10 @@ export class VoiceClient {
         return;
       case 'stop-audio':
         this.player?.stop();
+        this.player?.duck(false);
+        return;
+      case 'duck':
+        this.player?.duck(m.on);
         return;
       case 'chime':
         this.player?.chime();
@@ -154,10 +174,10 @@ export class VoiceClient {
         this.onUi(m.command);
         return;
       case 'relay':
-        this.onView({ relay: m.target });
+        this.onView({ relay: m.target, relayDraft: m.draft });
         return;
       case 'timing':
-        this.onView({ timing: { stt: m.stt, firstToken: m.firstToken, firstAudio: m.firstAudio } });
+        this.onView({ timing: { stt: m.stt, firstToken: m.firstToken, firstAudio: m.firstAudio, tools: m.tools } });
         return;
     }
   }

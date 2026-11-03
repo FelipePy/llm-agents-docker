@@ -121,17 +121,23 @@ export type VoiceServerMessage =
   | { type: 'stop-audio' }
   | { type: 'chime' }
   | { type: 'ui'; command: UiCommand }
-  /** Tempos da ultima resposta, em ms desde o fim da fala (null: nao medido). */
-  | { type: 'timing'; stt: number | null; firstToken: number | null; firstAudio: number | null }
-  /** Conversa direta com uma sessao (null: de volta ao Jarvis). */
-  | { type: 'relay'; target: string | null }
+  /** Tempos da ultima resposta, em ms desde o fim da fala (null: nao medido), e as ferramentas usadas. */
+  | { type: 'timing'; stt: number | null; firstToken: number | null; firstAudio: number | null; tools: string[] }
+  /** Conversa direta com uma sessao (null: de volta ao Jarvis) e o texto ditado ainda nao enviado. */
+  | { type: 'relay'; target: string | null; draft: string }
+  /** Abaixa (on) ou restaura a voz do Jarvis enquanto decide se o usuario esta interrompendo. */
+  | { type: 'duck'; on: boolean }
   | { type: 'error'; message: string };
 
 export type VoiceClientMessage =
   | { type: 'start'; lat?: number; lon?: number }
   | { type: 'stop' }
   | { type: 'interrupt' }
-  | { type: 'played'; id: number };
+  | { type: 'played'; id: number }
+  /** Conversa direta: envia o texto ditado, apaga o ditado ou sai da conversa direta. */
+  | { type: 'relay-submit' }
+  | { type: 'relay-clear' }
+  | { type: 'relay-exit' };
 
 /** Nivel da navegacao radial da interface (a voz usa os mesmos niveis). */
 export type NavNode =

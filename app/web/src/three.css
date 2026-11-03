@@ -109,3 +109,13 @@
   background: rgba(10, 10, 16, 0.85); color: #ffd36b; font-size: 18px;
 }
 .app.full .navbar { left: 40px; }
+.dictation {
+  position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); z-index: 4;
+  width: min(620px, 70%); padding: 12px 14px; border-radius: 12px;
+  background: rgba(10, 10, 16, 0.9); border: 1px solid rgba(255, 209, 102, 0.35);
+}
+.dictation-head { font-size: 12px; color: #ffd36b; letter-spacing: 0.08em; text-transform: uppercase; }
+.dictation-text { margin: 8px 0 10px; font-size: 15px; line-height: 1.4; color: var(--text); min-height: 1.4em; }
+.dictation-actions { display: flex; gap: 8px; }
+.dictation-actions .send { background: #ffc94a; color: #05060a; border-color: #ffc94a; font-weight: 600; }
+.dictation-actions button:disabled { opacity: 0.45; cursor: default; }

@@ -1,6 +1,8 @@
 import type { VoiceClientMessage, VoiceServerMessage, VoiceState } from '../types.ts';
 import type { Brain } from './brain.ts';
-import { SentenceSplitter, isGoodbye, isReturn, matchWake, normalize, stripMarkdown } from './text.ts';
+import {
+  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isStopRequest, isSubmit, matchWake, normalize, stripMarkdown,
+} from './text.ts';
 
 export type WorkerCommand =
   | { cmd: 'listen'; barge?: boolean }
@@ -34,6 +36,16 @@ export interface VoiceWorker {
   off(event: 'event', listener: (e: WorkerEvent) => void): unknown;
 }
 
+/** Terminal da sessao na conversa direta. Cada funcao devolve falso se a sessao acabou. */
+export interface RelayIo {
+  /** Digita sem enviar. */
+  type(id: string, text: string): boolean;
+  /** Envia o que foi digitado (Enter). */
+  submit(id: string): boolean;
+  /** Apaga `chars` caracteres digitados. */
+  erase(id: string, chars: number): boolean;
+}
+
 const RESTART_WINDOW_MS = 60_000;
 
 /**
@@ -52,8 +64,10 @@ export class VoiceSession {
   private readonly now: () => number;
   private readonly log: (line: string) => void;
   private readonly bargeIn: boolean;
-  private readonly relaySend: (id: string, text: string) => boolean;
+  private readonly relayIo: RelayIo;
   private readonly vocabulary: (() => Promise<string[]>) | undefined;
+  /** Ditado na conversa direta: trechos digitados no terminal desde o ultimo envio. */
+  private draft: string[] = [];
   private readonly greetings: string[];
   private lastGreeting = -1;
   private readonly random: () => number;
@@ -73,7 +87,7 @@ export class VoiceSession {
   private lastRestart = -Infinity;
   /** O que o Jarvis disse por ultimo (para reconhecer o eco da propria voz no microfone). */
   private spoken = '';
-  private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number } | undefined;
+  private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number; tools: string[] } | undefined;
 
   constructor(
     worker: VoiceWorker,
@@ -83,7 +97,8 @@ export class VoiceSession {
     log: (line: string) => void = () => {},
     opts: {
       bargeIn?: boolean;
-      relaySend?: (id: string, text: string) => boolean;
+      /** Conversa direta: digitar no terminal da sessao, enviar (Enter) e apagar. */
+      relay?: RelayIo;
       vocabulary?: () => Promise<string[]>;
       /** Frases ditas quando o usuario chama sem pedir nada (vazio: so o som). */
       greetings?: string[];
@@ -95,7 +110,7 @@ export class VoiceSession {
     this.onReady = opts.onReady;
     this.greetings = (opts.greetings ?? []).map((g) => g.trim()).filter(Boolean);
     this.random = opts.random ?? Math.random;
-    this.relaySend = opts.relaySend ?? (() => false);
+    this.relayIo = opts.relay ?? { type: () => false, submit: () => false, erase: () => false };
     this.vocabulary = opts.vocabulary;
     this.worker = worker;
     this.brain = brain;
@@ -140,7 +155,47 @@ export class VoiceSession {
       case 'played':
         this.pending.delete(msg.id);
         return this.maybeFinish();
+      case 'relay-submit':
+        return this.relayCommand('submit');
+      case 'relay-clear':
+        return this.relayCommand('clear');
+      case 'relay-exit':
+        if (this.relay) {
+          this.setRelay(null);
+          this.send({ type: 'chime' });
+        }
+        return;
     }
+  }
+
+  /** Encerra a conversa depois da resposta atual (ferramenta encerrar_conversa). */
+  endConversation(): void {
+    if (this.state === 'thinking' || this.state === 'speaking') this.farewell = true;
+  }
+
+  /** Conversa direta: envia o ditado, apaga o ultimo trecho ou apaga tudo. */
+  private relayCommand(kind: 'submit' | 'erase' | 'clear'): void {
+    const target = this.relay;
+    if (!target) return;
+    let ok = true;
+    if (kind === 'submit') {
+      ok = this.relayIo.submit(target.id);
+      this.draft = [];
+    } else if (this.draft.length) {
+      const removed = kind === 'erase' ? [this.draft.pop()!] : this.draft.splice(0);
+      ok = this.relayIo.erase(target.id, removed.join('').length);
+    }
+    if (!ok) return this.relayGone();
+    this.sendRelay();
+  }
+
+  private relayGone(): void {
+    this.setRelay(null);
+    this.send({ type: 'error', message: 'A sessão da conversa direta foi encerrada; voltei a ouvir você.' });
+  }
+
+  private sendRelay(): void {
+    this.send({ type: 'relay', target: this.relay?.label ?? null, draft: this.draft.join('').trim() });
   }
 
   private async boot(detail?: string): Promise<void> {
@@ -180,7 +235,8 @@ export class VoiceSession {
   setRelay(target: { id: string; label: string } | null): void {
     if (this.relay?.id === target?.id) return;
     this.relay = target;
-    this.send({ type: 'relay', target: target?.label ?? null });
+    this.draft = [];
+    this.sendRelay();
   }
 
   private async sendVocabulary(): Promise<void> {
@@ -221,11 +277,15 @@ export class VoiceSession {
         if (rest && !isReturn(rest)) this.ask(rest, ms);
         return;
       }
+      if (isSubmit(text)) return this.relayCommand('submit');
+      if (isErase(text)) return this.relayCommand('erase');
+      if (isClear(text)) return this.relayCommand('clear');
+      // Ditado: digita no terminal sem enviar; o envio e por "envia" ou pelo botao.
       this.send({ type: 'caption', who: 'user', text });
-      if (!this.relaySend(this.relay.id, text)) {
-        this.setRelay(null);
-        this.send({ type: 'error', message: 'A sessão da conversa direta foi encerrada; voltei a ouvir você.' });
-      }
+      const chunk = (this.draft.length ? ' ' : '') + text;
+      if (!this.relayIo.type(this.relay.id, chunk)) return this.relayGone();
+      this.draft.push(chunk);
+      this.sendRelay();
       return;
     }
     const request = called ? called.rest : text;
@@ -260,14 +320,16 @@ export class VoiceSession {
         return;
       case 'speech-start':
         // Pensando (sem audio tocando): e o usuario falando de novo.
-        // Falando, pode ser o eco da propria voz: decide pela transcricao (abaixo).
         if (this.state === 'thinking') this.interrupt(false);
+        // Falando, pode ser o eco da propria voz: abaixa o volume (menos eco,
+        // transcricao melhor) e decide pela transcricao (abaixo).
+        else if (this.state === 'speaking') this.send({ type: 'duck', on: true });
         return;
       case 'partial': {
         const text = e.text.trim();
         if (!text) return;
         if (this.state === 'speaking') {
-          if (this.isEcho(text)) return;
+          if (!this.isUserTalking(text)) return;
           this.interrupt(false); // o usuario falou por cima de verdade
         }
         if (this.state === 'listening') this.send({ type: 'caption', who: 'user', text });
@@ -275,12 +337,14 @@ export class VoiceSession {
       }
       case 'transcript': {
         const text = e.text.trim();
-        if (!text) return;
         if (this.state === 'speaking') {
-          if (this.isEcho(text)) return;
+          if (!text || !this.isUserTalking(text)) {
+            this.send({ type: 'duck', on: false }); // era eco: volume normal de novo
+            return;
+          }
           this.interrupt(false);
         }
-        if (this.state !== 'listening') return;
+        if (this.state !== 'listening' || !text) return;
         this.utterance(text, e.ms);
         return;
       }
@@ -322,7 +386,7 @@ export class VoiceSession {
 
   /** Nova pergunta: ela passa a ser a que fala; roda depois das anteriores. */
   private ask(text: string, ms?: number): void {
-    this.timing = { heard: this.now(), stt: ms };
+    this.timing = { heard: this.now(), stt: ms, tools: [] };
     this.send({ type: 'caption', who: 'user', text });
     this.farewell = isGoodbye(text);
     const turn = ++this.turn;
@@ -336,7 +400,9 @@ export class VoiceSession {
     let said = '';
     const live = () => turn === this.turn && this.state !== 'off';
     try {
-      for await (const delta of this.brain.reply(text, this.stopController.signal)) {
+      const timing = this.timing;
+      const hooks = { onTool: (name: string) => timing?.tools.push(name) };
+      for await (const delta of this.brain.reply(text, this.stopController.signal, hooks)) {
         if (!live()) continue; // calada: segue ate o fim, em background
         if (this.timing && this.timing.firstToken === undefined) this.timing.firstToken = this.now();
         said += delta;
@@ -362,21 +428,30 @@ export class VoiceSession {
     const t = this.timing;
     if (!t) return;
     const since = (v?: number) => (v === undefined ? '?' : `${v - t.heard} ms`);
-    this.log(`latência: transcrição ${t.stt ?? '?'} ms · 1º token ${since(t.firstToken)} · 1º áudio ${since(t.firstAudio)}`);
+    const tools = t.tools.length ? ` · ferramentas: ${t.tools.join(', ')}` : '';
+    this.log(`latência: transcrição ${t.stt ?? '?'} ms · 1º token ${since(t.firstToken)} · 1º áudio ${since(t.firstAudio)}${tools}`);
     this.send({
       type: 'timing',
       stt: t.stt ?? null,
       firstToken: t.firstToken === undefined ? null : t.firstToken - t.heard,
       firstAudio: t.firstAudio === undefined ? null : t.firstAudio - t.heard,
+      tools: [...t.tools],
     });
   }
 
   /** O texto captado e basicamente o que o proprio Jarvis esta falando (eco)? */
-  private isEcho(text: string): boolean {
-    const heard = normalize(text).split(' ').filter(Boolean);
-    if (!heard.length) return true;
+  /**
+   * Enquanto o Jarvis fala: o texto captado e o usuario (e nao o eco da voz dele)?
+   * Sim se for um pedido de parada ("Jarvis", "para", "espera"...) ou tiver ao
+   * menos duas palavras que ele nao disse (o eco mistura as palavras dele).
+   */
+  private isUserTalking(text: string): boolean {
+    if (isStopRequest(text)) return true;
     const said = new Set(normalize(this.spoken).split(' '));
-    return heard.filter((w) => said.has(w)).length / heard.length >= 0.6;
+    const novel = normalize(text)
+      .split(' ')
+      .filter((w) => w.length > 2 && !said.has(w));
+    return novel.length >= 2;
   }
 
   private speak(text: string): void {
