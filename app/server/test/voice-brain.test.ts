@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ClaudeBrain, brainEnv, claudeWebSearch, type QueryFn } from '../src/voice/brain.ts';
+import { ClaudeBrain, JUDGE_PROMPT, brainEnv, claudeJudge, claudeWebSearch, type QueryFn } from '../src/voice/brain.ts';
 
 const delta = (text: string) => ({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } } });
 const ok = { type: 'result', subtype: 'success', session_id: 's1' };
@@ -162,4 +162,18 @@ test('claudeWebSearch: erro do SDK e demora viram excecao', async () => {
   });
   await assert.rejects(claudeWebSearch({ model: 'haiku', cwd: '/w', query: slow.fn, timeoutMs: 20 })('x'), /demorou demais/);
   assert.equal(slow.closed(), 1);
+});
+
+test('claudeJudge: IGNORAR descarta, NOVO aceita, demora conta como NOVO', async () => {
+  const q = fakeQuery([[delta('IGNO'), delta('RAR'), ok], [delta('NOVO'), ok]]);
+  const judge = claudeJudge({ model: 'haiku', cwd: '/w', query: q.fn });
+  const c = { asked: 'como está o tempo?', said: 'Amanhã faz sol.', heard: 'batata voadora' };
+  assert.equal(await judge.relevant(c), false);
+  assert.equal(await judge.relevant({ ...c, heard: 'e no domingo' }), true);
+  assert.equal(q.calls[0].options.systemPrompt, JUDGE_PROMPT);
+  assert.deepEqual(q.calls[0].options.allowedTools, []);
+  // Resposta que nao chega a tempo: interrompe e conta como NOVO (o pedido nao se perde).
+  const slow = fakeQuery([Array.from({ length: 20000 }, () => delta('.'))]);
+  assert.equal(await claudeJudge({ model: 'haiku', cwd: '/w', query: slow.fn, timeoutMs: 5 }).relevant(c), true);
+  assert.equal(slow.interrupts(), 1);
 });

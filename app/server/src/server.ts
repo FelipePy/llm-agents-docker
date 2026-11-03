@@ -12,7 +12,7 @@ import { createSearchService } from './search.ts';
 import { isFile } from './files.ts';
 import { PROJECT_NAME, TASKS, isTask, projectPrompt } from './tasks.ts';
 import { TerminalManager } from './terminals.ts';
-import type { Brain } from './voice/brain.ts';
+import type { Brain, InterruptJudge } from './voice/brain.ts';
 import type { JarvisContext } from './voice/tools.ts';
 import { Announcer } from './voice/announcer.ts';
 import { shortTitle } from './conversations.ts';
@@ -49,6 +49,8 @@ export interface AppOptions {
     greetings?: string[];
     /** Falas espontaneas (inicio, periodo do dia, notícias); minutos entre rodadas de notícias. */
     announce?: { newsEveryMin: number };
+    /** Decide se uma fala dita por cima da resposta muda a resposta (sem ele, sempre muda). */
+    judge?: InterruptJudge;
     /** Configuracoes feitas pela tela (transcricao local ou Groq). */
     settings?: VoiceSettingsStore;
   };
@@ -335,6 +337,7 @@ export function createApp(opts: AppOptions): App {
         bargeIn: voice.bargeIn ?? true,
         greetings: voice.greetings,
         relay: relayIo,
+        judge: voice.judge,
         conversation: { start: () => memory.startConversation(), request: (t) => memory.noteRequest(t), end: () => memory.endConversation() },
         // Nomes que o whisper deve acertar: projetos e os agentes.
         vocabulary: async () => ['Jarvis', 'Claude', 'Codex', ...(await jarvis.projects()).map((p) => p.name)],

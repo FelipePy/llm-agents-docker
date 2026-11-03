@@ -180,3 +180,39 @@ export function isUnintelligible(text: string): boolean {
   if (words.length >= 4 && new Set(words).size === 1) return true;
   return false;
 }
+
+// Verbos de comando no inicio da fala ("abre o meu-app", "pesquisa o dolar").
+const COMMAND_VERBS = new Set([
+  'abre', 'abra', 'abrir', 'fecha', 'feche', 'mostra', 'mostre', 'pesquisa', 'pesquise', 'procura', 'procure', 'busca', 'busque',
+  'manda', 'mande', 'envia', 'envie', 'cria', 'crie', 'liga', 'ligue', 'desliga', 'desligue', 'conta', 'conte', 'fala', 'fale',
+  'diz', 'diga', 'explica', 'explique', 'repete', 'repita', 'volta', 'continua', 'continue', 'lembra', 'anota', 'esquece', 'roda', 'rode',
+  'muda', 'mude', 'troca', 'troque', 'resume', 'resuma', 'traduz', 'traduza', 'calcula', 'calcule', 'qual', 'quais', 'quanto', 'quantos',
+  'quanta', 'quantas', 'quando', 'onde', 'como', 'quem', 'porque', 'por que', 'e se',
+]);
+
+/**
+ * Fala que claramente e um pedido ao Jarvis: pergunta (o whisper poe "?"),
+ * correcao ("nao...", "na verdade...") ou comando/pergunta no inicio.
+ * Usado nas interrupcoes: o que nao for claro passa pelo juiz.
+ */
+export function looksLikeRequest(text: string): boolean {
+  if (/\?\s*$/.test(text)) return true;
+  if (isCorrection(text)) return true;
+  const n = normalize(text);
+  const [first = '', second = ''] = n.split(' ');
+  return COMMAND_VERBS.has(first) || COMMAND_VERBS.has(`${first} ${second}`);
+}
+
+// Palavras de uma fala que so pede para parar ("para", "espera ai", "chega, Jarvis, por favor").
+const STOP_ONLY = new Set([
+  'para', 'pare', 'parar', 'espera', 'espere', 'pera', 'chega', 'cala', 'calar', 'boca', 'silencio', 'ai', 'ei', 'ok', 'por', 'favor',
+  'um', 'pouco', 'momento', 'segundo', 'so', 'agora', 'ja', 'a', 'jarvis', 'javis', 'jarbas',
+]);
+
+const STOP_TRIGGERS = new Set(['para', 'pare', 'parar', 'espera', 'espere', 'pera', 'chega', 'cala', 'calar', 'silencio', 'jarvis', 'javis', 'jarbas']);
+
+/** Fala que so pede para o Jarvis parar ("para", "espera ai"): "para" no meio de uma frase nao conta. */
+export function isShortStop(text: string): boolean {
+  const words = normalize(text).split(' ').filter(Boolean);
+  return words.length > 0 && words.length <= 5 && words.some((w) => STOP_TRIGGERS.has(w)) && words.every((w) => STOP_ONLY.has(w));
+}

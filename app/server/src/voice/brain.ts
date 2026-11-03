@@ -148,6 +148,7 @@ export class ClaudeBrain implements Brain {
   /** A resposta anterior ainda nao chegou ao "result" (foi interrompida). */
   private inTurn = false;
   private readonly now: () => Date;
+  private readonly systemPrompt: string;
 
   /** `mcp`: cria o servidor de ferramentas do Jarvis (uma instancia por sessao). */
   /** `about`: o que os agentes ja sabem sobre o usuario (memorias), para respostas pessoais. */
@@ -158,7 +159,10 @@ export class ClaudeBrain implements Brain {
     mcp?: () => McpServerConfig;
     about?: () => Promise<string>;
     now?: () => Date;
+    /** Outras instrucoes no lugar das do Jarvis (ex.: o juiz de interrupcoes). */
+    systemPrompt?: string;
   }) {
+    this.systemPrompt = opts.systemPrompt ?? JARVIS_PROMPT;
     this.now = opts.now ?? (() => new Date());
     this.mcp = opts.mcp;
     this.about = opts.about;
@@ -179,7 +183,7 @@ export class ClaudeBrain implements Brain {
         mcpServers: this.mcp ? { jarvis: this.mcp() } : {},
         allowedTools: this.mcp ? JARVIS_TOOL_NAMES : [],
         strictMcpConfig: true,
-        systemPrompt: about ? `${JARVIS_PROMPT}\n\nO que você já sabe sobre o usuário (das memórias dele):\n${about}` : JARVIS_PROMPT,
+        systemPrompt: about ? `${this.systemPrompt}\n\nO que você já sabe sobre o usuário (das memórias dele):\n${about}` : this.systemPrompt,
         includePartialMessages: true,
         resume: this.sessionId,
         effort: 'low',
@@ -277,4 +281,44 @@ export class ClaudeBrain implements Brain {
       signal.removeEventListener('abort', onAbort);
     }
   }
+}
+
+/** Decide se uma fala dita por cima da resposta do Jarvis deve mudar a resposta. */
+export interface InterruptJudge {
+  warm?(): void;
+  /** true: e um pedido/comentario para o Jarvis; false: sem sentido, ignorar e retomar. */
+  relevant(c: { asked: string; said: string; heard: string }): Promise<boolean>;
+}
+
+export const JUDGE_PROMPT = [
+  'Você avalia interrupções de um assistente de voz em português.',
+  'O assistente estava respondendo ao usuário e o microfone captou uma fala por cima da resposta.',
+  'Responda NOVO se a fala for dirigida ao assistente e fizer sentido: um pedido, uma pergunta, uma correção, um comentário sobre o assunto ou um pedido para parar.',
+  'Responda IGNORAR se ela não fizer sentido como algo dito ao assistente: frase sem nexo, palavras soltas, conversa com outra pessoa, TV ou música transcrita, ou o eco das palavras do próprio assistente.',
+  'Na dúvida, responda NOVO. Responda só com uma palavra: NOVO ou IGNORAR.',
+].join(' ');
+
+/** Juiz num segundo Claude (sem ferramentas, ja aberto): responde em ~1 s. Na falha ou demora, NOVO. */
+export function claudeJudge(opts: { model: string; cwd: string; query?: QueryFn; timeoutMs?: number }): InterruptJudge {
+  const brain = new ClaudeBrain({ model: opts.model, cwd: opts.cwd, query: opts.query, systemPrompt: JUDGE_PROMPT });
+  return {
+    warm: () => brain.warm(),
+    async relevant({ asked, said, heard }) {
+      const abort = new AbortController();
+      const timer = setTimeout(() => abort.abort(), opts.timeoutMs ?? 4000);
+      const prompt = `Pergunta do usuário: ${asked || '(nenhuma)'}\nO assistente estava dizendo: ${said.slice(-400) || '(nada ainda)'}\nFala captada por cima: ${heard}`;
+      let out = '';
+      try {
+        for await (const d of brain.reply(prompt, abort.signal)) {
+          out += d;
+          if (/NOVO|IGNORAR/i.test(out)) break;
+        }
+      } catch {
+        return true;
+      } finally {
+        clearTimeout(timer);
+      }
+      return !/IGNORAR/i.test(out);
+    },
+  };
 }

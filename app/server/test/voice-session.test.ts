@@ -528,24 +528,78 @@ test('falando: ruido transcrito por cima da voz nao interrompe o Jarvis', async 
   assert.ok(s.logs.some((l) => l.includes('fala descartada')));
 });
 
-test('interrompido na hora por uma fala nao entendida: ela e descartada e o Jarvis volta a ouvir', async () => {
+/** Jarvis falando duas frases e o usuario falando por cima (pausa na hora). */
+async function cutIn(judge?: (heard: string) => boolean) {
   let t = 0;
-  const s = await started([['Hoje o dia está nublado. ', 'Leve guarda-chuva.'], ['Amanhã sol.']], () => t);
-  s.worker.fire({ event: 'wake', score: 0.9 });
-  s.worker.fire({ event: 'transcript', id: 1, text: 'como está o tempo' });
-  await waitFor(() => s.session.state === 'speaking' && s.worker.speaks().length === 2);
+  const worker = new FakeWorker();
+  const brain = new FakeBrain([['Hoje o dia está nublado. ', 'Leve guarda-chuva.'], ['Resposta nova.']]);
+  const sent: VoiceServerMessage[] = [];
+  const judged: string[] = [];
+  const session = new VoiceSession(worker, brain, (m) => sent.push(m), () => t, () => {}, {
+    judge: judge && {
+      relevant: async ({ heard }) => {
+        judged.push(heard);
+        return judge(heard);
+      },
+    },
+  });
+  await session.start();
+  worker.fire({ event: 'wake', score: 0.9 });
+  worker.fire({ event: 'transcript', id: 1, text: 'como está o tempo' });
+  await waitFor(() => session.state === 'speaking' && worker.speaks().length === 2);
+  session.client({ type: 'played', id: worker.speaks()[0].id }); // a primeira frase ja tocou
   t = 1000;
-  s.session.client({ type: 'over-echo' });
-  s.worker.fire({ event: 'speech-start' });
+  session.client({ type: 'over-echo' });
+  worker.fire({ event: 'speech-start' });
+  return { worker, brain, sent, session, judged };
+}
+
+test('falou por cima: pausa na hora e, se nao foi entendido, retoma a frase cortada', async () => {
+  const s = await cutIn();
   assert.equal(s.session.state, 'listening');
+  assert.ok(s.sent.some((m) => m.type === 'stop-audio'));
+  assert.ok(s.worker.commands.some((c) => c.cmd === 'cancel'));
   s.worker.fire({ event: 'transcript', id: 2, text: 'hmm ahn' });
-  assert.equal(s.session.state, 'listening');
+  assert.equal(s.session.state, 'speaking');
+  assert.deepEqual(s.worker.speaks().map((c) => c.text), ['Hoje o dia está nublado.', 'Leve guarda-chuva.', 'Leve guarda-chuva.']);
   assert.ok(!s.sent.some((m) => m.type === 'caption' && m.who === 'user' && m.text === 'hmm ahn'));
   assert.equal(s.brain.calls.length, 1, 'a fala nao entendida nao vira pedido');
-  // A fala seguinte, entendida, e respondida normalmente.
-  s.worker.fire({ event: 'transcript', id: 3, text: 'e amanhã?' });
+});
+
+test('falou por cima algo sem sentido: o juiz manda ignorar e a resposta continua', async () => {
+  const s = await cutIn(() => false);
+  s.worker.fire({ event: 'transcript', id: 2, text: 'batata voadora azul cadeira' });
+  await waitFor(() => s.session.state === 'speaking');
+  assert.deepEqual(s.judged, ['batata voadora azul cadeira']);
+  assert.equal(s.brain.calls.length, 1);
+  assert.equal(s.worker.speaks().at(-1)?.text, 'Leve guarda-chuva.');
+});
+
+test('falou por cima algo com sentido: o juiz confirma e ele responde a isso', async () => {
+  const s = await cutIn(() => true);
+  s.worker.fire({ event: 'transcript', id: 2, text: 'eu prefiro saber do fim de semana' });
   await waitFor(() => s.brain.calls.length === 2);
-  assert.equal(s.brain.calls[1], 'e amanhã?');
+  assert.equal(s.brain.calls[1], 'eu prefiro saber do fim de semana');
+  await waitFor(() => s.worker.speaks().at(-1)?.text === 'Resposta nova.');
+  assert.ok(!s.worker.speaks().slice(2).some((c) => c.text === 'Leve guarda-chuva.'), 'a resposta antiga nao volta');
+});
+
+test('pergunta, comando ou "Jarvis, ..." por cima: responde direto, sem juiz', async () => {
+  for (const text of ['e amanhã?', 'abre o projeto meu-app', 'Jarvis, pesquisa o dólar']) {
+    const s = await cutIn(() => false);
+    s.worker.fire({ event: 'transcript', id: 2, text });
+    await waitFor(() => s.brain.calls.length === 2);
+    assert.deepEqual(s.judged, [], text);
+  }
+});
+
+test('"para" ou "espera ai" por cima: cala de vez e fica ouvindo', async () => {
+  const s = await cutIn(() => true);
+  s.worker.fire({ event: 'transcript', id: 2, text: 'Espera aí.' });
+  assert.equal(s.session.state, 'listening');
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(s.worker.speaks().length, 2, 'nao retoma');
+  assert.equal(s.brain.calls.length, 1);
 });
 
 test('pensando: continuacao nao entendida e descartada e a pergunta anterior e respondida', async () => {

@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { createApp } from './server.ts';
 import { loadOrCreateToken } from './auth.ts';
 import { watchPaths } from './watch.ts';
-import { ClaudeBrain, claudeWebSearch } from './voice/brain.ts';
+import { ClaudeBrain, claudeJudge, claudeWebSearch } from './voice/brain.ts';
 import { createJarvisServer } from './voice/tools.ts';
 import { readProfile } from './catalog.ts';
 import { WorkerProcess } from './voice/worker.ts';
@@ -98,6 +98,8 @@ const app = createApp({
         ? undefined
         : { newsEveryMin: Math.max(15, Number(process.env.LLM_AGENT_VOICE_NEWS_EVERY_MIN) || 90) },
     settings: voiceSettings,
+    // Fala por cima da resposta que nao e clara: um segundo Claude decide se muda a resposta.
+    judge: process.env.LLM_AGENT_VOICE_JUDGE === '0' ? undefined : claudeJudge({ model: voiceModel, cwd: workspaceDir }),
   },
   manualPath: join(repo, 'README.md'),
   memory,

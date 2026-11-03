@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  isShortStop, looksLikeRequest,
   SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isStopRequest, isSubmit, isUnintelligible, matchWake, normalize, stripMarkdown,
 } from '../src/voice/text.ts';
 import { AUDIO, FrameDecoder, JSON_KIND, encodeFrame, encodeJson } from '../src/voice/protocol.ts';
@@ -101,4 +102,12 @@ test('isUnintelligible: ruido, hesitacoes, anotacoes, fala truncada e alucinacoe
     'espera, abre o projeto meu-app', 'para', 'sim', 'não', 'ok', 'obrigado', 'e amanhã?', 'Jarvis', '42',
     'não não', 'abre o 3', 'qual a previsão pra amanhã',
   ]) assert.equal(isUnintelligible(t), false, t);
+});
+
+test('looksLikeRequest e isShortStop (interrupcoes)', () => {
+  for (const t of ['e amanhã?', 'abre o meu-app', 'não, o outro', 'na verdade era o Rio', 'qual a cotação', 'pesquisa o dólar', 'por que isso'])
+    assert.equal(looksLikeRequest(t), true, t);
+  for (const t of ['batata voadora azul', 'o cachorro do vizinho', 'mãe, já vou']) assert.equal(looksLikeRequest(t), false, t);
+  for (const t of ['para', 'Espera aí.', 'chega, Jarvis', 'pera um pouco', 'Jarvis']) assert.equal(isShortStop(t), true, t);
+  for (const t of ['espera, e amanhã?', 'isso é para mim', 'para de falar do tempo e me diz o dólar']) assert.equal(isShortStop(t), false, t);
 });

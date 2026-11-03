@@ -1,7 +1,7 @@
 import type { VoiceClientMessage, VoiceServerMessage, VoiceState } from '../types.ts';
-import type { Brain } from './brain.ts';
+import type { Brain, InterruptJudge } from './brain.ts';
 import {
-  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isStopRequest, isSubmit, isUnintelligible, matchWake, mergeUtterances, normalize, stripMarkdown,
+  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isShortStop, isStopRequest, isSubmit, isUnintelligible, looksLikeRequest, matchWake, mergeUtterances, normalize, stripMarkdown,
 } from './text.ts';
 
 export type WorkerCommand =
@@ -108,6 +108,17 @@ export class VoiceSession {
    * nao entendidas: ruido, eco ou fala truncada e descartada em vez de virar pedido.
    */
   private cutInAt = -Infinity;
+  /**
+   * Resposta pausada porque o usuario falou por cima: o resto dela (a frase
+   * cortada e as seguintes) espera a transcricao. Se o que ele disse nao fizer
+   * sentido, a resposta continua de onde parou; se fizer, ele responde a isso.
+   */
+  private held: { turn: number; queue: string[] } | undefined;
+  /** Texto de cada fala enviada ao TTS e ainda nao tocada (para retomar). */
+  private readonly speechText = new Map<number, string>();
+  private judgeSeq = 0;
+  private judging: string | undefined;
+  private readonly judge: InterruptJudge | undefined;
   private turnAbort = new AbortController();
   private readonly conversation: { start(): void; request(text: string): void; end(): void } | undefined;
   private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number; tools: string[] } | undefined;
@@ -130,10 +141,13 @@ export class VoiceSession {
       onReady?: () => void;
       /** Registro da conversa (memoria do Jarvis): inicio, cada pedido e fim. */
       conversation?: { start(): void; request(text: string): void; end(): void };
+      /** Decide se a fala dita por cima da resposta muda a resposta (sem ele, sempre muda). */
+      judge?: InterruptJudge;
     } = {},
   ) {
     this.onReady = opts.onReady;
     this.conversation = opts.conversation;
+    this.judge = opts.judge;
     this.greetings = (opts.greetings ?? []).map((g) => g.trim()).filter(Boolean);
     this.random = opts.random ?? Math.random;
     this.relayIo = opts.relay ?? { type: () => false, submit: () => false, erase: () => false };
@@ -181,6 +195,7 @@ export class VoiceSession {
         return;
       case 'played':
         this.pending.delete(msg.id);
+        this.speechText.delete(msg.id);
         return this.maybeFinish();
       case 'relay-submit':
         return this.relayCommand('submit');
@@ -190,7 +205,7 @@ export class VoiceSession {
         // O microfone esta bem acima do eco da voz do Jarvis. Com fala detectada
         // pelo worker logo antes (ou logo depois, em speech-start): e o usuario.
         this.lastOverEcho = this.now();
-        if (this.state === 'speaking' && this.now() - this.lastSpeechStart <= BARGE_WINDOW_MS) this.interrupt(false);
+        if (this.state === 'speaking' && this.now() - this.lastSpeechStart <= BARGE_WINDOW_MS) this.pause();
         return;
       case 'relay-exit':
         if (this.relay) {
@@ -245,6 +260,7 @@ export class VoiceSession {
     this.setState('sleeping');
     this.worker.command({ cmd: 'sleep' });
     this.brain.warm?.();
+    this.judge?.warm?.();
     void this.sendVocabulary();
     if (this.greetings.length) this.worker.command({ cmd: 'prefetch', texts: this.greetings });
     this.onReady?.();
@@ -365,7 +381,7 @@ export class VoiceSession {
         else if (this.state === 'speaking') {
           this.lastSpeechStart = this.now();
           // Voz acima do eco ao mesmo tempo: o usuario falou por cima, para na hora.
-          if (this.now() - this.lastOverEcho <= BARGE_WINDOW_MS) this.interrupt(false);
+          if (this.now() - this.lastOverEcho <= BARGE_WINDOW_MS) this.pause();
           else this.send({ type: 'duck', on: true });
         }
         return;
@@ -373,6 +389,7 @@ export class VoiceSession {
         // Era ruido: se a resposta anterior tinha sido calada por ele, pergunta de novo.
         if (this.state === 'listening') {
           this.cutInAt = -Infinity;
+          if (this.held) return this.resume();
           this.resumeContinuation();
         }
         return;
@@ -388,9 +405,10 @@ export class VoiceSession {
             this.send({ type: 'duck', on: false }); // era ruido: segue falando
             return;
           }
-          this.interrupt(false);
+          this.pause();
         }
         if (this.state !== 'listening') return;
+        if (this.held) return this.onCutIn(text, e.ms);
         const cutIn = this.now() - this.cutInAt <= CUT_IN_MS;
         this.cutInAt = -Infinity;
         if (!text) return this.resumeContinuation();
@@ -448,6 +466,7 @@ export class VoiceSession {
 
   /** Nova pergunta: ela passa a ser a que fala; roda depois das anteriores. */
   private ask(text: string, ms?: number): void {
+    this.held = undefined;
     this.cutInAt = -Infinity;
     this.conversation?.request(text);
     this.timing = { heard: this.now(), stt: ms, tools: [] };
@@ -531,8 +550,14 @@ export class VoiceSession {
       // Falando, o worker continua ouvindo (mais exigente) para o usuario poder interromper.
       this.worker.command(this.bargeIn ? { cmd: 'listen', barge: true } : { cmd: 'sleep' });
     }
+    // Resposta pausada (o usuario falou por cima): o resto espera a decisao.
+    if (this.held) {
+      this.held.queue.push(clean);
+      return;
+    }
     const id = ++this.nextSpeech;
     this.pending.add(id);
+    this.speechText.set(id, clean);
     this.spoken = `${this.spoken} ${clean}`.slice(-600);
     this.worker.command({ cmd: 'speak', id, text: clean });
   }
@@ -564,6 +589,69 @@ export class VoiceSession {
     this.ask(previous);
   }
 
+  /** O usuario falou por cima: cala na hora, mas guarda o resto da resposta ate saber o que ele disse. */
+  private pause(): void {
+    if (this.held) return;
+    const queue = [...this.pending].sort((a, b) => a - b).map((id) => this.speechText.get(id) ?? '').filter(Boolean);
+    this.held = { turn: this.turn, queue };
+    this.cutInAt = this.now();
+    if (this.pending.size) {
+      this.pending.clear();
+      this.worker.command({ cmd: 'cancel' });
+    }
+    this.send({ type: 'stop-audio' });
+    this.setState('listening');
+  }
+
+  /** O que o usuario disse por cima nao muda nada: continua do inicio da frase cortada. */
+  private resume(): void {
+    const h = this.held;
+    this.held = undefined;
+    this.judging = undefined;
+    this.send({ type: 'duck', on: false });
+    if (!h || h.turn !== this.turn || this.state !== 'listening') return;
+    if (h.queue.length) for (const text of h.queue) this.speak(text);
+    else if (!this.brainDone) this.setState('thinking');
+  }
+
+  /** Transcricao da fala que pausou a resposta: parar, retomar ou responder a ela. */
+  private onCutIn(text: string, ms?: number): void {
+    this.cutInAt = -Infinity;
+    if (isShortStop(text)) {
+      // "para", "chega", "Jarvis": cala de vez e fica ouvindo.
+      this.log(`resposta encerrada a pedido: ${JSON.stringify(text)}`);
+      this.mute();
+      this.send({ type: 'duck', on: false });
+      return;
+    }
+    if (!text || isUnintelligible(text)) {
+      this.discard(text, 'interrupcao');
+      return this.resume();
+    }
+    const heard = this.judging ? mergeUtterances(this.judging, text) : text;
+    if (matchWake(heard) || looksLikeRequest(heard) || !this.judge) {
+      this.mute();
+      return this.utterance(heard, ms);
+    }
+    // Nao e claro: o juiz decide (~1 s) enquanto a resposta espera pausada.
+    this.judging = heard;
+    const seq = ++this.judgeSeq;
+    const held = this.held;
+    void this.judge
+      .relevant({ asked: this.lastAsk?.text ?? '', said: this.spoken, heard })
+      .catch(() => true)
+      .then((relevant) => {
+        if (seq !== this.judgeSeq || this.held !== held || this.state !== 'listening') return;
+        if (relevant) {
+          this.mute();
+          this.utterance(heard, ms);
+        } else {
+          this.discard(heard, 'sem sentido');
+          this.resume();
+        }
+      });
+  }
+
   /** Cala o Jarvis e volta a ouvir; `restartListening`: falso quando o usuario ja esta falando. */
   private interrupt(restartListening = true): void {
     this.cutInAt = this.now();
@@ -575,6 +663,8 @@ export class VoiceSession {
 
   /** A resposta atual deixa de falar (mas continua rodando) e a voz pendente e descartada. */
   private mute(): void {
+    this.held = undefined;
+    this.judging = undefined;
     this.turn++;
     this.brainDone = true;
     this.farewell = false;
