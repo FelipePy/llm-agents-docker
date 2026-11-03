@@ -4,6 +4,7 @@ import { findProject, jarvisHandlers, stripAnsi, type JarvisContext } from '../s
 import { COMMANDS } from '../src/voice/commands.ts';
 import { JarvisMemory } from '../src/voice/memory.ts';
 import { NewsHistory } from '../src/voice/news-history.ts';
+import { SessionWatcher } from '../src/voice/session-watch.ts';
 import { join } from 'node:path';
 import { tempHome } from './helpers.ts';
 import type { ProjectDetail, ProjectSummary, SessionInfo, UiCommand } from '../src/types.ts';
@@ -23,6 +24,7 @@ function ctx(over: Partial<JarvisContext> = {}) {
   const session = (id: string, projectPath: string, alive = true): SessionInfo => ({
     id, projectPath, agent: 'claude', title: 't', startedAt: '2026-11-02T10:00:00Z', alive,
   });
+  const sessions = () => [session('s1', '/w/meu-app'), session('s2', '/w/agendarse', false)];
   const c: JarvisContext = {
     projects: async () => projects,
     projectDetail: async (path) =>
@@ -39,7 +41,7 @@ function ctx(over: Partial<JarvisContext> = {}) {
         : null,
     gitLog: async () => ['a1b2c3 há 2 horas Arruma o login', 'd4e5f6 há 1 dia Primeiro commit'],
     gitChanges: async () => [' M src/login.ts', '?? notas.md'],
-    sessions: () => [session('s1', '/w/meu-app'), session('s2', '/w/agendarse', false)],
+    sessions,
     sessionOutput: (id) => (id === 's1' ? '\x1b[32m● Rodando os testes\x1b[0m\r\nTodos os 12 testes passaram.' : null),
     openSession: (path, agent, prompt) => {
       opened.push({ path, agent, prompt });
@@ -69,6 +71,7 @@ function ctx(over: Partial<JarvisContext> = {}) {
     endConversation: () => ended.push(true),
     memory: new JarvisMemory(join(tempHome(), 'm.json')),
     newsHistory: new NewsHistory(),
+    watcher: new SessionWatcher({ sessions, output: () => '' }),
     ...over,
   };
   return { c, ui, opened, sent, relays, closed, ended, h: jarvisHandlers(c) };
@@ -380,4 +383,31 @@ test('ferramentas da evolucao passam o turno do usuario ao gerenciador', async (
     'discard',
   ]);
   await assert.rejects(ctx().h.status_evolucao({}), /não está disponível/);
+});
+
+test('acompanhar_sessao e parar_de_acompanhar', async () => {
+  const { c, h } = ctx();
+  assert.match(await h.parar_de_acompanhar({}), /Nenhuma sessão/);
+  assert.match(await h.acompanhar_sessao({ projeto: 'meu-app' }), /Acompanhando o Claude de meu-app \(sessão nº 1/);
+  assert.deepEqual(c.watcher.list(), [{ id: 's1', label: 'Claude de meu-app' }]);
+  assert.match(await h.sessoes_abertas({}), /nº 1 .* acompanhando/);
+  assert.match(await h.acompanhar_sessao({ projeto: 'agendarse' }), /já foi encerrada/);
+  assert.equal(c.watcher.isWatching('s2'), false);
+  assert.match(await h.parar_de_acompanhar({}), /Parei de acompanhar o Claude de meu-app/);
+  assert.deepEqual(c.watcher.list(), []);
+});
+
+test('parar_de_acompanhar escolhe a sessao quando ha mais de uma acompanhada', async () => {
+  const { c, h } = ctx();
+  c.watcher.watch('s1', 'Claude de meu-app');
+  c.watcher.watch('outra', 'Codex de x');
+  assert.match(await h.parar_de_acompanhar({ projeto: 'meu-app' }), /Parei de acompanhar o Claude de meu-app/);
+  assert.deepEqual(c.watcher.list(), [{ id: 'outra', label: 'Codex de x' }]);
+});
+
+test('iniciar_sessao com acompanhar ja acompanha a sessao nova', async () => {
+  const { c, h } = ctx();
+  assert.match(await h.iniciar_sessao({ projeto: 'meu-app', agente: 'claude', tarefa: 'rode os testes', acompanhar: true }), /aviso quando terminar ou der erro/);
+  assert.deepEqual(c.watcher.list(), [{ id: 'novo', label: 'Claude de meu-app' }]);
+  assert.doesNotMatch(await h.iniciar_sessao({ projeto: 'meu-app', agente: 'claude' }), /acompanhar/);
 });

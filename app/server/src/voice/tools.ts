@@ -6,6 +6,7 @@ import { normalize } from './text.ts';
 import { TOPICS, type JarvisMemory, type MemoryTopic } from './memory.ts';
 import type { WebSearch } from '../search.ts';
 import type { NewsHistory } from './news-history.ts';
+import type { SessionWatcher } from './session-watch.ts';
 
 export interface EvolutionApi {
   draft(title: string, spec: string): string;
@@ -49,6 +50,8 @@ export interface JarvisContext {
   memory: JarvisMemory;
   /** Manchetes ja apresentadas por voz (pedidas ou espontaneas), para nao repetir. */
   newsHistory: NewsHistory;
+  /** Sessoes que o usuario pediu para acompanhar (aviso por voz quando terminam ou dao erro). */
+  watcher: SessionWatcher;
   /** Funcionalidades novas para o proprio Jarvis (definir, aprovar, desenvolver, aplicar). */
   evolution?: EvolutionApi;
   /** Quantas falas do usuario ja foram respondidas (o "pode comecar" vem depois do resumo). */
@@ -315,7 +318,8 @@ export function jarvisHandlers(ctx: JarvisContext) {
   const projectName = (path: string, list: ProjectSummary[]) => list.find((p) => p.path === path)?.name ?? path.split('/').pop() ?? path;
   const status = (s: SessionInfo) => (s.alive ? 'em execução' : 'encerrada');
   const describe = (x: Numbered, list: ProjectSummary[]) =>
-    `nº ${x.n} · ${projectName(x.session.projectPath, list)} · ${LABEL[x.session.agent]} · ${status(x.session)} · ${x.session.title} · id ${x.session.id.slice(0, 8)}`;
+    `nº ${x.n} · ${projectName(x.session.projectPath, list)} · ${LABEL[x.session.agent]} · ${status(x.session)} · ${x.session.title} · id ${x.session.id.slice(0, 8)}${ctx.watcher.isWatching(x.session.id) ? ' · acompanhando' : ''}`;
+  const sessionLabel = (s: SessionInfo, list: ProjectSummary[]) => `${LABEL[s.agent]} de ${projectName(s.projectPath, list)}`;
   /**
    * A sessao pedida: de um projeto e/ou por seletor (numero, id, titulo, agente).
    * Sem seletor, a mais relevante; `others` sao as outras em execucao no mesmo
@@ -400,15 +404,17 @@ export function jarvisHandlers(ctx: JarvisContext) {
       if (detail?.memory.length) lines.push(`Memória: ${detail.memory.map((f) => f.path.split('/').pop()).join(', ')}.`);
       return lines.join('\n');
     },
-    async iniciar_sessao({ projeto, agente, tarefa }: { projeto: string; agente: SessionAgent; tarefa?: string }) {
+    async iniciar_sessao({ projeto, agente, tarefa, acompanhar }: { projeto: string; agente: SessionAgent; tarefa?: string; acompanhar?: boolean }) {
       const { list, project, candidates } = await pick(projeto);
       if (!project) return notFound(projeto, list, candidates);
       const task = tarefa?.trim() || undefined;
       const s = ctx.openSession(project.path, agente, agente === 'shell' ? undefined : task);
       ctx.ui({ kind: 'focus-session', id: s.id });
+      if (acompanhar) ctx.watcher.watch(s.id, sessionLabel(s, list));
+      const watching = acompanhar ? ' Vou acompanhar e aviso quando terminar ou der erro.' : '';
       return task
-        ? `Abri o ${LABEL[agente]} em ${project.name} com a tarefa; ele está trabalhando em background na gaveta de terminais.`
-        : `Abri o ${LABEL[agente]} em ${project.name}, em background na gaveta de terminais.`;
+        ? `Abri o ${LABEL[agente]} em ${project.name} com a tarefa; ele está trabalhando em background na gaveta de terminais.${watching}`
+        : `Abri o ${LABEL[agente]} em ${project.name}, em background na gaveta de terminais.${watching}`;
     },
     async sessoes_abertas({ projeto }: { projeto?: string }) {
       const list = await ctx.projects();
@@ -454,6 +460,26 @@ export function jarvisHandlers(ctx: JarvisContext) {
       ctx.relay({ id: s.id, label });
       ctx.ui({ kind: 'focus-session', id: s.id });
       return `Conversa direta com o ${label} (sessão nº ${n}) ligada; a tela já mostra como enviar e sair. Confirme em poucas palavras que o usuário pode falar.`;
+    },
+    async acompanhar_sessao({ projeto, sessao }: { projeto?: string; sessao?: string }) {
+      const { list, session: s, n, others, error } = await pickSession(projeto, sessao);
+      if (!s) return error;
+      if (!s.alive) return `A sessão nº ${n} já foi encerrada; não há o que acompanhar. Se o usuário quiser o resultado, use estado_da_sessao.`;
+      ctx.watcher.watch(s.id, sessionLabel(s, list));
+      return `Acompanhando o ${sessionLabel(s, list)} (sessão nº ${n}, "${s.title}"): aviso por voz quando a tarefa terminar ou der erro.${alsoOpen(others)}`;
+    },
+    async parar_de_acompanhar({ projeto, sessao }: { projeto?: string; sessao?: string }) {
+      const watched = ctx.watcher.list();
+      if (!watched.length) return 'Nenhuma sessão está sendo acompanhada.';
+      // Sem dizer qual e com uma so acompanhada: e ela.
+      if (!projeto?.trim() && !sessao?.trim() && watched.length === 1) {
+        ctx.watcher.unwatch(watched[0].id);
+        return `Parei de acompanhar o ${watched[0].label}.`;
+      }
+      const { list, session: s, n, error } = await pickSession(projeto, sessao);
+      if (!s) return error;
+      if (!ctx.watcher.unwatch(s.id)) return `A sessão nº ${n} não estava sendo acompanhada. Acompanhando: ${watched.map((w) => w.label).join(', ')}.`;
+      return `Parei de acompanhar o ${sessionLabel(s, list)} (sessão nº ${n}).`;
     },
     async fechar_sessao({ projeto, sessao }: { projeto?: string; sessao?: string }) {
       const { list, session: s, n, error } = await pickSession(projeto, sessao);
@@ -600,6 +626,7 @@ export function createJarvisServer(ctx: JarvisContext) {
           projeto: nome,
           agente: z.enum(['claude', 'codex', 'shell']).describe('claude por padrão'),
           tarefa: z.string().optional().describe('Pedido para o agente, em português, completo e claro.'),
+          acompanhar: z.boolean().optional().describe('true se o usuário pediu para avisar quando a tarefa terminar ou der erro.'),
         },
         run(h.iniciar_sessao),
       ),
@@ -626,6 +653,18 @@ export function createJarvisServer(ctx: JarvisContext) {
         'Liga a conversa direta por voz com uma sessão: as próximas falas do usuário vão direto para o agente dela, sem passar por você, até ele dizer "Jarvis, volta".',
         { projeto: z.string().optional().describe('Projeto da sessão.'), sessao },
         run(h.falar_direto_com_sessao),
+      ),
+      tool(
+        'acompanhar_sessao',
+        'Passa a acompanhar uma sessão em segundo plano: quando a tarefa terminar ou der erro, você avisa por voz (uma vez). Use quando o usuário pedir para avisar quando uma sessão terminar ou se der erro.',
+        { projeto: z.string().optional().describe('Projeto da sessão.'), sessao },
+        run(h.acompanhar_sessao),
+      ),
+      tool(
+        'parar_de_acompanhar',
+        'Para de acompanhar uma sessão (não avisa mais quando ela terminar). Sem projeto nem sessao, e com uma só acompanhada, para essa.',
+        { projeto: z.string().optional().describe('Projeto da sessão.'), sessao },
+        run(h.parar_de_acompanhar),
       ),
       tool(
         'fechar_sessao',

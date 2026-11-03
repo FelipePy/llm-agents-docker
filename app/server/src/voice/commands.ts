@@ -20,6 +20,8 @@ export const COMMANDS: VoiceCommand[] = [
   { name: 'estado_da_sessao', title: 'Acompanhar uma sessão', examples: ['como está a sessão do meu-app?', 'como está a sessão dois?', 'e a do codex?'] },
   { name: 'enviar_para_sessao', title: 'Mandar um recado para uma sessão', examples: ['manda pro Claude do meu-app: roda os testes', 'manda pra sessão três: pode commitar'] },
   { name: 'falar_direto_com_sessao', title: 'Falar direto com uma sessão', examples: ['quero falar direto com o Claude do meu-app', 'Jarvis, volta (para sair)'] },
+  { name: 'acompanhar_sessao', title: 'Avisar quando uma sessão terminar ou der erro', examples: ['me avisa quando o Claude do meu-app terminar', 'acompanha a sessão dois'] },
+  { name: 'parar_de_acompanhar', title: 'Parar de acompanhar uma sessão', examples: ['não precisa mais avisar da sessão dois'] },
   { name: 'fechar_sessao', title: 'Fechar um terminal', examples: ['fecha o terminal do meu-app'] },
   { name: 'encerrar_conversa', title: 'Encerrar a conversa', examples: ['obrigado, Jarvis, tchau', 'por hoje é só'] },
   { name: 'criar_skill', title: 'Criar uma skill', examples: ['cria uma skill nova'] },
