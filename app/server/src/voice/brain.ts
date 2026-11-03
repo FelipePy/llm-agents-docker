@@ -1,6 +1,7 @@
 import { query, type McpServerConfig, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { COMMANDS } from './commands.ts';
 import { JARVIS_TOOL_NAMES } from './tools.ts';
+import { plainReport, type WatchReport, type WatchSummarizer } from './session-watch.ts';
 
 /** Responde a uma fala do usuario, em pedacos de texto (streaming). */
 /** Avisos do cerebro durante uma resposta (para medir a latencia). */
@@ -38,6 +39,7 @@ export const JARVIS_PROMPT = [
   'Para essas consultas, que demoram um pouco, diga antes uma frase bem curta com suas palavras (o usuário escuta enquanto a ferramenta roda).',
   'Sessões abertas têm um número pela ordem de abertura (o mesmo da gaveta de terminais), mostrado por sessoes_abertas. Quando o usuário apontar uma sessão específica (pelo número, "a do codex", "a que corrige o login"), passe isso em sessao; se a ferramenta avisar que havia outras sessões ou que ficou ambíguo, pergunte qual em vez de adivinhar.',
   'Trabalho de verdade nos projetos (corrigir, implementar, investigar) vai para uma sessão com iniciar_sessao, com a tarefa completa e clara; diga que ela segue em background.',
+  'Quando o usuário pedir para avisar quando uma sessão terminar ou se der erro, use acompanhar_sessao (ou acompanhar em iniciar_sessao, se for uma sessão nova). Você mesmo avisa por voz em poucas frases e oferece contar mais; se ele quiser, use estado_da_sessao para os detalhes.',
   'Se o usuário perguntar o que você sabe fazer, use a ferramenta comandos. Se ele se despedir ou disser que é só isso, despeça-se uma única vez, em poucas palavras e do seu jeito, chame encerrar_conversa e não diga mais nada depois da ferramenta.',
   'Memória: guarde com lembrar, sem anunciar, o que for duradouro e útil depois (nome, preferências, rotina, pessoas, metas, decisões, stack e prazos dos projetos); não guarde o passageiro (clima, hora, pedidos únicos). Se ele pedir para você lembrar de algo, guarde e confirme só com "Anotado.". Se um fato guardado mudou, use substitui com o id dele em vez de duplicar.',
   'Use o que você lembra com naturalidade, quando ajudar (ex.: retomar o que ficou da última conversa), sem recitar a lista. Ao encerrar a conversa, passe em resumo uma frase do que foi feito.',
@@ -322,5 +324,37 @@ export function claudeJudge(opts: { model: string; cwd: string; query?: QueryFn;
       }
       return !/IGNORAR/i.test(out);
     },
+  };
+}
+
+export const WATCH_PROMPT = [
+  'Você escreve o aviso falado de um assistente de voz em português do Brasil, chamado Jarvis, que chama o usuário de senhor.',
+  'Você recebe as últimas linhas do terminal de uma sessão de um agente de programação que o usuário pediu para acompanhar.',
+  'Se a tarefa terminou: diga em uma ou duas frases curtas o resultado (o que foi feito, testes, commits, pendências, ou se o agente está esperando uma resposta) e termine perguntando se o usuário quer que você conte mais.',
+  'Se deu erro: diga em uma ou duas frases curtas qual foi o erro, em palavras simples.',
+  'Comece com "Senhor," e diga de qual sessão se trata. Texto para falar: sem markdown, listas, caminhos longos ou códigos.',
+  'Responda só com o aviso.',
+].join(' ');
+
+/** Aviso de uma sessao acompanhada, escrito por um Claude a parte (sem ferramentas). */
+export function claudeWatchSummary(opts: { model: string; cwd: string; query?: QueryFn; timeoutMs?: number }): WatchSummarizer {
+  return async (r: WatchReport) => {
+    const brain = new ClaudeBrain({ model: opts.model, cwd: opts.cwd, query: opts.query, systemPrompt: WATCH_PROMPT });
+    const prompt = [
+      `Sessão: ${r.label}.`,
+      r.outcome === 'error' ? `Situação: deu erro (${r.error ?? 'veja o terminal'}).` : 'Situação: a tarefa terminou (o terminal parou).',
+      `Últimas linhas do terminal:\n${r.tail || '(vazio)'}`,
+    ].join('\n');
+    const signal = AbortSignal.timeout(opts.timeoutMs ?? 30_000);
+    let out = '';
+    try {
+      for await (const d of brain.reply(prompt, signal)) out += d;
+    } catch {
+      return plainReport(r);
+    } finally {
+      brain.close();
+    }
+    // Cortado pela demora: aviso pela metade nao serve.
+    return (!signal.aborted && out.trim()) || plainReport(r);
   };
 }

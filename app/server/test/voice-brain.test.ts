@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ClaudeBrain, JUDGE_PROMPT, brainEnv, claudeJudge, claudeWebSearch, type QueryFn } from '../src/voice/brain.ts';
+import { ClaudeBrain, JUDGE_PROMPT, WATCH_PROMPT, brainEnv, claudeJudge, claudeWatchSummary, claudeWebSearch, type QueryFn } from '../src/voice/brain.ts';
 
 const delta = (text: string) => ({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } } });
 const ok = { type: 'result', subtype: 'success', session_id: 's1' };
@@ -176,4 +176,16 @@ test('claudeJudge: IGNORAR descarta, NOVO aceita, demora conta como NOVO', async
   const slow = fakeQuery([Array.from({ length: 20000 }, () => delta('.'))]);
   assert.equal(await claudeJudge({ model: 'haiku', cwd: '/w', query: slow.fn, timeoutMs: 5 }).relevant(c), true);
   assert.equal(slow.interrupts(), 1);
+});
+
+test('claudeWatchSummary: o aviso vem do Claude; falha ou vazio usa o texto simples', async () => {
+  const report = { id: 's1', label: 'Claude de meu-app', outcome: 'done' as const, tail: 'Todos os 12 testes passaram.\nCommit feito.' };
+  const q = fakeQuery([[delta('Senhor, o Claude de meu-app terminou: testes passando. Quer que eu conte mais?'), ok]]);
+  assert.equal(await claudeWatchSummary({ model: 'haiku', cwd: '/w', query: q.fn })(report), 'Senhor, o Claude de meu-app terminou: testes passando. Quer que eu conte mais?');
+  assert.equal(q.calls[0].options.systemPrompt, WATCH_PROMPT);
+  const empty = fakeQuery([[ok]]);
+  assert.match(await claudeWatchSummary({ model: 'haiku', cwd: '/w', query: empty.fn })(report), /Claude de meu-app terminou.*Commit feito.*conte mais/);
+  const slow = fakeQuery([Array.from({ length: 20000 }, () => delta('.'))]);
+  const error = { ...report, outcome: 'error' as const, error: 'API Error: 500' };
+  assert.equal(await claudeWatchSummary({ model: 'haiku', cwd: '/w', query: slow.fn, timeoutMs: 5 })(error), 'Senhor, a sessão do Claude de meu-app deu erro: API Error: 500.');
 });
