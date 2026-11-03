@@ -83,24 +83,25 @@ elif orphan="$(health_field "$port" pid)" && [ -n "$orphan" ]; then
   warn_outdated "$port"
 else
   if [ -z "${LLM_AGENT_UI_NO_BUILD:-}" ]; then
-    if [ ! -d "$app_dir/server/node_modules" ]; then
-      echo "Instalando dependencias do servidor..." >&2
-      npm --prefix "$app_dir/server" ci --silent >&2
-    elif [ "$app_dir/server/package-lock.json" -nt "$app_dir/server/node_modules" ]; then
-      # Dependencia nova no servidor (git pull, evolucao): instala antes de subir.
-      echo "Atualizando as dependencias do servidor..." >&2
-      npm --prefix "$app_dir/server" ci --silent >&2
-    fi
+    # Dependencias de um pacote (server ou web) faltando ou desatualizadas. O npm so grava o
+    # node_modules/.package-lock.json no fim da instalacao: uma instalacao interrompida e refeita.
+    deps_stale() {
+      local marker="$app_dir/$1/node_modules/.package-lock.json"
+      [ ! -f "$marker" ] || [ "$app_dir/$1/package-lock.json" -nt "$marker" ]
+    }
+    install_deps() {
+      echo "$2" >&2
+      npm --prefix "$app_dir/$1" ci --silent >&2 && return 0
+      echo "Nao consegui instalar as dependencias ($1). Rode: npm --prefix $app_dir/$1 ci" >&2
+      exit 1
+    }
+    deps_stale server && install_deps server "Instalando as dependencias do servidor..."
     dist="$app_dir/web/dist/index.html"
-    if [ ! -f "$dist" ]; then
-      echo "Construindo a interface (so na primeira vez)..." >&2
-      npm --prefix "$app_dir/web" ci --silent >&2
-      npm --prefix "$app_dir/web" run build --silent >&2
-    elif [ -n "$(find "$app_dir/web/src" "$app_dir/web/index.html" "$app_dir/web/package.json" -newer "$dist" -print -quit 2>/dev/null)" ]; then
-      # O codigo da interface mudou (git pull, branch nova): reconstroi antes de subir.
-      echo "Atualizando a interface..." >&2
-      [ "$app_dir/web/package-lock.json" -nt "$app_dir/web/node_modules" ] && npm --prefix "$app_dir/web" ci --silent >&2
-      npm --prefix "$app_dir/web" run build --silent >&2
+    if [ ! -f "$dist" ] || [ -n "$(find "$app_dir/web/src" "$app_dir/web/index.html" "$app_dir/web/package.json" -newer "$dist" -print -quit 2>/dev/null)" ]; then
+      # Primeira vez, ou o codigo da interface mudou (git pull, branch nova): reconstroi antes de subir.
+      deps_stale web && install_deps web "Instalando as dependencias da interface..."
+      echo "Construindo a interface..." >&2
+      npm --prefix "$app_dir/web" run build --silent >&2 || { echo "A interface nao compilou. Rode: npm --prefix $app_dir/web run build" >&2; exit 1; }
     fi
   fi
   LLM_AGENT_UI_PORT="$port" LLM_AGENT_UI_STATE_DIR="$state_dir" \
