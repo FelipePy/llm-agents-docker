@@ -2,6 +2,7 @@ import type { CoreMode, CoreSignal } from '../scene/core.ts';
 import type { UiCommand, VoiceClientMessage, VoiceServerMessage, VoiceState } from '../types.ts';
 import { startCapture } from './capture.ts';
 import { Player } from './player.ts';
+import { EchoGate } from './echo.ts';
 
 export interface VoiceView {
   state: VoiceState;
@@ -66,6 +67,11 @@ export class VoiceClient {
   private player: Player | undefined;
   private stopCapture: (() => void) | undefined;
   private stopped = false;
+  // Interrupcao: voz do usuario x eco da voz do Jarvis (ver echo.ts).
+  private readonly echo = new EchoGate();
+  private outPeak = 0;
+  private outTimer: ReturnType<typeof setInterval> | undefined;
+  private lastOverEcho = 0;
 
   constructor(
     token: string,
@@ -102,8 +108,13 @@ export class VoiceClient {
       this.setState('off');
     };
     try {
+      // Nivel maximo da voz do Jarvis entre um quadro do microfone e o seguinte.
+      this.outTimer = setInterval(() => {
+        this.outPeak = Math.max(this.outPeak, this.player?.outputRms() ?? 0);
+      }, 20);
       this.stopCapture = await startCapture((pcm) => {
         if (ws.readyState === WebSocket.OPEN) ws.send(pcm.buffer as ArrayBuffer);
+        this.checkEcho(pcm);
       });
     } catch (err) {
       this.stop();
@@ -182,6 +193,27 @@ export class VoiceClient {
     }
   }
 
+  /**
+   * Enquanto o Jarvis fala: o microfone esta bem acima do eco da voz dele? Entao
+   * e o usuario falando por cima; o servidor junta com a deteccao de fala e para na hora.
+   */
+  private checkEcho(pcm: Int16Array): void {
+    const out = this.outPeak;
+    this.outPeak = 0;
+    if (this.state !== 'speaking') {
+      this.echo.resetStreak();
+      return;
+    }
+    let sum = 0;
+    for (const v of pcm) sum += (v / 32768) ** 2;
+    const mic = Math.sqrt(sum / pcm.length);
+    const now = performance.now();
+    if (this.echo.feed(mic, out) && now - this.lastOverEcho > 300) {
+      this.lastOverEcho = now;
+      this.send({ type: 'over-echo' });
+    }
+  }
+
   private setState(state: VoiceState, detail?: string): void {
     this.state = state;
     this.onView({ state, detail });
@@ -192,6 +224,8 @@ export class VoiceClient {
   }
 
   private cleanup(): void {
+    clearInterval(this.outTimer);
+    this.outTimer = undefined;
     this.stopCapture?.();
     this.stopCapture = undefined;
     this.player?.close();

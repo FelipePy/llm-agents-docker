@@ -217,7 +217,7 @@ def main() -> None:
                 barge = bool(cmd.get("barge"))
                 # Se o usuario ja esta falando ("Hey Jarvis, abre..."), continua a mesma fala.
                 if barge or not segmenter.active:
-                    segmenter = Segmenter(threshold=0.7 if barge else 0.5, start_frames=4 if barge else 2, end_ms=end_ms)
+                    segmenter = Segmenter(threshold=0.7 if barge else 0.5, start_frames=3 if barge else 2, end_ms=end_ms)
                     vad.reset_states()
             elif name == "sleep":
                 state["listen"] = False

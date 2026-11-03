@@ -138,6 +138,14 @@ export class Player {
     return rmsLevel(this.samples);
   }
 
+  /** Nivel RMS bruto (0 a 1) do que esta tocando agora, para comparar com o microfone. */
+  outputRms(): number {
+    this.analyser.getFloatTimeDomainData(this.samples);
+    let sum = 0;
+    for (const v of this.samples) sum += v * v;
+    return Math.sqrt(sum / this.samples.length);
+  }
+
   /** Som curto de ativacao. */
   chime(): void {
     const t = this.ctx.currentTime;

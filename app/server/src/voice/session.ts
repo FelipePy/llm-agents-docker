@@ -56,6 +56,9 @@ const RESTART_WINDOW_MS = 60_000;
  * resposta em andamento continua em background (ferramentas terminam o que
  * comecaram) e a nova pergunta e respondida assim que ela acabar.
  */
+/** Fala detectada e voz acima do eco, com ate este intervalo entre elas, interrompem na hora. */
+const BARGE_WINDOW_MS = 800;
+
 export class VoiceSession {
   state: VoiceState = 'off';
   private readonly worker: VoiceWorker;
@@ -87,6 +90,9 @@ export class VoiceSession {
   private lastRestart = -Infinity;
   /** O que o Jarvis disse por ultimo (para reconhecer o eco da propria voz no microfone). */
   private spoken = '';
+  // Interrupcao imediata: fala detectada (worker) + microfone acima do eco (cliente).
+  private lastSpeechStart = -Infinity;
+  private lastOverEcho = -Infinity;
   private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number; tools: string[] } | undefined;
 
   constructor(
@@ -159,6 +165,12 @@ export class VoiceSession {
         return this.relayCommand('submit');
       case 'relay-clear':
         return this.relayCommand('clear');
+      case 'over-echo':
+        // O microfone esta bem acima do eco da voz do Jarvis. Com fala detectada
+        // pelo worker logo antes (ou logo depois, em speech-start): e o usuario.
+        this.lastOverEcho = this.now();
+        if (this.state === 'speaking' && this.now() - this.lastSpeechStart <= BARGE_WINDOW_MS) this.interrupt(false);
+        return;
       case 'relay-exit':
         if (this.relay) {
           this.setRelay(null);
@@ -323,7 +335,12 @@ export class VoiceSession {
         if (this.state === 'thinking') this.interrupt(false);
         // Falando, pode ser o eco da propria voz: abaixa o volume (menos eco,
         // transcricao melhor) e decide pela transcricao (abaixo).
-        else if (this.state === 'speaking') this.send({ type: 'duck', on: true });
+        else if (this.state === 'speaking') {
+          this.lastSpeechStart = this.now();
+          // Voz acima do eco ao mesmo tempo: o usuario falou por cima, para na hora.
+          if (this.now() - this.lastOverEcho <= BARGE_WINDOW_MS) this.interrupt(false);
+          else this.send({ type: 'duck', on: true });
+        }
         return;
       case 'partial': {
         const text = e.text.trim();

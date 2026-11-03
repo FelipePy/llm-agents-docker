@@ -445,3 +445,27 @@ test('anuncio so fala quando o Jarvis esta esperando, e volta a esperar', async 
   worker.fire({ event: 'wake', score: 0.9 });
   assert.equal(session.announce('x'), false, 'conversando: nao interrompe');
 });
+
+test('interromper na hora: fala detectada + microfone acima do eco (o usuario, nao o eco)', async () => {
+  let t = 0;
+  const s = await started([['Hoje o dia está nublado e vai chover à tarde. ', 'Leve guarda-chuva.']], () => t);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'como está o tempo' });
+  await waitFor(() => s.session.state === 'speaking' && s.worker.speaks().length === 2);
+  // So o eco: o worker detecta fala, mas o microfone nao passa do eco previsto.
+  t = 1000;
+  s.worker.fire({ event: 'speech-start' });
+  assert.equal(s.session.state, 'speaking');
+  // Voz acima do eco muito depois da deteccao: nao conta.
+  t = 3000;
+  s.session.client({ type: 'over-echo' });
+  assert.equal(s.session.state, 'speaking');
+  // O usuario fala: as duas coisas juntas param o Jarvis na hora, sem esperar a transcricao.
+  t = 3300;
+  s.worker.fire({ event: 'speech-start' });
+  assert.equal(s.session.state, 'listening');
+  assert.ok(s.sent.some((m) => m.type === 'stop-audio'));
+  // O que ele disse vira o proximo pedido.
+  s.worker.fire({ event: 'transcript', id: 2, text: 'espera, e amanhã?' });
+  await waitFor(() => s.brain.calls.length === 2);
+});

@@ -139,7 +139,9 @@ export type VoiceClientMessage =
   /** Conversa direta: envia o texto ditado, apaga o ditado ou sai da conversa direta. */
   | { type: 'relay-submit' }
   | { type: 'relay-clear' }
-  | { type: 'relay-exit' };
+  | { type: 'relay-exit' }
+  /** O microfone esta bem acima do eco previsto da voz do Jarvis: e o usuario falando. */
+  | { type: 'over-echo' };
 
 /** Nivel da navegacao radial da interface (a voz usa os mesmos niveis). */
 export type NavNode =
