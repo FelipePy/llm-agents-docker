@@ -29,7 +29,9 @@ self_check() {
   port="$(grep -o '"port":[0-9]*' "$state_dir/server.json" 2>/dev/null | cut -d: -f2)"
   token="$(cat "$state_dir/token" 2>/dev/null)"
   [ -n "$port" ] && [ -n "$token" ] || return 1
-  curl -fsS --max-time 300 -H "Authorization: Bearer $token" "http://127.0.0.1:$port/api/self-check?record=1" | grep -q '"ok":true'
+  # So o "ok" de fora conta: as verificacoes que passaram tambem trazem "ok":true.
+  curl -fsS --max-time 400 -H "Authorization: Bearer $token" "http://127.0.0.1:$port/api/self-check?record=1" |
+    node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { try { process.exit(JSON.parse(s).ok === true ? 0 : 1); } catch { process.exit(1); } });'
 }
 
 # Marca o update como revertido antes de subir a versao anterior (ela le isso ao abrir).
