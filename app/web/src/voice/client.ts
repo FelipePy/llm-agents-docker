@@ -171,7 +171,8 @@ export class VoiceClient {
         this.setState(m.state, m.detail);
         return;
       case 'caption':
-        this.onView(m.who === 'user' ? { user: m.text, jarvis: '' } : { jarvis: m.text });
+        if (m.who === 'jarvis') this.onView({ jarvis: m.text });
+        else this.onView({ user: m.ignored ? `${m.text} (ignorada)` : m.text, jarvis: '' });
         return;
       case 'audio':
         this.player?.append(m.id, m.data, m.last);
