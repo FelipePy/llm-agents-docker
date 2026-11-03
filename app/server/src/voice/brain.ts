@@ -28,12 +28,14 @@ export const JARVIS_PROMPT = [
   // Conhecimento e ferramentas.
   'Você vive dentro do llm-agent, o app do usuário para conversar com agentes de código e acompanhar os projetos dele. Quando ele perguntar como fazer algo no app ou para que serve alguma parte dele, consulte a ferramenta manual_do_app e responda com base nela; não invente funcionalidades.',
   'Cada fala do usuário chega com a data e a hora atuais entre colchetes no fim; use-as direto, sem ferramenta. Para clima e notícias, use clima_agora e noticias_do_dia; nunca diga que não sabe sem consultá-las antes.',
+  'Para qualquer outra coisa que dependa da web ou que possa ter mudado (fatos recentes, preços, resultados, pessoas, lugares), ou quando o usuário pedir para pesquisar, use pesquisar_na_web em vez de responder de memória ou de abrir uma sessão; responda com os pontos principais, dizendo de onde veio.',
   'Você controla a interface e os projetos pelas ferramentas do servidor jarvis; use-as sempre que o pedido for uma ação, sem pedir confirmação para o que só mostra coisas.',
   // Tamanho da resposta: so o necessario, sem perder o que importa.
   'Fale só o necessário. Comandos no app (abrir ou mostrar algo, voltar, fechar um terminal, mandar recado, ligar a conversa direta, criar algo) são instantâneos: chame a ferramenta direto, sem anunciar antes, e depois confirme em no máximo quatro palavras, do seu jeito (por exemplo, para a conversa direta, algo como "pode falar"). Não explique o que a tela já mostra nem repita instruções de uso.',
-  'Perguntas de informação (estado de um projeto, como está uma sessão, notícias, clima, resultado de uma busca no manual) pedem o essencial: em uma a três frases, traga os dados que importam, como números, nomes, erros, decisões e pendências, sem detalhes de enfeite; se houver mais coisa relevante, ofereça contar mais em vez de despejar tudo.',
+  'Perguntas de informação (estado de um projeto, como está uma sessão, notícias, clima, resultado de uma busca no manual ou na web) pedem o essencial: em uma a três frases, traga os dados que importam, como números, nomes, erros, decisões e pendências, sem detalhes de enfeite; se houver mais coisa relevante, ofereça contar mais em vez de despejar tudo.',
   'O usuário às vezes faz uma pausa no meio da fala e continua; aí a mensagem seguinte traz a fala completa (a anterior emendada com a parte nova). Responda só a ela, sem repetir ações já feitas para a parte anterior; se a parte nova corrigir ou contradisser a anterior, vale só a parte nova.',
   'Para essas consultas, que demoram um pouco, diga antes uma frase bem curta com suas palavras (o usuário escuta enquanto a ferramenta roda).',
+  'Sessões abertas têm um número pela ordem de abertura (o mesmo da gaveta de terminais), mostrado por sessoes_abertas. Quando o usuário apontar uma sessão específica (pelo número, "a do codex", "a que corrige o login"), passe isso em sessao; se a ferramenta avisar que havia outras sessões ou que ficou ambíguo, pergunte qual em vez de adivinhar.',
   'Trabalho de verdade nos projetos (corrigir, implementar, investigar) vai para uma sessão com iniciar_sessao, com a tarefa completa e clara; diga que ela segue em background.',
   'Se o usuário perguntar o que você sabe fazer, use a ferramenta comandos. Se ele se despedir ou disser que é só isso, despeça-se uma única vez, em poucas palavras e do seu jeito, chame encerrar_conversa e não diga mais nada depois da ferramenta.',
   'Memória: guarde com lembrar, sem anunciar, o que for duradouro e útil depois (nome, preferências, rotina, pessoas, metas, decisões, stack e prazos dos projetos); não guarde o passageiro (clima, hora, pedidos únicos). Se ele pedir para você lembrar de algo, guarde e confirme só com "Anotado.". Se um fato guardado mudou, use substitui com o id dele em vez de duplicar.',
@@ -50,6 +52,54 @@ export function brainEnv(env: Record<string, string | undefined> = process.env):
   // Sem chamadas extras do Claude Code (telemetria, titulos...) disputando com a resposta.
   out.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
   return out;
+}
+
+/**
+ * Busca na web pela ferramenta WebSearch do proprio Claude (no login do plano,
+ * sem chave de API), numa consulta curta e isolada: so essa ferramenta, sem
+ * MCP nem configuracoes. Mais lenta que DuckDuckGo/Wikipedia (uns 15 a 20 s),
+ * por isso e a reserva da busca do Jarvis. Devolve um resumo com as fontes.
+ */
+export function claudeWebSearch(opts: { model: string; cwd: string; query?: QueryFn; timeoutMs?: number }) {
+  const run = opts.query ?? query;
+  return async (subject: string): Promise<string> => {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), opts.timeoutMs ?? 45_000);
+    const q = run({
+      prompt:
+        `Pesquise na web: ${subject}\n\n` +
+        'Responda em português, em até cinco tópicos curtos com os fatos principais (números, datas, nomes), ' +
+        'cada um com o nome do site de onde veio. Se as fontes divergirem ou forem antigas, diga.',
+      options: {
+        model: opts.model,
+        cwd: opts.cwd,
+        tools: ['WebSearch'],
+        allowedTools: ['WebSearch'],
+        settingSources: [],
+        mcpServers: {},
+        strictMcpConfig: true,
+        maxTurns: 4,
+        effort: 'low',
+        thinking: { type: 'disabled' },
+        abortController: abort,
+        env: brainEnv(),
+      },
+    });
+    try {
+      for await (const m of q) {
+        if (m.type !== 'result') continue;
+        if (m.subtype !== 'success') throw new Error(m.subtype);
+        return m.result;
+      }
+      throw new Error('a busca terminou sem resposta');
+    } catch (err) {
+      if (abort.signal.aborted) throw new Error('demorou demais');
+      throw err;
+    } finally {
+      clearTimeout(timer);
+      q.close();
+    }
+  };
 }
 
 /** Fila assincrona: as falas do usuario entram aqui e o SDK as consome. */

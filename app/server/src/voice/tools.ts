@@ -4,6 +4,7 @@ import type { DayInfo, NavNode, ProjectDetail, ProjectSummary, SessionAgent, Ses
 import { COMMANDS } from './commands.ts';
 import { normalize } from './text.ts';
 import { TOPICS, type JarvisMemory, type MemoryTopic } from './memory.ts';
+import type { WebSearch } from '../search.ts';
 
 /** O que as ferramentas do Jarvis podem fazer. Nada alem disto: sem shell nem escrita livre. */
 export interface JarvisContext {
@@ -27,6 +28,8 @@ export interface JarvisContext {
   relay(target: { id: string; label: string } | null): void;
   /** Clima e notícias (o mesmo servico do painel do dia, na localizacao do usuario). */
   day(): Promise<DayInfo>;
+  /** Busca na web (DuckDuckGo + Wikipedia, sem chave de API). */
+  webSearch(query: string): Promise<WebSearch>;
   now(): Date;
   /** Fecha o terminal de uma sessao. */
   closeSession(id: string): void;
@@ -112,6 +115,95 @@ export function findProject(projects: ProjectSummary[], spoken: string): Project
   return top && top.score >= MIN_SCORE ? top.project : null;
 }
 
+const ORDINALS: Record<string, number> = {
+  um: 1, uma: 1, primeiro: 1, primeira: 1, dois: 2, duas: 2, segundo: 2, segunda: 2, tres: 3, terceiro: 3, terceira: 3,
+  quatro: 4, quarto: 4, quarta: 4, cinco: 5, quinto: 5, quinta: 5, seis: 6, sexto: 6, sexta: 6, sete: 7, setimo: 7, setima: 7,
+  oito: 8, oitavo: 8, oitava: 8, nove: 9, nono: 9, nona: 9, dez: 10, decimo: 10, decima: 10,
+};
+const SESSION_WORDS = new Set(['sessao', 'sessoes', 'terminal', 'aba', 'numero', 'n', 'no', 'num', 'do', 'da', 'de', 'o', 'a', 'que', 'esta', 'com']);
+const LATEST = new Set(['ultima', 'ultimo', 'recente', 'mais', 'nova', 'novo']);
+const AGENTS: Record<string, SessionAgent> = { claude: 'claude', codex: 'codex', shell: 'shell', terminal: 'shell', zsh: 'shell' };
+
+/** Sessoes em ordem de abertura (a mesma das abas da gaveta), com o numero de cada uma (1, 2, ...). */
+export function numberSessions(sessions: SessionInfo[]): { n: number; session: SessionInfo }[] {
+  return [...sessions].sort((a, b) => a.startedAt.localeCompare(b.startedAt)).map((session, i) => ({ n: i + 1, session }));
+}
+
+/** Numero de abertura falado ("2", "a segunda", "sessão número 3"), ou null. */
+export function spokenNumber(spoken: string): number | null {
+  const words = normalize(spoken).split(' ').filter((w) => w && !SESSION_WORDS.has(w));
+  if (words.length !== 1) return null;
+  const w = words[0].replace(/^n?(\d+)[ao]?$/, '$1');
+  if (/^\d+$/.test(w)) return Number(w);
+  return ORDINALS[w] ?? null;
+}
+
+/** O que a sessao esta fazendo: as ultimas linhas com texto de verdade do terminal. */
+export function sessionActivity(output: string, lines = 2, max = 160): string {
+  const useful = stripAnsi(output)
+    .split('\n')
+    .map((l) => l.replace(/[─-▟⠀-⣿]+/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter((l) => /[\p{L}\p{N}]{2}/u.test(l))
+    .filter((l) => !/^(\? for shortcuts|bypass permissions|esc to interrupt|>\s*$)/i.test(l));
+  const text = useful.slice(-lines).join(' / ');
+  return text.length > max ? `…${text.slice(-max)}` : text;
+}
+
+type Numbered = { n: number; session: SessionInfo };
+
+/**
+ * A sessao escolhida pelo usuario entre `pool` (ja filtrado por projeto): pelo
+ * numero de abertura, id (ou comeco dele), agente ou titulo. Sem seletor, a
+ * mais relevante (em execucao e mais recente). `all` traz a numeracao global.
+ */
+export function resolveSession(pool: Numbered[], spoken: string | undefined, all: Numbered[] = pool): { pick?: Numbered; candidates: Numbered[] } {
+  const latest = (list: Numbered[]) =>
+    [...list].sort((a, b) => Number(b.session.alive) - Number(a.session.alive) || b.session.startedAt.localeCompare(a.session.startedAt))[0];
+  const raw = spoken?.trim() ?? '';
+  const words = normalize(raw).split(' ').filter((w) => w && !SESSION_WORDS.has(w));
+  if (!words.length || words.every((w) => LATEST.has(w))) {
+    const pick = latest(pool);
+    return { pick, candidates: pick ? [pick] : [] };
+  }
+  // Id completo ou o comeco dele (o que sessoes_abertas mostra).
+  const id = raw.toLowerCase().replace(/^#/, '');
+  if (/^[0-9a-f-]{4,}$/.test(id)) {
+    const byId = all.filter((x) => x.session.id === id || x.session.id.startsWith(id));
+    if (byId.length === 1) return { pick: byId[0], candidates: byId };
+  }
+  // Numero de abertura: o da lista geral; se ele nao for do projeto, o n-esimo do projeto.
+  const n = spokenNumber(raw);
+  if (n !== null) {
+    const pick = pool.find((x) => x.n === n) ?? (pool !== all ? pool[n - 1] : undefined);
+    return { pick, candidates: pick ? [pick] : [] };
+  }
+  // Agente ("a do codex") e/ou palavras do titulo ("a que corrige o login").
+  const agent = words.map((w) => AGENTS[w]).find(Boolean);
+  const rest = words.filter((w) => !AGENTS[w] && !LATEST.has(w));
+  let list = agent ? pool.filter((x) => x.session.agent === agent) : pool;
+  if (rest.length) {
+    const q = rest.join('');
+    const scored = list
+      .map((x) => {
+        const title = tokens(x.session.title);
+        const common = rest.filter((w) => title.some((t) => t === w || (w.length >= 4 && t.startsWith(w.slice(0, -1))))).length;
+        return { x, score: Math.max(common / rest.length, similarity(title.join(''), q)) };
+      })
+      .filter((r) => r.score >= 0.34)
+      .sort((a, b) => b.score - a.score);
+    if (!scored.length) return { candidates: [] };
+    const close = scored.filter((r) => scored[0].score - r.score < 0.1).map((r) => r.x);
+    if (close.length > 1) return { candidates: close };
+    return { pick: close[0], candidates: close };
+  }
+  if (!list.length) return { candidates: [] };
+  if (words.some((w) => LATEST.has(w)) || list.length === 1) {
+    const pick = latest(list);
+    return { pick, candidates: [pick] };
+  }
+  return { candidates: list };
+}
+
 export function stripAnsi(text: string): string {
   return text
     .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '')
@@ -151,6 +243,40 @@ export function searchManual(markdown: string, subject: string): string {
   return scored.map((s) => s.text.slice(0, 2500)).join('\n\n---\n\n');
 }
 
+const host = (url: string): string => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+};
+
+/** Texto que o cerebro le de uma busca: resumo da Wikipedia e os primeiros resultados, com o site. */
+export function formatWebSearch(r: WebSearch): string {
+  if (!r.results.length && !r.summary && !r.answer) {
+    return r.errors.length
+      ? `Não consegui pesquisar agora (${r.errors.join('; ')}). Diga isso ao usuário em poucas palavras.`
+      : `Não achei nada na web sobre "${r.query}". Diga isso ao usuário e sugira outras palavras.`;
+  }
+  const lines = [`Busca na web por "${r.query}".`];
+  if (r.answer) lines.push(`Pesquisa na web (já resumida, com as fontes):\n${r.answer.slice(0, 3000)}`);
+  if (r.results.length) {
+    lines.push('Resultados:');
+    r.results.forEach((x, i) => lines.push(`${i + 1}. ${x.title} (${host(x.url)})${x.snippet ? `: ${x.snippet.slice(0, 300)}` : ''}`));
+  }
+  // A Wikipedia vem por ultimo: e o artigo mais proximo, que pode ser de outro assunto ou antigo.
+  if (r.summary) {
+    lines.push(
+      `Contexto da Wikipedia, artigo "${r.summary.title}" (pode ser outro assunto ou estar desatualizado; para fatos recentes, valem os resultados acima): ${r.summary.extract.slice(0, 900)}`,
+    );
+  }
+  if (r.errors.length) lines.push(`Fontes indisponíveis: ${r.errors.join('; ')}.`);
+  lines.push(
+    'Responda em voz em uma a três frases com os pontos principais, dizendo de qual site veio a informação; se os resultados divergirem ou parecerem desatualizados, avise. Ofereça contar mais em vez de ler tudo.',
+  );
+  return lines.join('\n');
+}
+
 /** Implementacao dos comandos; cada um devolve o texto que o cerebro le (e resume em voz). */
 export function jarvisHandlers(ctx: JarvisContext) {
   async function pick(spoken: string) {
@@ -163,20 +289,40 @@ export function jarvisHandlers(ctx: JarvisContext) {
     candidates.length > 1
       ? `Achei mais de um projeto parecido com "${spoken}": ${candidates.map((p) => p.name).join(', ')}. Pergunte ao usuário qual deles antes de seguir.`
       : `Não encontrei o projeto "${spoken}". Projetos: ${list.slice(0, 12).map((p) => p.name).join(', ') || 'nenhum'}. Pergunte ao usuário qual deles.`;
-  /** A sessao mais relevante (em execucao e mais recente), opcionalmente de um projeto. */
-  async function pickSession(projeto?: string) {
-    const list = await ctx.projects();
-    const r = projeto ? await pick(projeto) : null;
-    if (projeto && !r?.project) return { list, error: notFound(projeto, list, r?.candidates) };
-    const project = r?.project ?? null;
-    const session = ctx
-      .sessions()
-      .filter((s) => !project || s.projectPath === project.path)
-      .sort((a, b) => Number(b.alive) - Number(a.alive) || b.startedAt.localeCompare(a.startedAt))[0];
-    if (!session) return { list, error: `Não há sessão aberta${project ? ` em ${project.name}` : ''}.` };
-    return { list, session };
-  }
   const projectName = (path: string, list: ProjectSummary[]) => list.find((p) => p.path === path)?.name ?? path.split('/').pop() ?? path;
+  const status = (s: SessionInfo) => (s.alive ? 'em execução' : 'encerrada');
+  const describe = (x: Numbered, list: ProjectSummary[]) =>
+    `nº ${x.n} · ${projectName(x.session.projectPath, list)} · ${LABEL[x.session.agent]} · ${status(x.session)} · ${x.session.title} · id ${x.session.id.slice(0, 8)}`;
+  /**
+   * A sessao pedida: de um projeto e/ou por seletor (numero, id, titulo, agente).
+   * Sem seletor, a mais relevante; `others` sao as outras em execucao no mesmo
+   * filtro, para o cerebro saber que havia escolha.
+   */
+  async function pickSession(projeto?: string, sessao?: string) {
+    const list = await ctx.projects();
+    const r = projeto?.trim() ? await pick(projeto) : null;
+    if (projeto?.trim() && !r?.project) return { list, error: notFound(projeto, list, r?.candidates) };
+    const project = r?.project ?? null;
+    const all = numberSessions(ctx.sessions());
+    const pool = all.filter((x) => !project || x.session.projectPath === project.path);
+    const where = project ? ` em ${project.name}` : '';
+    if (!pool.length) return { list, error: `Não há sessão aberta${where}.` };
+    const { pick: chosen, candidates } = resolveSession(pool, sessao, all);
+    if (!chosen) {
+      const options = (candidates.length > 1 ? candidates : pool).map((x) => describe(x, list)).join('\n');
+      return {
+        list,
+        error: candidates.length > 1
+          ? `Mais de uma sessão${where} combina com "${sessao}":\n${options}\nPergunte ao usuário qual delas (pelo número).`
+          : `Não achei a sessão "${sessao}"${where}. Sessões:\n${options}\nPergunte ao usuário qual delas.`,
+      };
+    }
+    const others = sessao?.trim() ? [] : pool.filter((x) => x !== chosen && x.session.alive);
+    return { list, session: chosen.session, n: chosen.n, others };
+  }
+  /** Aviso de que havia outras sessoes e qual foi escolhida. */
+  const alsoOpen = (others: Numbered[] | undefined) =>
+    others?.length ? `\n(Usei a mais recente; também estão abertas: ${others.map((x) => `nº ${x.n} ${LABEL[x.session.agent]} "${x.session.title}"`).join(', ')}. Se o usuário quis outra, use o parâmetro sessao.)` : '';
 
   return {
     async abrir_area({ area }: { area: string }) {
@@ -241,16 +387,25 @@ export function jarvisHandlers(ctx: JarvisContext) {
         ? `Abri o ${LABEL[agente]} em ${project.name} com a tarefa; ele está trabalhando em background na gaveta de terminais.`
         : `Abri o ${LABEL[agente]} em ${project.name}, em background na gaveta de terminais.`;
     },
-    async sessoes_abertas(_args: Record<string, never>) {
-      const sessions = ctx.sessions();
-      if (!sessions.length) return 'Nenhuma sessão aberta.';
+    async sessoes_abertas({ projeto }: { projeto?: string }) {
       const list = await ctx.projects();
-      return sessions
-        .map((s) => `${projectName(s.projectPath, list)} · ${LABEL[s.agent]} · ${s.alive ? 'em execução' : 'encerrada'} · ${s.title}`)
+      let all = numberSessions(ctx.sessions());
+      if (projeto?.trim()) {
+        const r = await pick(projeto);
+        if (!r.project) return notFound(projeto, list, r.candidates);
+        all = all.filter((x) => x.session.projectPath === r.project!.path);
+        if (!all.length) return `Não há sessão aberta em ${r.project.name}.`;
+      }
+      if (!all.length) return 'Nenhuma sessão aberta.';
+      return all
+        .map((x) => {
+          const doing = x.session.alive ? sessionActivity(ctx.sessionOutput(x.session.id) ?? '') : '';
+          return `${describe(x, list)}${doing ? ` · agora: ${doing}` : ''}`;
+        })
         .join('\n');
     },
-    async estado_da_sessao({ projeto }: { projeto?: string }) {
-      const { list, session: s, error } = await pickSession(projeto);
+    async estado_da_sessao({ projeto, sessao }: { projeto?: string; sessao?: string }) {
+      const { list, session: s, n, others, error } = await pickSession(projeto, sessao);
       if (!s) return error;
       const tail = stripAnsi(ctx.sessionOutput(s.id) ?? '')
         .split('\n')
@@ -259,29 +414,29 @@ export function jarvisHandlers(ctx: JarvisContext) {
         .slice(-40)
         .join('\n')
         .slice(-2500);
-      return `Sessão ${LABEL[s.agent]} em ${projectName(s.projectPath, list)} (${s.alive ? 'em execução' : 'encerrada'}). Últimas linhas do terminal:\n${tail || '(sem saída ainda)'}`;
+      return `Sessão nº ${n}, ${LABEL[s.agent]} em ${projectName(s.projectPath, list)}, "${s.title}" (${status(s)}). Últimas linhas do terminal:\n${tail || '(sem saída ainda)'}${alsoOpen(others)}`;
     },
-    async enviar_para_sessao({ projeto, mensagem }: { projeto?: string; mensagem: string }) {
-      const { list, session: s, error } = await pickSession(projeto);
+    async enviar_para_sessao({ projeto, sessao, mensagem }: { projeto?: string; sessao?: string; mensagem: string }) {
+      const { list, session: s, n, others, error } = await pickSession(projeto, sessao);
       if (!s) return error;
-      if (!s.alive || !ctx.sendToSession(s.id, mensagem)) return 'Essa sessão já foi encerrada.';
+      if (!s.alive || !ctx.sendToSession(s.id, mensagem)) return `A sessão nº ${n} já foi encerrada.`;
       ctx.ui({ kind: 'focus-session', id: s.id });
-      return `Enviei para o ${LABEL[s.agent]} de ${projectName(s.projectPath, list)}.`;
+      return `Enviei para o ${LABEL[s.agent]} de ${projectName(s.projectPath, list)} (sessão nº ${n}, "${s.title}").${alsoOpen(others)}`;
     },
-    async falar_direto_com_sessao({ projeto }: { projeto?: string }) {
-      const { list, session: s, error } = await pickSession(projeto);
+    async falar_direto_com_sessao({ projeto, sessao }: { projeto?: string; sessao?: string }) {
+      const { list, session: s, n, error } = await pickSession(projeto, sessao);
       if (!s) return error;
-      if (!s.alive) return 'Essa sessão já foi encerrada.';
+      if (!s.alive) return `A sessão nº ${n} já foi encerrada.`;
       const label = `${LABEL[s.agent]} de ${projectName(s.projectPath, list)}`;
       ctx.relay({ id: s.id, label });
       ctx.ui({ kind: 'focus-session', id: s.id });
-      return `Conversa direta com o ${label} ligada; a tela já mostra como enviar e sair. Confirme em poucas palavras que o usuário pode falar.`;
+      return `Conversa direta com o ${label} (sessão nº ${n}) ligada; a tela já mostra como enviar e sair. Confirme em poucas palavras que o usuário pode falar.`;
     },
-    async fechar_sessao({ projeto }: { projeto?: string }) {
-      const { list, session: s, error } = await pickSession(projeto);
+    async fechar_sessao({ projeto, sessao }: { projeto?: string; sessao?: string }) {
+      const { list, session: s, n, error } = await pickSession(projeto, sessao);
       if (!s) return error;
       ctx.closeSession(s.id);
-      return `Fechei o terminal do ${LABEL[s.agent]} de ${projectName(s.projectPath, list)}.`;
+      return `Fechei o terminal do ${LABEL[s.agent]} de ${projectName(s.projectPath, list)} (sessão nº ${n}).`;
     },
     async encerrar_conversa({ resumo }: { resumo?: string }) {
       if (resumo?.trim()) ctx.memory.setSummary(resumo);
@@ -335,6 +490,10 @@ export function jarvisHandlers(ctx: JarvisContext) {
       if (!d.news.length) return `Não consegui as notícias agora${d.newsError ? `: ${d.newsError}` : ''}.`;
       return `Principais notícias de agora:\n${d.news.map((n) => `- ${n.title}${n.source ? ` (${n.source})` : ''}`).join('\n')}`;
     },
+    async pesquisar_na_web({ assunto }: { assunto: string }) {
+      if (!assunto?.trim()) return 'Pergunte ao usuário o que ele quer pesquisar.';
+      return formatWebSearch(await ctx.webSearch(assunto));
+    },
     async data_e_hora(_args: Record<string, never>) {
       const now = ctx.now();
       const date = now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -367,6 +526,10 @@ export function createJarvisServer(ctx: JarvisContext) {
       }
     };
   const nome = z.string().describe('Nome do projeto como o usuário falou (pode ser aproximado).');
+  const sessao = z
+    .string()
+    .optional()
+    .describe('Qual sessão: o número de abertura de sessoes_abertas ("2", "a segunda"), o id (ou o começo dele), o agente ("codex") ou palavras do título. Vazio: a mais recente.');
   return createSdkMcpServer({
     name: 'jarvis',
     version: '1.0.0',
@@ -396,29 +559,34 @@ export function createJarvisServer(ctx: JarvisContext) {
         },
         run(h.iniciar_sessao),
       ),
-      tool('sessoes_abertas', 'Lista as sessões abertas (projeto, agente, situação, título).', {}, run(h.sessoes_abertas)),
+      tool(
+        'sessoes_abertas',
+        'Lista as sessões abertas, numeradas pela ordem de abertura (a mesma das abas da gaveta), com projeto, agente, situação, título, id curto e o que cada uma está fazendo agora (últimas linhas do terminal).',
+        { projeto: z.string().optional().describe('Só as sessões deste projeto.') },
+        run(h.sessoes_abertas),
+      ),
       tool(
         'estado_da_sessao',
-        'Lê as últimas linhas do terminal de uma sessão (a mais recente do projeto, ou a mais recente de todas) para contar o progresso.',
-        { projeto: z.string().optional().describe('Nome do projeto da sessão.') },
+        'Lê as últimas linhas do terminal de uma sessão para contar o progresso. Escolha a sessão por projeto e/ou sessao; sem sessao, usa a mais recente (do projeto, ou de todas).',
+        { projeto: z.string().optional().describe('Nome do projeto da sessão.'), sessao },
         run(h.estado_da_sessao),
       ),
       tool(
         'enviar_para_sessao',
-        'Digita uma mensagem numa sessão aberta (a mais recente do projeto, ou a mais recente de todas) e envia, como se o usuário tivesse digitado. Repasse o pedido do usuário fiel ao que ele disse.',
-        { projeto: z.string().optional().describe('Projeto da sessão.'), mensagem: z.string().describe('Texto a enviar para o agente da sessão.') },
+        'Digita uma mensagem numa sessão aberta e envia, como se o usuário tivesse digitado. Escolha a sessão por projeto e/ou sessao; sem sessao, vai para a mais recente. Repasse o pedido do usuário fiel ao que ele disse.',
+        { projeto: z.string().optional().describe('Projeto da sessão.'), sessao, mensagem: z.string().describe('Texto a enviar para o agente da sessão.') },
         run(h.enviar_para_sessao),
       ),
       tool(
         'falar_direto_com_sessao',
         'Liga a conversa direta por voz com uma sessão: as próximas falas do usuário vão direto para o agente dela, sem passar por você, até ele dizer "Jarvis, volta".',
-        { projeto: z.string().optional().describe('Projeto da sessão.') },
+        { projeto: z.string().optional().describe('Projeto da sessão.'), sessao },
         run(h.falar_direto_com_sessao),
       ),
       tool(
         'fechar_sessao',
-        'Fecha o terminal de uma sessão aberta (a mais recente do projeto, ou a mais recente de todas), encerrando o agente dela.',
-        { projeto: z.string().optional().describe('Projeto da sessão.') },
+        'Fecha o terminal de uma sessão aberta (a escolhida por projeto e/ou sessao; sem sessao, a mais recente), encerrando o agente dela.',
+        { projeto: z.string().optional().describe('Projeto da sessão.'), sessao },
         run(h.fechar_sessao),
       ),
       tool(
@@ -460,6 +628,12 @@ export function createJarvisServer(ctx: JarvisContext) {
       ),
       tool('clima_agora', 'Temperatura e condição do tempo agora, com máxima e mínima de hoje, na localização do usuário.', {}, run(h.clima_agora)),
       tool('noticias_do_dia', 'Principais manchetes de agora (Google Notícias). Conte as mais relevantes em poucas frases.', {}, run(h.noticias_do_dia)),
+      tool(
+        'pesquisar_na_web',
+        'Pesquisa um assunto na web (DuckDuckGo e Wikipedia) e devolve os principais resultados com o site de cada um. Use para fatos atuais, preços, pessoas, lugares, definições ou qualquer coisa que você não saiba com certeza ou que pode ter mudado. Resuma em voz, em poucas frases, citando a fonte.',
+        { assunto: z.string().describe('O que pesquisar: palavras-chave claras, em português (ou na língua do assunto).') },
+        run(h.pesquisar_na_web),
+      ),
       tool('data_e_hora', 'Data e hora atuais do usuário. Use sempre que precisar saber que dia ou que horas são.', {}, run(h.data_e_hora)),
       tool(
         'manual_do_app',

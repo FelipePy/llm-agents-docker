@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ClaudeBrain, brainEnv, type QueryFn } from '../src/voice/brain.ts';
+import { ClaudeBrain, brainEnv, claudeWebSearch, type QueryFn } from '../src/voice/brain.ts';
 
 const delta = (text: string) => ({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } } });
 const ok = { type: 'result', subtype: 'success', session_id: 's1' };
@@ -129,4 +129,37 @@ test('avisa as ferramentas usadas e manda data e hora junto com a fala', async (
   assert.deepEqual(out, ['Faz 23 graus.']);
   assert.match(prompts[0], /^qual a temperatura\?\n\n\[terça-feira, 3 de novembro.*22:10\]$/);
   brain.close();
+});
+
+/** query falso de uma consulta so (prompt em texto): devolve as mensagens dadas. */
+function oneShot(messages: unknown[] | ((params: any) => AsyncGenerator<unknown>)) {
+  const calls: any[] = [];
+  let closed = 0;
+  const fn = ((params: any) => {
+    calls.push(params);
+    const gen = typeof messages === 'function' ? messages(params) : (async function* () { yield* messages; })();
+    return Object.assign(gen, { close: () => void closed++ });
+  }) as unknown as QueryFn;
+  return { fn, calls, closed: () => closed };
+}
+
+test('claudeWebSearch pesquisa so com a ferramenta WebSearch e devolve o resumo', async () => {
+  const q = oneShot([{ type: 'system', subtype: 'init', session_id: 'w' }, { type: 'result', subtype: 'success', result: '- Dólar a R$ 5,44 (Dólar Hoje)', session_id: 'w' }]);
+  const search = claudeWebSearch({ model: 'haiku', cwd: '/w', query: q.fn });
+  assert.equal(await search('cotação do dólar'), '- Dólar a R$ 5,44 (Dólar Hoje)');
+  const { prompt, options: o } = q.calls[0];
+  assert.match(prompt, /^Pesquise na web: cotação do dólar/);
+  assert.deepEqual([o.model, o.cwd, o.tools, o.allowedTools, o.settingSources, o.mcpServers], ['haiku', '/w', ['WebSearch'], ['WebSearch'], [], {}]);
+  assert.equal(Object.keys(o.env).some((k) => k.startsWith('ANTHROPIC_')), false);
+  assert.equal(q.closed(), 1);
+});
+
+test('claudeWebSearch: erro do SDK e demora viram excecao', async () => {
+  const failed = oneShot([{ type: 'result', subtype: 'error_max_turns', session_id: 'w' }]);
+  await assert.rejects(claudeWebSearch({ model: 'haiku', cwd: '/w', query: failed.fn })('x'), /error_max_turns/);
+  const slow = oneShot(async function* (params: any) {
+    await new Promise((_, reject) => params.options.abortController.signal.addEventListener('abort', () => reject(new Error('aborted'))));
+  });
+  await assert.rejects(claudeWebSearch({ model: 'haiku', cwd: '/w', query: slow.fn, timeoutMs: 20 })('x'), /demorou demais/);
+  assert.equal(slow.closed(), 1);
 });

@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { createApp } from './server.ts';
 import { loadOrCreateToken } from './auth.ts';
 import { watchPaths } from './watch.ts';
-import { ClaudeBrain } from './voice/brain.ts';
+import { ClaudeBrain, claudeWebSearch } from './voice/brain.ts';
 import { createJarvisServer } from './voice/tools.ts';
 import { readProfile } from './catalog.ts';
 import { WorkerProcess } from './voice/worker.ts';
@@ -48,9 +48,10 @@ const voiceSettings = new VoiceSettingsStore(join(stateDir, 'voice.json'), {
 });
 voiceWorker.configureStt(sttConfig(voiceSettings.get()));
 let brain: ClaudeBrain | undefined;
+const voiceModel = process.env.LLM_AGENT_VOICE_MODEL || 'haiku';
 const makeBrain = (ctx: Parameters<typeof createJarvisServer>[0]) =>
   (brain = new ClaudeBrain({
-    model: process.env.LLM_AGENT_VOICE_MODEL || 'haiku',
+    model: voiceModel,
     cwd: workspaceDir,
     mcp: () => createJarvisServer(ctx),
     // Memorias "sobre o usuario" que os agentes ja guardaram (nome, preferencias...).
@@ -84,6 +85,8 @@ const app = createApp({
   projectsDir: process.env.LLM_AGENT_PROJECTS_DIR || undefined,
   city: process.env.LLM_AGENT_UI_CITY || undefined,
   newsUrl: process.env.LLM_AGENT_UI_NEWS_RSS || undefined,
+  // Busca do Jarvis: DuckDuckGo + Wikipedia; se o DuckDuckGo bloquear, a busca do Claude (no plano).
+  webSearchFallback: process.env.LLM_AGENT_VOICE_WEB_FALLBACK === '0' ? undefined : claudeWebSearch({ model: voiceModel, cwd: workspaceDir }),
   voice: {
     worker: voiceWorker,
     brain: makeBrain,

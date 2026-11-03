@@ -8,6 +8,7 @@ import { bearer, originAllowed, tokenMatches } from './auth.ts';
 import { buildOverview, listProjects, projectDetail, projectPathFromId, projectsBase } from './catalog.ts';
 import { scanConversations } from './conversations.ts';
 import { NEWS_DEFAULT, createDayService } from './day.ts';
+import { createSearchService } from './search.ts';
 import { isFile } from './files.ts';
 import { PROJECT_NAME, TASKS, isTask, projectPrompt } from './tasks.ts';
 import { TerminalManager } from './terminals.ts';
@@ -38,6 +39,8 @@ export interface AppOptions {
   city?: string;
   newsUrl?: string;
   fetch?: typeof fetch;
+  /** Busca na web de reserva do Jarvis, quando o DuckDuckGo falha (a do Claude, em main.ts). */
+  webSearchFallback?: (query: string) => Promise<string>;
   /** Voz (etapa 3a): sem ela, /ws/voice responde 404. */
   voice?: {
     worker: VoiceWorker;
@@ -114,6 +117,7 @@ export function createApp(opts: AppOptions): App {
   const hidden = [workspace];
   const terminals = new TerminalManager(opts.bin);
   const day = createDayService({ fetch: opts.fetch ?? fetch, city: opts.city, newsUrl: opts.newsUrl ?? NEWS_DEFAULT });
+  const web = createSearchService({ fetch: opts.fetch ?? fetch, fallback: opts.webSearchFallback });
   const clients = new Set<WebSocket>();
   const memory = opts.memory ?? new JarvisMemory(join(workspace, '.jarvis-memory.json'));
 
@@ -240,6 +244,7 @@ export function createApp(opts: AppOptions): App {
     },
     relay: (target) => voiceSession?.setRelay(target),
     day: () => day.day(voiceCoords.lat, voiceCoords.lon),
+    webSearch: (q) => web.search(q),
     now: () => new Date(),
     closeSession: (id) => terminals.close(id),
     endConversation: () => voiceSession?.endConversation(),
