@@ -1,7 +1,7 @@
 import type { VoiceClientMessage, VoiceServerMessage, VoiceState } from '../types.ts';
 import type { Brain, InterruptJudge } from './brain.ts';
 import {
-  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isShortStop, isStopRequest, isSubmit, isUnintelligible, looksIncomplete, looksLikeRequest, matchWake, mergeUtterances, normalize, stripMarkdown,
+  DEFAULT_CONTINUATION_WORDS, SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isShortStop, isStopRequest, isSubmit, isUnintelligible, looksIncomplete, looksLikeRequest, matchWake, mergeUtterances, normalize, stripMarkdown,
 } from './text.ts';
 
 export type WorkerCommand =
@@ -91,8 +91,15 @@ const REFUSE_REPEAT_MS = 30_000;
 /**
  * Fala que parou no meio da frase ("abre o projeto e"): o worker ja esperou 1 s de
  * silencio; o Jarvis espera mais isto pela continuacao (3 s no total) e entao responde.
+ * Padrao sem configuracao; as configuracoes da voz trocam o tempo e as palavras.
  */
 const INCOMPLETE_WAIT_MS = 2000;
+
+/** Espera extra por uma fala incompleta e as palavras que a indicam. */
+export interface PauseConfig {
+  extraWaitMs: number;
+  words: readonly string[];
+}
 
 export class VoiceSession {
   state: VoiceState = 'off';
@@ -167,7 +174,7 @@ export class VoiceSession {
   private lastRefusal = -Infinity;
   /** Fala incompleta esperando a continuacao (e o prazo para responder a ela assim mesmo). */
   private unfinished: { text: string; ms?: number; timer?: ReturnType<typeof setTimeout> } | undefined;
-  private readonly incompleteWaitMs: number;
+  private readonly pauses: () => PauseConfig;
   private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number; tools: string[] } | undefined;
 
   constructor(
@@ -192,11 +199,11 @@ export class VoiceSession {
       judge?: InterruptJudge;
       /** Confere a voz de quem chamou (perfil cadastrado). Sem ele, qualquer voz vale. */
       speaker?: SpeakerCheck;
-      /** Espera extra por uma fala incompleta (testes usam um valor curto). */
-      incompleteWaitMs?: number;
+      /** Pausas salvas nas configuracoes, lidas a cada fala (o que foi salvo vale na proxima). */
+      pauses?: () => PauseConfig;
     } = {},
   ) {
-    this.incompleteWaitMs = opts.incompleteWaitMs ?? INCOMPLETE_WAIT_MS;
+    this.pauses = opts.pauses ?? (() => ({ extraWaitMs: INCOMPLETE_WAIT_MS, words: DEFAULT_CONTINUATION_WORDS }));
     this.onReady = opts.onReady;
     this.conversation = opts.conversation;
     this.judge = opts.judge;
@@ -575,7 +582,10 @@ export class VoiceSession {
           this.turnAbort.abort();
         }
         // Parou no meio da frase: espera a continuacao (o ditado vai direto para o terminal).
-        if (!this.relay && looksIncomplete(heard)) return this.waitUnfinished(heard, e.ms);
+        if (!this.relay) {
+          const pauses = this.pauses();
+          if (pauses.extraWaitMs > 0 && looksIncomplete(heard, pauses.words)) return this.waitUnfinished(heard, pauses.extraWaitMs, e.ms);
+        }
         this.utterance(heard, e.ms);
         return;
       }
@@ -739,9 +749,9 @@ export class VoiceSession {
   }
 
   /** Guarda a fala incompleta; sem continuacao no prazo, responde a ela assim mesmo. */
-  private waitUnfinished(text: string, ms?: number): void {
+  private waitUnfinished(text: string, waitMs: number, ms?: number): void {
     this.log(`fala incompleta, esperando a continuação: ${JSON.stringify(text)}`);
-    const timer = setTimeout(() => this.finishUnfinished(), this.incompleteWaitMs);
+    const timer = setTimeout(() => this.finishUnfinished(), waitMs);
     timer.unref?.();
     this.unfinished = { text, ms, timer };
   }

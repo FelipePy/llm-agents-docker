@@ -22,7 +22,7 @@ import { SessionWatcher, type WatchSummarizer } from './voice/session-watch.ts';
 import { shortTitle } from './conversations.ts';
 import { gitLines } from './catalog.ts';
 import { VoiceSession, type VoiceWorker, type WorkerEvent } from './voice/session.ts';
-import type { VoiceSettingsStore } from './voice/settings.ts';
+import { pauseConfig, type VoiceSettingsStore } from './voice/settings.ts';
 import { SpeakerProfileStore, type Mailer } from './voice/speaker.ts';
 import { JarvisMemory } from './voice/memory.ts';
 import { NewsHistory } from './voice/news-history.ts';
@@ -554,6 +554,8 @@ export function createApp(opts: AppOptions): App {
         relay: relayIo,
         judge: voice.judge,
         speaker,
+        // Pausas salvas nas configuracoes (sem elas, os padroes).
+        pauses: voice.settings ? () => pauseConfig(voice.settings!.get().pauses) : undefined,
         conversation: { start: () => memory.startConversation(), request: (t) => memory.noteRequest(t), end: () => memory.endConversation() },
         // Nomes que o whisper deve acertar: projetos e os agentes.
         vocabulary: async () => ['Jarvis', 'Claude', 'Codex', ...(await jarvis.projects()).map((p) => p.name)],

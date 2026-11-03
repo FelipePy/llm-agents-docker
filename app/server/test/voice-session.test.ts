@@ -5,6 +5,7 @@ import { VoiceSession, type VoiceWorker, type WorkerCommand, type WorkerEvent } 
 import type { Brain } from '../src/voice/brain.ts';
 import type { VoiceServerMessage } from '../src/types.ts';
 import { waitFor } from './helpers.ts';
+import { DEFAULT_CONTINUATION_WORDS } from '../src/voice/text.ts';
 
 class FakeWorker extends EventEmitter implements VoiceWorker {
   commands: WorkerCommand[] = [];
@@ -56,7 +57,14 @@ class FakeBrain implements Brain {
   }
 }
 
-function setup(script: Step[] = [], now = () => 0, opts: { incompleteWaitMs?: number } = {}) {
+/** Pausas da fala nos testes: espera extra curta e, se dada, a lista de palavras. */
+type PauseOpts = { incompleteWaitMs?: number; words?: string[] };
+
+function setup(script: Step[] = [], now = () => 0, pause: PauseOpts = {}) {
+  const opts =
+    pause.incompleteWaitMs === undefined && !pause.words
+      ? {}
+      : { pauses: () => ({ extraWaitMs: pause.incompleteWaitMs ?? 2000, words: pause.words ?? DEFAULT_CONTINUATION_WORDS }) };
   const worker = new FakeWorker();
   const brain = new FakeBrain(script);
   const sent: VoiceServerMessage[] = [];
@@ -66,7 +74,7 @@ function setup(script: Step[] = [], now = () => 0, opts: { incompleteWaitMs?: nu
   return { worker, brain, sent, session, states, logs };
 }
 
-async function started(script: Step[] = [], now?: () => number, opts?: { incompleteWaitMs?: number }) {
+async function started(script: Step[] = [], now?: () => number, opts?: PauseOpts) {
   const s = setup(script, now, opts);
   await s.session.start();
   return s;
@@ -564,6 +572,40 @@ test('fala completa e respondida sem espera extra; desligar descarta a fala inco
   s.session.stop();
   await new Promise((r) => setTimeout(r, 60));
   assert.deepEqual(s.brain.calls, ['que horas são?']);
+});
+
+test('pausas configuradas: palavras proprias, lista vazia e espera zero respondem conforme salvo', async () => {
+  const custom = await started([['Abrindo.']], undefined, { incompleteWaitMs: 40, words: ['projeto'] });
+  custom.worker.fire({ event: 'wake', score: 0.9 });
+  custom.worker.fire({ event: 'transcript', id: 1, text: 'abre o projeto' });
+  assert.equal(custom.session.state, 'listening', 'termina em "projeto": espera');
+  await waitFor(() => custom.brain.calls.length === 1);
+
+  for (const pause of [{ incompleteWaitMs: 60_000, words: [] }, { incompleteWaitMs: 0 }]) {
+    const s = await started([['Qual?']], undefined, pause);
+    s.worker.fire({ event: 'wake', score: 0.9 });
+    s.worker.fire({ event: 'transcript', id: 1, text: 'abre o projeto e' });
+    assert.equal(s.session.state, 'thinking', JSON.stringify(pause));
+    await waitFor(() => s.brain.calls.length === 1);
+    assert.deepEqual(s.brain.calls, ['abre o projeto e']);
+  }
+});
+
+test('pausas sao lidas a cada fala: o que foi salvo vale na proxima', async () => {
+  let words: string[] = [];
+  const worker = new FakeWorker();
+  const brain = new FakeBrain([['Um.'], ['Dois.']]);
+  const session = new VoiceSession(worker, brain, () => {}, () => 0, () => {}, { pauses: () => ({ extraWaitMs: 60_000, words }) });
+  await session.start();
+  worker.fire({ event: 'wake', score: 0.9 });
+  worker.fire({ event: 'transcript', id: 1, text: 'abre o projeto e' });
+  await waitFor(() => worker.speaks().length === 1);
+  session.client({ type: 'played', id: worker.speaks()[0].id });
+  words = ['e'];
+  worker.fire({ event: 'transcript', id: 2, text: 'fecha o projeto e' });
+  assert.equal(session.state, 'listening');
+  assert.equal(brain.calls.length, 1);
+  session.stop();
 });
 
 test('pausa e correcao: se a fala nova contradiz a anterior, vale so a nova', async () => {
