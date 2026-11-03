@@ -216,3 +216,28 @@ export function isShortStop(text: string): boolean {
   const words = normalize(text).split(' ').filter(Boolean);
   return words.length > 0 && words.length <= 5 && words.some((w) => STOP_TRIGGERS.has(w)) && words.every((w) => STOP_ONLY.has(w));
 }
+
+// Palavras que nao fecham uma frase: conjuncoes, preposicoes, artigos, possessivos e hesitacoes.
+// Comparadas com acento ("é" e verbo e fecha a frase; "e" e ligacao).
+const DANGLING = new Set([
+  'e', 'ou', 'mas', 'nem', 'que', 'porque', 'pois', 'quando', 'como', 'se', 'entao', 'tipo',
+  'pra', 'pro', 'pras', 'pros', 'para', 'de', 'do', 'da', 'dos', 'das', 'em', 'no', 'na', 'nos', 'nas',
+  'num', 'numa', 'com', 'sem', 'por', 'pelo', 'pela', 'pelos', 'pelas', 'sobre', 'entre', 'ate', 'ao', 'aos',
+  'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas',
+  'meu', 'minha', 'meus', 'minhas', 'seu', 'sua', 'seus', 'suas', 'nosso', 'nossa', 'esse', 'essa', 'este', 'esta',
+  'hum', 'hmm', 'ahn', 'eh', 'tipo assim',
+]);
+
+/**
+ * A fala parou no meio da frase? Termina em palavra de ligacao ("abre o projeto e"),
+ * em artigo/preposicao ("qual o tempo em"), em virgula ou reticencias. Pergunta e
+ * exclamacao fecham a frase.
+ */
+export function looksIncomplete(text: string): boolean {
+  const t = text.trim();
+  if (!t || /[?!]\s*$/.test(t)) return false;
+  if (/(\.\.\.|…|[,;:—-])\s*$/.test(t)) return true;
+  const words = t.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ').split(/\s+/).filter(Boolean);
+  const last = words.at(-1) ?? '';
+  return DANGLING.has(last) || DANGLING.has(`${words.at(-2)} ${last}`);
+}
