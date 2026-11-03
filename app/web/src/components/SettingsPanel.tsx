@@ -1,6 +1,7 @@
 import type { Api } from '../api.ts';
 import type { DesktopInfo } from '../desktop.ts';
 import { SttSettings } from './SttSettings.tsx';
+import { GLOBE_COLORS, isGlobeColor } from '../scene/globe.ts';
 import type { SettingsState, SettingsToggles } from './Settings.tsx';
 
 interface Props {
@@ -42,9 +43,19 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
           <input type="checkbox" checked={use3d} disabled={!settings.webgl} onChange={toggles.on3d} />
           Modo 3D
         </label>
-        <label title="Projetos como planetas e skills como estrelas em volta do buraco negro">
-          <input type="checkbox" checked={settings.planets} disabled={!use3d} onChange={toggles.onPlanets} />
-          Planetas
+        <label className="field" title="Cor do globo holográfico do Jarvis">
+          <span>Cor do Jarvis</span>
+          <select
+            value={settings.globeColor}
+            disabled={!use3d}
+            onChange={(e) => isGlobeColor(e.target.value) && toggles.onGlobeColor(e.target.value)}
+          >
+            {Object.entries(GLOBE_COLORS).map(([id, c]) => (
+              <option key={id} value={id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           <input type="checkbox" checked={settings.reduceMotion} onChange={toggles.onReduceMotion} />

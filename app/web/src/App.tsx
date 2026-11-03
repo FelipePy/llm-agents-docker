@@ -3,7 +3,8 @@ import { Api, LiveSocket, takeToken, wsUrl, type Status } from './api.ts';
 import { bus } from './bus.ts';
 import { playSound } from './sound.ts';
 import { currentNode, initialNav, navReducer, projectIdOf } from './nav.ts';
-import { hasWebGL, systemReducedMotion, usePref } from './prefs.ts';
+import { hasWebGL, systemReducedMotion, useChoice, usePref } from './prefs.ts';
+import { isGlobeColor, type GlobeColor } from './scene/globe.ts';
 import { crumbLabel, filterItems, itemsFor, type Panel, type RingItem } from './ring.ts';
 import { demoSignal, MODE_LABEL, type CoreSignal } from './scene/core.ts';
 import { addTab, applyAction, closeTab, emptyTabs, shortcut, syncTabs, type TabsState } from './tabs.ts';
@@ -59,20 +60,20 @@ function Connected({ token }: { token: string }) {
   const desktop = useDesktop();
   // Janela flutuante do navegador (Picture-in-Picture): aberta por um clique nas configuracoes.
   const [floating, setFloating] = useState<FloatingOrb | null>(null);
-  const [planets, setPlanets] = usePref('llm-agent-planets', true);
+  const [globeColor, setGlobeColor] = useChoice<GlobeColor>('llm-agent-globe-color', 'dourado', isGlobeColor);
   const [sounds, setSounds] = usePref('llm-agent-sounds', true);
   const [voice, setVoice] = useState<VoiceView>(OFF_VIEW);
   const voiceRef = useRef<VoiceClient | null>(null);
   // Ordens do Jarvis para a interface; atualizada a cada render (ver mais abaixo).
   const onUiRef = useRef<(command: UiCommand) => void>(() => {});
   const use3d = webgl && mode3d;
-  const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn, planets, sounds };
+  const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn, globeColor, sounds };
   const toggles = {
     on3d: () => setMode3d(!mode3d),
     onReduceMotion: () => setReduceMotion(!reduceMotion),
     onVoiceDemo: () => setVoiceDemo(!voiceDemo),
     onVoice: () => setVoiceOn(!voiceOn),
-    onPlanets: () => setPlanets(!planets),
+    onGlobeColor: (c: GlobeColor) => setGlobeColor(c),
     onSounds: () => setSounds(!sounds),
   };
 
@@ -460,20 +461,8 @@ function Connected({ token }: { token: string }) {
                 signal={signal}
                 reducedMotion={reduceMotion}
                 dimmed={tabs.order.length > 0 && !drawerCollapsed}
-                overview={overview}
-                sessions={sessions}
-                focusId={projectId}
-                planets={planets}
-                onSelectProject={(id) => {
-                  if (sounds) playSound('open');
-                  showProject(id);
-                }}
+                color={globeColor}
                 onSelectProfile={() => dispatch({ type: 'jump', node: { kind: 'profile' } })}
-                onSelectSkill={(path) => {
-                  if (sounds) playSound('open');
-                  showSkill(path);
-                }}
-                onResume={resumeConversation}
               />
             </Suspense>
             <div className="navbar">

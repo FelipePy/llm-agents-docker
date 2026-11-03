@@ -1,10 +1,13 @@
+import type { GlobeColor } from '../scene/globe.ts';
+
 export interface SettingsState {
   webgl: boolean;
   mode3d: boolean;
   reduceMotion: boolean;
   voiceDemo: boolean;
   voice: boolean;
-  planets: boolean;
+  /** Cor do globo do Jarvis. */
+  globeColor: GlobeColor;
   sounds: boolean;
 }
 
@@ -13,7 +16,7 @@ export interface SettingsToggles {
   onReduceMotion: () => void;
   onVoiceDemo: () => void;
   onVoice: () => void;
-  onPlanets: () => void;
+  onGlobeColor: (c: GlobeColor) => void;
   onSounds: () => void;
 }
 
@@ -29,10 +32,6 @@ export function Settings({ settings, toggles, voiceStatus }: { settings: Setting
       <label title={settings.webgl ? '' : 'Este navegador não tem WebGL 2'}>
         <input type="checkbox" checked={use3d} disabled={!settings.webgl} onChange={toggles.on3d} />
         Modo 3D
-      </label>
-      <label title="Projetos como planetas e skills como estrelas em volta do buraco negro">
-        <input type="checkbox" checked={settings.planets} disabled={!use3d} onChange={toggles.onPlanets} />
-        Planetas
       </label>
       <label title="Sons curtos ao clicar">
         <input type="checkbox" checked={settings.sounds} onChange={toggles.onSounds} />

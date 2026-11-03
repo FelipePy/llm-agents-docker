@@ -23,3 +23,16 @@ export function usePref(key: string, initial: boolean): [boolean, (v: boolean) =
   };
   return [value, set];
 }
+
+/** Preferencia de uma lista fixa de opcoes, guardada no localStorage. */
+export function useChoice<T extends string>(key: string, initial: T, valid: (v: unknown) => v is T): [T, (v: T) => void] {
+  const [value, setValue] = useState<T>(() => {
+    const saved = localStorage.getItem(key);
+    return valid(saved) ? saved : initial;
+  });
+  const set = (v: T) => {
+    localStorage.setItem(key, v);
+    setValue(v);
+  };
+  return [value, set];
+}
