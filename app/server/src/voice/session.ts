@@ -14,17 +14,22 @@ export type WorkerCommand =
   /** Sintetiza ja e guarda (para as saudacoes tocarem sem espera). */
   | { cmd: 'prefetch'; texts: string[] }
   /** Quem transcreve a fala: o whisper local ou o Groq (nuvem). */
-  | { cmd: 'stt'; provider: 'local' | 'groq'; key?: string; model?: string };
+  | { cmd: 'stt'; provider: 'local' | 'groq'; key?: string; model?: string }
+  /** Vetores da voz (reconhecer o usuario): de trechos PCM em base64 ou de um trecho guardado pelo worker. */
+  | { cmd: 'embed'; id: number; audio?: string[]; clip?: number };
 
 export type WorkerEvent =
   | { event: 'ready' }
   | { event: 'status'; message: string }
-  | { event: 'wake'; score: number }
+  /** clip: numero do audio da ativacao guardado no worker (para conferir a voz). */
+  | { event: 'wake'; score: number; clip?: number }
   | { event: 'speech-start' }
   | { event: 'speech-drop' }
   | { event: 'transcript'; id: number; text: string; ms?: number }
   /** Fala transcrita enquanto o Jarvis espera ser chamado (para "Jarvis, ..."). */
-  | { event: 'heard'; text: string; ms?: number }
+  | { event: 'heard'; text: string; ms?: number; clip?: number }
+  /** Resposta ao "embed": um vetor por trecho (null se curto demais), ou o erro. */
+  | { event: 'embedding'; id: number; vectors?: (number[] | null)[]; error?: string }
   | { event: 'audio'; id: number; data: string; last: boolean }
   | { event: 'speak-error'; id: number; message: string }
   | { event: 'error'; message: string; fatal?: boolean }
@@ -37,6 +42,17 @@ export interface VoiceWorker {
   on(event: 'event', listener: (e: WorkerEvent) => void): unknown;
   off(event: 'event', listener: (e: WorkerEvent) => void): unknown;
 }
+
+/** Verificacao da voz de quem chama o Jarvis (so na ativacao). */
+export interface SpeakerCheck {
+  /** Ha voz cadastrada? Sem ela, qualquer voz ativa o Jarvis. */
+  enrolled(): boolean;
+  /** O audio da ativacao (trecho guardado no worker) e a voz cadastrada? Erro: nao deu para conferir. */
+  verify(clip: number | undefined): Promise<boolean>;
+}
+
+export const VOICE_REFUSED = 'Acesso negado.';
+export const VOICE_CHECK_FAILED = 'Não consegui conferir a sua voz agora; tente de novo em instantes.';
 
 /** Terminal da sessao na conversa direta. Cada funcao devolve falso se a sessao acabou. */
 export interface RelayIo {
@@ -68,6 +84,8 @@ const CUT_IN_MS = 10_000;
 const ANNOUNCE_QUIET_MS = 10_000;
 /** Por quanto tempo o cerebro fica sabendo do ultimo aviso falado (para o "conta mais"). */
 const NOTICE_CONTEXT_MS = 10 * 60_000;
+/** Depois de falar "acesso negado", outros chamados recusados neste intervalo so aparecem na legenda. */
+const REFUSE_REPEAT_MS = 30_000;
 
 export class VoiceSession {
   state: VoiceState = 'off';
@@ -133,6 +151,13 @@ export class VoiceSession {
   private readonly judge: InterruptJudge | undefined;
   private turnAbort = new AbortController();
   private readonly conversation: { start(): void; request(text: string): void; end(): void } | undefined;
+  private readonly speaker: SpeakerCheck | undefined;
+  /** Conferindo a voz de quem chamou: outras ativacoes esperam o resultado. */
+  private checkingVoice = false;
+  /** Falando que nao reconheceu a voz: nada interrompe nem abre a conversa. */
+  private refusing = false;
+  /** Quando o Jarvis falou "acesso negado" por ultimo (para nao repetir o aviso sem parar). */
+  private lastRefusal = -Infinity;
   private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number; tools: string[] } | undefined;
 
   constructor(
@@ -155,11 +180,14 @@ export class VoiceSession {
       conversation?: { start(): void; request(text: string): void; end(): void };
       /** Decide se a fala dita por cima da resposta muda a resposta (sem ele, sempre muda). */
       judge?: InterruptJudge;
+      /** Confere a voz de quem chamou (perfil cadastrado). Sem ele, qualquer voz vale. */
+      speaker?: SpeakerCheck;
     } = {},
   ) {
     this.onReady = opts.onReady;
     this.conversation = opts.conversation;
     this.judge = opts.judge;
+    this.speaker = opts.speaker;
     this.greetings = (opts.greetings ?? []).map((g) => g.trim()).filter(Boolean);
     this.random = opts.random ?? Math.random;
     this.relayIo = opts.relay ?? { type: () => false, submit: () => false, erase: () => false };
@@ -183,6 +211,8 @@ export class VoiceSession {
     if (this.state === 'off') return;
     if (this.state !== 'sleeping' && this.state !== 'preparing') this.conversation?.end();
     this.stopController.abort();
+    this.refusing = false;
+    this.checkingVoice = false;
     this.mute();
     this.setRelay(null);
     this.worker.off('event', this.listener);
@@ -203,6 +233,7 @@ export class VoiceSession {
       case 'stop':
         return this.stop();
       case 'interrupt':
+        if (this.refusing) return this.endRefusal();
         if (this.state === 'thinking' || this.state === 'speaking') this.interrupt();
         return;
       case 'played':
@@ -322,6 +353,67 @@ export class VoiceSession {
     }
   }
 
+  /**
+   * Chamado enquanto esperava: com voz cadastrada, so acorda se a voz de quem
+   * chamou for a do usuario; se nao for, avisa e continua esperando.
+   */
+  private activate(clip: number | undefined, wake: () => void, heard?: string): void {
+    if (!this.speaker?.enrolled()) return wake();
+    if (this.checkingVoice) return;
+    this.checkingVoice = true;
+    const stopped = this.stopController.signal;
+    void this.speaker
+      .verify(clip)
+      .catch((err) => {
+        this.log(`verificação da voz falhou: ${String((err as Error)?.message ?? err)}`);
+        return null;
+      })
+      .then((ok) => {
+        this.checkingVoice = false;
+        if (stopped.aborted || this.state !== 'sleeping') return;
+        if (ok) return wake();
+        if (ok === null) return this.refuse(VOICE_CHECK_FAILED, heard);
+        this.deny(heard);
+      });
+  }
+
+  /**
+   * Chamado por outra voz: "acesso negado" e nada e executado. A legenda mostra a
+   * fala ignorada; outro chamado recusado logo depois nao repete o aviso em voz.
+   */
+  private deny(heard: string | undefined): void {
+    if (this.now() - this.lastRefusal < REFUSE_REPEAT_MS) {
+      this.log('ativação recusada de novo: só na legenda');
+      if (heard) this.send({ type: 'caption', who: 'user', text: heard, ignored: true });
+      this.send({ type: 'caption', who: 'jarvis', text: VOICE_REFUSED });
+      return;
+    }
+    this.lastRefusal = this.now();
+    this.refuse(VOICE_REFUSED, heard);
+  }
+
+  /** Voz nao reconhecida: avisa e volta a esperar, sem abrir conversa nem ouvir pedidos. */
+  private refuse(text: string, heard?: string): void {
+    this.log(`ativação recusada: ${text}`);
+    if (heard) this.send({ type: 'caption', who: 'user', text: heard, ignored: true });
+    this.refusing = true;
+    this.turn++;
+    this.brainDone = true;
+    this.farewell = true;
+    this.send({ type: 'caption', who: 'jarvis', text });
+    this.speak(text);
+    // Nem o falar por cima vale: o worker so espera a palavra de ativacao.
+    this.worker.command({ cmd: 'sleep' });
+  }
+
+  private endRefusal(): void {
+    this.refusing = false;
+    this.mute();
+    this.send({ type: 'stop-audio' });
+    this.setState('sleeping');
+    this.worker.command({ cmd: 'sleep' });
+  }
+
   /** Acordou; `greet`: chamado sem pedido, responde com uma saudacao. */
   private wakeUp(greet = false): void {
     // Chamado de novo no meio da conversa (para interromper) nao comeca outra.
@@ -370,6 +462,8 @@ export class VoiceSession {
 
   private onWorker(e: WorkerEvent): void {
     if (this.state === 'off') return;
+    // Avisando que nao reconheceu a voz: a fala de quem chamou nao vira pedido.
+    if (this.refusing && (e.event === 'speech-start' || e.event === 'speech-drop' || e.event === 'transcript')) return;
     switch (e.event) {
       case 'status':
         if (this.state === 'preparing') this.setState('preparing', e.message);
@@ -379,13 +473,19 @@ export class VoiceSession {
         if (this.state !== 'sleeping') return;
         const called = matchWake(e.text);
         if (!called) return;
-        this.wakeUp(!called.rest);
-        if (called.rest) this.utterance(called.rest, e.ms);
-        return;
+        return this.activate(
+          e.clip,
+          () => {
+            this.wakeUp(!called.rest);
+            if (called.rest) this.utterance(called.rest, e.ms);
+          },
+          e.text.trim(),
+        );
       }
       case 'wake':
+        if (this.refusing) return;
         if (this.state === 'sleeping') {
-          this.wakeUp(true);
+          this.activate(e.clip, () => this.wakeUp(true));
         } else if (this.relay && this.state === 'listening') {
           this.setRelay(null);
           this.send({ type: 'chime' });
@@ -596,6 +696,7 @@ export class VoiceSession {
 
   private maybeFinish(): void {
     if ((this.state !== 'speaking' && this.state !== 'thinking') || !this.brainDone || this.pending.size) return;
+    if (this.refusing) return this.endRefusal();
     if (this.farewell) {
       this.farewell = false;
       this.conversation?.end();

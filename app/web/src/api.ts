@@ -15,6 +15,27 @@ export interface VoiceSettingsInput {
   groqKey?: string;
 }
 
+/** Voz do usuario (so ela ativa o Jarvis, quando cadastrada). */
+export interface VoiceProfile {
+  enrolled: boolean;
+  enrolledAt: string | null;
+  /** "f…@gmail.com" se houver e-mail para recuperar a senha. */
+  emailHint: string | null;
+  /** Da para receber o codigo de recuperacao por e-mail. */
+  emailRecovery: boolean;
+}
+/** Cadastro: 4 frases (PCM 16 kHz em base64); senha na 1a vez, senha atual para refazer. */
+export interface VoiceEnrollInput {
+  audio: string[];
+  password?: string;
+  currentPassword?: string;
+  email?: string;
+}
+export type VoiceRecoverInput =
+  | { method: 'voice'; audio: string; password: string }
+  | { method: 'email' }
+  | { method: 'code'; code: string; password: string };
+
 export interface JarvisFact { id: string; about: string; project?: string; text: string; updated: string }
 export interface JarvisMemoryView { facts: JarvisFact[]; conversations: { at: string; text: string }[] }
 
@@ -68,6 +89,31 @@ export class Api {
     });
     const body = (await res.json().catch(() => ({}))) as VoiceSettings & { error?: string };
     if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status} ao salvar`);
+    return body;
+  }
+
+  voiceProfile(): Promise<VoiceProfile> {
+    return this.get('/api/voice/profile');
+  }
+
+  enrollVoice(input: VoiceEnrollInput): Promise<VoiceProfile> {
+    return this.post('/api/voice/profile', input);
+  }
+
+  /** Esqueceu a senha: pela voz, pedindo o codigo por e-mail ou com o codigo recebido. */
+  recoverVoice(input: VoiceRecoverInput): Promise<VoiceProfile & { sentTo?: string }> {
+    return this.post('/api/voice/profile/recover', input);
+  }
+
+  /** POST com JSON; o erro do servidor vira a mensagem da excecao. */
+  private async post<T>(path: string, input: unknown): Promise<T> {
+    const res = await this.fetchImpl(path, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const body = (await res.json().catch(() => ({}))) as T & { error?: string };
+    if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status} em ${path}`);
     return body;
   }
 

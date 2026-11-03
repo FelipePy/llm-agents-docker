@@ -21,8 +21,9 @@ import { Announcer } from './voice/announcer.ts';
 import { SessionWatcher, type WatchSummarizer } from './voice/session-watch.ts';
 import { shortTitle } from './conversations.ts';
 import { gitLines } from './catalog.ts';
-import { VoiceSession, type VoiceWorker } from './voice/session.ts';
+import { VoiceSession, type VoiceWorker, type WorkerEvent } from './voice/session.ts';
 import type { VoiceSettingsStore } from './voice/settings.ts';
+import { SpeakerProfileStore, type Mailer } from './voice/speaker.ts';
 import { JarvisMemory } from './voice/memory.ts';
 import { NewsHistory } from './voice/news-history.ts';
 import type { SessionInfo, VoiceClientMessage, VoiceServerMessage } from './types.ts';
@@ -62,6 +63,11 @@ export interface AppOptions {
     watchSummary?: WatchSummarizer;
     /** Tempo sem saida nova para considerar terminada uma sessao acompanhada. */
     watchQuietMs?: number;
+    /**
+     * Voz do usuario (so ela ativa o Jarvis, quando cadastrada): arquivo do
+     * perfil, envio do codigo de recuperacao por e-mail e semelhanca minima.
+     */
+    profile?: { file: string; mailer?: Mailer; threshold?: number };
   };
   /**
    * Evolucao do Jarvis por voz: repositorio, clones e arquivos de estado (as
@@ -114,12 +120,12 @@ const coord = (v: string | null, max: number): number | undefined => {
   return Number.isFinite(n) && Math.abs(n) <= max ? n : undefined;
 };
 
-/** Corpo JSON pequeno (ate 16 KB). */
-async function readJson(req: IncomingMessage): Promise<unknown> {
+/** Corpo JSON pequeno (ate 16 KB, ou `max`). */
+async function readJson(req: IncomingMessage, max = 16_384): Promise<unknown> {
   let body = '';
   for await (const chunk of req) {
     body += chunk;
-    if (body.length > 16_384) throw new Error('corpo grande demais');
+    if (body.length > max) throw new Error('corpo grande demais');
   }
   return JSON.parse(body || '{}');
 }
@@ -161,7 +167,72 @@ export function createApp(opts: AppOptions): App {
   terminals.on('exit', (id: string, code: number) => broadcast({ type: 'exit', id, code }));
   terminals.on('sessions', () => broadcast({ type: 'sessions', sessions: terminals.list() }));
 
+  // Voz do usuario: o worker calcula os vetores (cadastro, recuperacao e ativacao).
+  let embedSeq = 0;
+  function workerEmbed(input: { audio: string[] } | { clip: number }): Promise<(number[] | null)[]> {
+    const worker = opts.voice!.worker;
+    const id = ++embedSeq;
+    return worker.ensureReady().then(
+      () =>
+        new Promise((ok, fail) => {
+          // Na primeira vez o modelo e baixado (~26 MB).
+          const timer = setTimeout(() => done(() => fail(new Error('o reconhecimento de voz não respondeu'))), 120_000);
+          const listener = (e: WorkerEvent) => {
+            if (e.event !== 'embedding' || e.id !== id) return;
+            done(() => (e.error ? fail(new Error(e.error)) : ok(e.vectors ?? [])));
+          };
+          const done = (then: () => void) => {
+            clearTimeout(timer);
+            worker.off('event', listener);
+            then();
+          };
+          worker.on('event', listener);
+          worker.command({ cmd: 'embed', id, ...input });
+        }),
+    );
+  }
+  const profileOpts = opts.voice?.profile;
+  const speaker = profileOpts
+    ? new SpeakerProfileStore({
+        file: profileOpts.file,
+        mailer: profileOpts.mailer,
+        threshold: profileOpts.threshold,
+        embed: (audio) => workerEmbed({ audio }),
+        embedClip: async (clip) => (await workerEmbed({ clip }))[0] ?? null,
+      })
+    : undefined;
+
+  /** Rotas da voz do usuario: ver, cadastrar/refazer e recuperar a senha. */
+  async function profileApi(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+    if (!speaker) return send(res, 404, { error: 'voz desligada neste servidor' });
+    if (path === '/api/voice/profile' && req.method === 'GET') return send(res, 200, speaker.view());
+    if (req.method !== 'POST') return send(res, 405, { error: 'use GET ou POST' });
+    let input: Record<string, unknown>;
+    try {
+      // 4 frases de ate 15 s em base64 (~4 MB).
+      const raw = await readJson(req, 4 * 1024 * 1024);
+      if (!raw || typeof raw !== 'object') throw new Error('JSON inválido');
+      input = raw as Record<string, unknown>;
+    } catch {
+      return send(res, 400, { error: 'JSON inválido' });
+    }
+    const reply = (r: object) => send(res, 'error' in r ? 400 : 200, 'view' in r ? r.view : r);
+    try {
+      if (path === '/api/voice/profile') return reply(await speaker.enroll(input));
+      if (path === '/api/voice/profile/recover') {
+        if (input.method === 'voice') return reply(await speaker.recoverByVoice(input));
+        if (input.method === 'email') return reply(await speaker.sendRecoveryEmail());
+        if (input.method === 'code') return reply(speaker.recoverByCode(input));
+        return send(res, 400, { error: 'use method "voice", "email" ou "code"' });
+      }
+    } catch (err) {
+      return send(res, 503, { error: `Não consegui analisar a voz agora (${String((err as Error)?.message ?? err)}).` });
+    }
+    send(res, 404, { error: 'rota desconhecida' });
+  }
+
   async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    if (url.pathname === '/api/voice/profile' || url.pathname === '/api/voice/profile/recover') return profileApi(req, res, url.pathname);
     if (url.pathname === '/api/voice/settings') {
       const store = opts.voice?.settings;
       if (!store) return send(res, 404, { error: 'voz desligada neste servidor' });
@@ -482,6 +553,7 @@ export function createApp(opts: AppOptions): App {
         greetings: voice.greetings,
         relay: relayIo,
         judge: voice.judge,
+        speaker,
         conversation: { start: () => memory.startConversation(), request: (t) => memory.noteRequest(t), end: () => memory.endConversation() },
         // Nomes que o whisper deve acertar: projetos e os agentes.
         vocabulary: async () => ['Jarvis', 'Claude', 'Codex', ...(await jarvis.projects()).map((p) => p.name)],

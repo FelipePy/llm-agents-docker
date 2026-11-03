@@ -118,7 +118,8 @@ export type VoiceState = 'off' | 'preparing' | 'sleeping' | 'listening' | 'think
 
 export type VoiceServerMessage =
   | { type: 'state'; state: VoiceState; detail?: string }
-  | { type: 'caption'; who: 'user' | 'jarvis'; text: string }
+  /** ignored: fala que o Jarvis ouviu e nao atendeu (voz nao reconhecida). */
+  | { type: 'caption'; who: 'user' | 'jarvis'; text: string; ignored?: boolean }
   | { type: 'audio'; id: number; data: string; last: boolean }
   | { type: 'stop-audio' }
   | { type: 'chime' }
