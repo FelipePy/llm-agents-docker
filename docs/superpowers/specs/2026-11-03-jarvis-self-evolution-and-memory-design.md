@@ -32,20 +32,36 @@ código. Conteúdo:
   - não mexer em `app/desktop` sem avisar que isso exige instalador novo (via CI).
 
 ### Fluxo
+O desenvolvimento só começa depois de **dois "ok"** do usuário e roda **em background**: a conversa com o Jarvis continua
+livre (outros pedidos, outros assuntos) enquanto a sessão de evolução trabalha.
 
-**1. Pedir: ferramenta `evoluir_jarvis({ pedido })`**
+**1. Conversa de definição (com o próprio Jarvis, por voz)**
+- "Jarvis, vamos desenvolver uma funcionalidade nova para você" inicia a definição. O Jarvis conduz:
+  - pergunta uma coisa por vez (no máximo 4 ou 5): o que dispara, o que ele deve dizer ou fazer, onde aparece na tela, casos de borda;
+  - o usuário responde, muda de ideia ou fala de outras coisas no meio. A proposta fica guardada e não se perde ao trocar de assunto nem ao reiniciar.
+- Ferramenta `rascunhar_evolucao({ titulo, especificacao })`: grava ou atualiza a proposta (estado `rascunho`) em `~/.config/llm-agent/ui/evolution.json`.
+  - A especificação é um texto estruturado (objetivo, comportamento, onde aparece, casos de borda, fora do escopo) e é exatamente o que a sessão de desenvolvimento vai receber.
+
+**2. Primeiro OK ("está tudo ok, pode seguir")**
+- Ferramenta `resumir_evolucao({ resumo })`: o Jarvis lê o **resumo do que vai desenvolver** (3 a 5 frases) e pergunta "Posso começar?". A proposta passa a `aguardando_ok`.
+
+**3. Segundo OK ("pode começar")**
+- Ferramenta `iniciar_evolucao()`. O servidor só aceita se a proposta estiver em `aguardando_ok` e tiver sido marcada assim num turno **anterior** do usuário.
+- Assim, o modelo não consegue resumir e iniciar na mesma resposta: o usuário sempre ouve o resumo e responde antes.
+- Mudanças depois do resumo (`rascunhar_evolucao`) voltam a proposta para `rascunho`, e o resumo é relido.
+
+**4. Desenvolvimento em background**
 - Cria um **clone local** do repositório em `~/.local/share/llm-agent/jarvis-dev/<slug>`, com `git clone --local` e uma branch `jarvis/<slug>` a partir do commit atual.
   - Por que não uma git worktree: os agentes rodam no container, que monta só a pasta do projeto. O `.git` de uma worktree aponta para fora dela, e o git quebraria lá dentro. O clone é autocontido.
-- Abre uma sessão do Claude nesse clone, com um prompt que inclui:
-  - o pedido;
-  - a orientação "siga o CLAUDE.md, rode todas as verificações, faça commits na branch e termine com um resumo de 1–2 frases do que mudou em `.jarvis/summary.txt`" (pasta ignorada pelo git).
-- Responde: "Comecei. Aviso quando terminar."
+- Abre nesse clone uma sessão do Claude (não vai para a tela). O prompt traz a especificação aprovada e a orientação: "siga o CLAUDE.md; não pare para perguntar: decida pelo mais simples e anote as decisões; rode todas as verificações, faça commits na branch e termine com um resumo de 1–2 frases em `.jarvis/summary.txt`" (pasta ignorada pelo git).
+- O Jarvis responde curto ("Comecei, te aviso quando terminar") e segue conversando normalmente sobre qualquer assunto.
 
-**2. Acompanhar**
+**5. Acompanhar**
 - Hoje o Jarvis já acompanha sessões. Quando a sessão de evolução termina (o agente fica ocioso com commits novos e `summary.txt` presente), o anúncio espontâneo diz: "Terminei <resumo>. Quer aplicar?"
-- `status_evolucao()` responde a qualquer momento.
+- `status_evolucao()` responde a qualquer momento ("como está a funcionalidade nova?"), resumindo o fim da saída da sessão.
+- O aviso de "terminei" espera o fim de uma conversa em andamento, como os outros anúncios.
 
-**3. Aplicar: ferramenta `aplicar_evolucao()`, só depois do "sim" do usuário**
+**6. Aplicar: ferramenta `aplicar_evolucao()`, só depois do "sim" do usuário**
 
 *Pré-checagens (se falham, ele diz o motivo e não aplica nada):*
 - o repositório principal sem alterações pendentes;
@@ -60,9 +76,9 @@ código. Conteúdo:
 - grava `~/.config/llm-agent/ui/update.json` com `{ from, to, summary, startedAt }`;
 - faz `git merge --ff-only` (ou um merge sem conflito) da branch no repositório principal;
 - compila a web;
-- dispara o reinício (passo 4) num processo separado (`setsid`).
+- dispara o reinício (passo 7) num processo separado (`setsid`).
 
-**4. Reiniciar com verificação: `app/restart.sh`**
+**7. Reiniciar com verificação: `app/restart.sh`**
 - Para o servidor, como no `ui.sh --stop`, e sobe de novo.
 - Espera `/api/health` e chama `/api/self-check` (token no header).
 - Se falhar em 90 s:
@@ -71,7 +87,7 @@ código. Conteúdo:
   - marca `update.json` com `{ rolledBack: true, error }`.
 - Tudo vai para o `server.log`.
 
-**5. `/api/self-check` (servidor novo)** roda verificações com tempo limite e devolve `{ ok, checks: [{ name, ok, ms, error? }] }`:
+**8. `/api/self-check` (servidor novo)** roda verificações com tempo limite e devolve `{ ok, checks: [{ name, ok, ms, error? }] }`:
 
 | Verificação | O que confere |
 | --- | --- |
@@ -82,9 +98,9 @@ código. Conteúdo:
 | `cerebro` | uma pergunta mínima ao Claude ("responda só ok") volta em até 20 s |
 | `web` | `dist/index.html` existe e é mais novo que o merge |
 
-**6. Anúncio de volta**
+**9. Anúncio de volta**
 - Quando a voz reconecta e há um `update.json` não anunciado, o Jarvis fala, por exemplo: "Atualização aplicada com sucesso: agora eu <resumo>. Verifiquei a voz, a transcrição, o cérebro e as ferramentas: está tudo funcionando." Depois marca o update como anunciado.
-- Se houve rollback: "A atualização falhou na verificação de <check> e voltei para a versão anterior; está tudo funcionando como antes. Quer que eu peça a correção?". Um "sim" chama `evoluir_jarvis` com o erro.
+- Se houve rollback: "A atualização falhou na verificação de <check> e voltei para a versão anterior; está tudo funcionando como antes. Quer que eu peça a correção?". Um "sim" cria uma proposta nova com o erro, que passa pelos mesmos dois OKs.
 - Uma verificação opcional que falhar (por exemplo, `transcricao` sem internet usando o Groq) não causa rollback: o Jarvis só a cita.
 
 **Outras ferramentas:** `descartar_evolucao()` apaga o clone e a branch.
@@ -138,7 +154,7 @@ de reiniciar.
   - armazenamento da memória: limite, substituição e esquecimento;
   - ferramentas novas no contexto falso;
   - prompt com memória e conversas;
-  - `evoluir_jarvis`, `aplicar_evolucao` e `descartar_evolucao` com git real em repositórios temporários: clone, pré-checagens, recusa com árvore suja, aviso de sessões;
+  - `rascunhar_evolucao`, `resumir_evolucao`, `iniciar_evolucao` (recusa sem OK em turno anterior), `aplicar_evolucao` e `descartar_evolucao` com git real em repositórios temporários: clone, pré-checagens, recusa com árvore suja, aviso de sessões;
   - `/api/self-check` com worker e cérebro falsos;
   - anúncio pós-update e pós-rollback na sessão de voz.
 - **`tests/restart.test.sh`:** servidor falso que falha no self-check provoca o rollback e a volta ao commit anterior.
