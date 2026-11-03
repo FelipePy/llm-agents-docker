@@ -405,9 +405,33 @@ test('parar_de_acompanhar escolhe a sessao quando ha mais de uma acompanhada', a
   assert.deepEqual(c.watcher.list(), [{ id: 'outra', label: 'Codex de x' }]);
 });
 
-test('iniciar_sessao com acompanhar ja acompanha a sessao nova', async () => {
+test('iniciar_sessao com tarefa acompanha sozinho; sem tarefa ou no shell, nao', async () => {
   const { c, h } = ctx();
-  assert.match(await h.iniciar_sessao({ projeto: 'meu-app', agente: 'claude', tarefa: 'rode os testes', acompanhar: true }), /aviso quando terminar ou der erro/);
+  assert.match(await h.iniciar_sessao({ projeto: 'meu-app', agente: 'claude', tarefa: 'rode os testes' }), /aviso quando terminar ou der erro/);
   assert.deepEqual(c.watcher.list(), [{ id: 'novo', label: 'Claude de meu-app' }]);
+  c.watcher.unwatch('novo');
   assert.doesNotMatch(await h.iniciar_sessao({ projeto: 'meu-app', agente: 'claude' }), /acompanhar/);
+  assert.doesNotMatch(await h.iniciar_sessao({ projeto: 'meu-app', agente: 'claude', tarefa: '  ' }), /acompanhar/);
+  assert.doesNotMatch(await h.iniciar_sessao({ projeto: 'meu-app', agente: 'shell', tarefa: 'ls' }), /acompanhar/);
+  assert.deepEqual(c.watcher.list(), []);
+});
+
+test('enviar_para_sessao volta a acompanhar uma sessao ja acompanhada, mas nao outras', async () => {
+  let now = 0;
+  const alive: SessionInfo = { id: 's1', projectPath: '/w/meu-app', agent: 'claude', title: 't', startedAt: '2026-11-02T10:00:00Z', alive: true };
+  const watcher = new SessionWatcher({ sessions: () => [alive], output: () => 'Pronto.', now: () => now });
+  const { c, h } = ctx({ watcher });
+  assert.doesNotMatch(await h.enviar_para_sessao({ projeto: 'meu-app', mensagem: 'oi' }), /acompanhando/);
+  assert.deepEqual(c.watcher.list(), [], 'sessao nunca acompanhada continua sem acompanhamento');
+  c.watcher.watch('s1', 'Claude de meu-app');
+  // Ja avisou que terminou: sai da lista, mas fica lembrada.
+  now += 31_000;
+  assert.equal(c.watcher.reports().length, 1);
+  assert.deepEqual(c.watcher.list(), []);
+  assert.match(await h.enviar_para_sessao({ projeto: 'meu-app', mensagem: 'agora roda os testes' }), /Continuo acompanhando/);
+  assert.deepEqual(c.watcher.list(), [{ id: 's1', label: 'Claude de meu-app' }]);
+  // Depois de parar de acompanhar, um recado novo nao acompanha mais.
+  assert.match(await h.parar_de_acompanhar({ projeto: 'meu-app' }), /Parei de acompanhar/);
+  assert.doesNotMatch(await h.enviar_para_sessao({ projeto: 'meu-app', mensagem: 'mais uma' }), /acompanhando/);
+  assert.deepEqual(c.watcher.list(), []);
 });
