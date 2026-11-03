@@ -8,6 +8,7 @@ import { ClaudeBrain } from './voice/brain.ts';
 import { createJarvisServer } from './voice/tools.ts';
 import { readProfile } from './catalog.ts';
 import { WorkerProcess } from './voice/worker.ts';
+import { VoiceSettingsStore, sttConfig } from './voice/settings.ts';
 
 const home = process.env.HOME;
 if (!home) {
@@ -37,6 +38,12 @@ const voiceWorker = new WorkerProcess({
   env: { ...process.env },
   log: (line) => console.error(`[voz] ${line}`),
 });
+// Transcricao local ou Groq, escolhida no painel de configuracoes.
+const voiceSettings = new VoiceSettingsStore(join(stateDir, 'voice.json'), {
+  fetch,
+  onChange: (s) => voiceWorker.configureStt(sttConfig(s)),
+});
+voiceWorker.configureStt(sttConfig(voiceSettings.get()));
 let brain: ClaudeBrain | undefined;
 const makeBrain = (ctx: Parameters<typeof createJarvisServer>[0]) =>
   (brain = new ClaudeBrain({
@@ -76,6 +83,7 @@ const app = createApp({
       process.env.LLM_AGENT_VOICE_ANNOUNCE === '0'
         ? undefined
         : { newsEveryMin: Math.max(15, Number(process.env.LLM_AGENT_VOICE_NEWS_EVERY_MIN) || 90) },
+    settings: voiceSettings,
   },
   manualPath: join(repo, 'README.md'),
 });

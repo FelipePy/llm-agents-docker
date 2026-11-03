@@ -17,11 +17,13 @@ from concurrent.futures import ThreadPoolExecutor
 from .protocol import JSON, encode_json, read_message
 from .hallucination import looks_like_vocabulary, vocab_tokens
 from .segmenter import Segmenter
+from .groq import GroqError, GroqStt
 
 FRAME_SAMPLES = 1280  # 80 ms a 16 kHz
 FRAME_BYTES = FRAME_SAMPLES * 2
 WAKE_DEBOUNCE_S = 2.0
 AUDIO_CHUNK_BYTES = 2048  # envia a voz em pedacos (~0,3 s), enquanto o edge-tts gera
+GROQ_WARN_EVERY_S = 60  # avisa a falha do Groq no maximo uma vez por minuto
 HEARD_MAX_BYTES = 8 * 32000  # esperando ser chamado, so transcreve falas de ate 8 s
 # Janela do whisper (o CTranslate2 completa ate 30 s de todo jeito: janelas menores nao aceleram).
 WINDOW_S = int(os.environ.get("LLM_AGENT_VOICE_WINDOW_S", "30"))
@@ -94,6 +96,8 @@ def main() -> None:
     # Audio de frases curtas ja sintetizadas (saudacoes): tocam sem esperar o edge-tts.
     tts_cache: dict = {}
     state = {"listen": False, "generation": 0, "transcript": 0, "last_wake": 0.0, "prompt": "", "vocab": set()}
+    # Transcricao no Groq (configurada pela tela); None = whisper local.
+    cloud = {"stt": None, "warned": 0.0}
     # Chamado pelo nome ("Jarvis, ..."): esperando, transcreve falas curtas e o servidor procura o nome.
     name_wake = os.environ.get("LLM_AGENT_VOICE_NAME_WAKE", "1") != "0"
     # Fim da fala no primeiro silencio; se o usuario continuar, o servidor emenda as falas.
@@ -114,18 +118,39 @@ def main() -> None:
             hotwords=state["prompt"] or None,
             chunk_length=WINDOW_S,
         )
-        text = " ".join(p.text.strip() for p in parts).strip()
+        return filter_vocab(" ".join(p.text.strip() for p in parts).strip())
+
+    def filter_vocab(text: str) -> str:
         if looks_like_vocabulary(text, state["vocab"]):
             log(f"transcricao descartada (eco do vocabulario): {text!r}")
             return ""
         return text
 
+    def run_cloud(segment: bytes):
+        """Groq, se configurado; None se nao estiver ou se falhar (ai vale o whisper local)."""
+        stt = cloud["stt"]
+        if stt is None:
+            return None
+        try:
+            return filter_vocab(stt.transcribe(segment, state["prompt"]))
+        except GroqError as err:
+            log(f"groq: {err}; usando o whisper local")
+            now = time.monotonic()
+            if now - cloud["warned"] >= GROQ_WARN_EVERY_S:
+                cloud["warned"] = now
+                send({"event": "error", "message": f"Transcrição no Groq falhou ({err}); usei o whisper local."})
+            return None
+
     def transcribe(segment: bytes, tid: int) -> None:
         try:
             started = time.monotonic()
-            text = run_whisper(segment)
+            # So a fala depois de chamar o Jarvis vai para a nuvem; a espera pelo nome fica local.
+            text = run_cloud(segment)
+            via = "groq"
+            if text is None:
+                text, via = run_whisper(segment), "local"
             ms = int((time.monotonic() - started) * 1000)
-            log(f"transcricao final: {ms} ms para {len(segment) / 32000:.1f} s de fala")
+            log(f"transcricao final ({via}): {ms} ms para {len(segment) / 32000:.1f} s de fala")
             send({"event": "transcript", "id": tid, "text": text, "ms": ms})
         except Exception as err:
             log(traceback.format_exc())
@@ -223,6 +248,14 @@ def main() -> None:
                 state["generation"] += 1
             elif name == "prefetch":
                 prefetch_pool.submit(prefetch, [str(t) for t in cmd.get("texts", [])][:20])
+            elif name == "stt":
+                key = str(cmd.get("key") or "")
+                if cmd.get("provider") == "groq" and key:
+                    cloud["stt"] = GroqStt(key, str(cmd.get("model") or "whisper-large-v3-turbo"))
+                    log(f"transcricao: Groq ({cloud['stt'].model})")
+                else:
+                    cloud["stt"] = None
+                    log("transcricao: whisper local")
             elif name == "vocab":
                 words = [str(w) for w in cmd.get("words", [])][:150]
                 state["prompt"] = " ".join(words)

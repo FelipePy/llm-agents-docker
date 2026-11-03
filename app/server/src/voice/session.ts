@@ -12,7 +12,9 @@ export type WorkerCommand =
   /** Palavras que o whisper deve reconhecer (nomes de projetos etc.). */
   | { cmd: 'vocab'; words: string[] }
   /** Sintetiza ja e guarda (para as saudacoes tocarem sem espera). */
-  | { cmd: 'prefetch'; texts: string[] };
+  | { cmd: 'prefetch'; texts: string[] }
+  /** Quem transcreve a fala: o whisper local ou o Groq (nuvem). */
+  | { cmd: 'stt'; provider: 'local' | 'groq'; key?: string; model?: string };
 
 export type WorkerEvent =
   | { event: 'ready' }

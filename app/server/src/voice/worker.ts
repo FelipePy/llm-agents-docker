@@ -4,6 +4,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { AUDIO, FrameDecoder, JSON_KIND, encodeFrame, encodeJson } from './protocol.ts';
 import type { VoiceWorker, WorkerCommand, WorkerEvent } from './session.ts';
+import type { SttConfig } from './settings.ts';
 
 export interface WorkerOptions {
   /** Pasta app/voice (setup.sh, .venv, jarvis_voice). */
@@ -45,6 +46,7 @@ export class WorkerProcess extends EventEmitter implements VoiceWorker {
   private readonly opts: WorkerOptions;
   private proc: ChildProcess | undefined;
   private ready: Promise<void> | undefined;
+  private stt: SttConfig = { provider: 'local' };
 
   constructor(opts: WorkerOptions) {
     super();
@@ -61,6 +63,12 @@ export class WorkerProcess extends EventEmitter implements VoiceWorker {
 
   command(cmd: WorkerCommand): void {
     this.write(encodeJson(cmd));
+  }
+
+  /** Troca quem transcreve; vale ja se o worker estiver rodando e a cada novo inicio. */
+  configureStt(stt: SttConfig): void {
+    this.stt = stt;
+    this.command({ cmd: 'stt', ...stt });
   }
 
   sendAudio(pcm: Buffer): void {
@@ -122,6 +130,7 @@ export class WorkerProcess extends EventEmitter implements VoiceWorker {
           }
           if (e.event === 'ready' && !isReady) {
             isReady = true;
+            this.command({ cmd: 'stt', ...this.stt });
             resolve();
           }
           this.emitEvent(e);

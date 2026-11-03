@@ -1,4 +1,4 @@
-import { createServer, type ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { mkdir, readFile, stat } from 'node:fs/promises';
 import { extname, join, resolve, sep } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -17,6 +17,7 @@ import { Announcer } from './voice/announcer.ts';
 import { shortTitle } from './conversations.ts';
 import { gitLines } from './catalog.ts';
 import { VoiceSession, type VoiceWorker } from './voice/session.ts';
+import type { VoiceSettingsStore } from './voice/settings.ts';
 import type { SessionInfo, VoiceClientMessage, VoiceServerMessage } from './types.ts';
 
 export interface AppOptions {
@@ -44,6 +45,8 @@ export interface AppOptions {
     greetings?: string[];
     /** Falas espontaneas (inicio, periodo do dia, notícias); minutos entre rodadas de notícias. */
     announce?: { newsEveryMin: number };
+    /** Configuracoes feitas pela tela (transcricao local ou Groq). */
+    settings?: VoiceSettingsStore;
   };
   /** Manual do app consultado pelo Jarvis (o README do projeto). */
   manualPath?: string;
@@ -82,6 +85,16 @@ const coord = (v: string | null, max: number): number | undefined => {
   return Number.isFinite(n) && Math.abs(n) <= max ? n : undefined;
 };
 
+/** Corpo JSON pequeno (ate 16 KB). */
+async function readJson(req: IncomingMessage): Promise<unknown> {
+  let body = '';
+  for await (const chunk of req) {
+    body += chunk;
+    if (body.length > 16_384) throw new Error('corpo grande demais');
+  }
+  return JSON.parse(body || '{}');
+}
+
 const exists = async (path: string): Promise<boolean> => {
   try {
     await stat(path);
@@ -108,7 +121,23 @@ export function createApp(opts: AppOptions): App {
   terminals.on('exit', (id: string, code: number) => broadcast({ type: 'exit', id, code }));
   terminals.on('sessions', () => broadcast({ type: 'sessions', sessions: terminals.list() }));
 
-  async function api(res: ServerResponse, url: URL): Promise<void> {
+  async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    if (url.pathname === '/api/voice/settings') {
+      const store = opts.voice?.settings;
+      if (!store) return send(res, 404, { error: 'voz desligada neste servidor' });
+      if (req.method === 'GET') return send(res, 200, store.view());
+      if (req.method !== 'PUT') return send(res, 405, { error: 'use GET ou PUT' });
+      let input: unknown;
+      try {
+        input = await readJson(req);
+      } catch {
+        return send(res, 400, { error: 'JSON inválido' });
+      }
+      if (!input || typeof input !== 'object') return send(res, 400, { error: 'JSON inválido' });
+      const result = await store.update(input);
+      return 'error' in result ? send(res, 400, result) : send(res, 200, result.view);
+    }
+    if (req.method !== 'GET') return send(res, 405, { error: 'use GET' });
     if (url.pathname === '/api/overview') {
       return send(res, 200, await buildOverview(opts.home, { hidden, projectsDir: opts.projectsDir }));
     }
@@ -145,7 +174,7 @@ export function createApp(opts: AppOptions): App {
       if (url.pathname.startsWith('/api/')) {
         if (!originAllowed(req.headers.origin, port, opts.extraOrigins)) return send(res, 403, { error: 'origem não permitida' });
         if (!tokenMatches(bearer(req.headers.authorization), opts.token)) return send(res, 401, { error: 'token inválido' });
-        return await api(res, url);
+        return await api(req, res, url);
       }
       await serveStatic(res, url.pathname);
     } catch (err) {

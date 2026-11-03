@@ -1,7 +1,10 @@
+import type { Api } from '../api.ts';
 import type { DesktopInfo } from '../desktop.ts';
+import { SttSettings } from './SttSettings.tsx';
 import type { SettingsState, SettingsToggles } from './Settings.tsx';
 
 interface Props {
+  api: Api;
   settings: SettingsState;
   toggles: SettingsToggles;
   voiceStatus: string;
@@ -13,7 +16,7 @@ interface Props {
 }
 
 /** Configuracoes, na gaveta lateral (aberta pelo botao de engrenagem). */
-export function SettingsPanel({ settings, toggles, voiceStatus, desktop, onAutostart, floating }: Props) {
+export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, onAutostart, floating }: Props) {
   const use3d = settings.webgl && settings.mode3d;
   return (
     <aside className="day settings-panel">
@@ -30,6 +33,7 @@ export function SettingsPanel({ settings, toggles, voiceStatus, desktop, onAutos
           <input type="checkbox" checked={settings.voiceDemo} disabled={!use3d || settings.voice} onChange={toggles.onVoiceDemo} />
           Demonstração de voz
         </label>
+        <SttSettings api={api} />
       </section>
 
       <section>

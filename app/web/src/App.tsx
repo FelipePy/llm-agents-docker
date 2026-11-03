@@ -415,6 +415,7 @@ function Connected({ token }: { token: string }) {
         <div className={drawer ? 'day-drawer open' : 'day-drawer'}>
           {drawer === 'settings' ? (
             <SettingsPanel
+              api={api}
               settings={settings}
               toggles={toggles}
               voiceStatus={fullVoiceStatus}

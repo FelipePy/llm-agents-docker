@@ -112,3 +112,22 @@ it('timingText resume os tempos da ultima resposta', async () => {
     'última resposta: transcrição 1,3 s · 1ª palavra 4,6 s (usou clima_agora) · voz 6,4 s',
   );
 });
+
+it('saveVoiceSettings envia PUT com token e mostra o erro do servidor', async () => {
+  const calls: { url: string; init?: RequestInit }[] = [];
+  let status = 400;
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    calls.push({ url, init });
+    return status === 400
+      ? new Response('{"error":"O Groq recusou a chave"}', { status })
+      : new Response('{"stt":"groq","groqModel":"whisper-large-v3-turbo","groqKeyHint":"gsk_…0123"}', { status });
+  }) as unknown as typeof fetch;
+  const api = new Api('tok', fetchImpl);
+  await expect(api.saveVoiceSettings({ stt: 'groq', groqKey: 'x' })).rejects.toThrow('O Groq recusou a chave');
+  expect(calls[0].url).toBe('/api/voice/settings');
+  expect(calls[0].init?.method).toBe('PUT');
+  expect((calls[0].init?.headers as Record<string, string>).authorization).toBe('Bearer tok');
+  expect(JSON.parse(String(calls[0].init?.body))).toEqual({ stt: 'groq', groqKey: 'x' });
+  status = 200;
+  expect((await api.saveVoiceSettings({ stt: 'groq' })).groqKeyHint).toBe('gsk_…0123');
+});

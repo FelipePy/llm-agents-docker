@@ -1,5 +1,20 @@
 import type { ClientMessage, DayInfo, Overview, ProjectDetail, ServerMessage } from './types.ts';
 
+export type SttProvider = 'local' | 'groq';
+export type GroqModel = 'whisper-large-v3-turbo' | 'whisper-large-v3';
+export interface VoiceSettings {
+  stt: SttProvider;
+  groqModel: GroqModel;
+  /** "gsk_…a1b2" se houver chave salva. */
+  groqKeyHint: string | null;
+}
+/** groqKey: nova chave; "" apaga; ausente mantem. */
+export interface VoiceSettingsInput {
+  stt?: SttProvider;
+  groqModel?: GroqModel;
+  groqKey?: string;
+}
+
 const TOKEN_KEY = 'llm-agent-token';
 
 /**
@@ -34,6 +49,23 @@ export class Api {
     const res = await this.fetchImpl(path, { headers: { authorization: `Bearer ${this.token}` } });
     if (!res.ok) throw new Error(`HTTP ${res.status} em ${path}`);
     return (await res.json()) as T;
+  }
+
+  /** Quem transcreve a fala (local ou Groq); a chave so volta como dica. */
+  voiceSettings(): Promise<VoiceSettings> {
+    return this.get('/api/voice/settings');
+  }
+
+  /** Salva; o erro do servidor (ex.: chave recusada) vira a mensagem da excecao. */
+  async saveVoiceSettings(input: VoiceSettingsInput): Promise<VoiceSettings> {
+    const res = await this.fetchImpl('/api/voice/settings', {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const body = (await res.json().catch(() => ({}))) as VoiceSettings & { error?: string };
+    if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status} ao salvar`);
+    return body;
   }
 
   overview(): Promise<Overview> {
