@@ -1,7 +1,7 @@
 import type { VoiceClientMessage, VoiceServerMessage, VoiceState } from '../types.ts';
 import type { Brain } from './brain.ts';
 import {
-  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isStopRequest, isSubmit, matchWake, normalize, stripMarkdown,
+  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isStopRequest, isSubmit, matchWake, mergeUtterances, normalize, stripMarkdown,
 } from './text.ts';
 
 export type WorkerCommand =
@@ -19,7 +19,7 @@ export type WorkerEvent =
   | { event: 'status'; message: string }
   | { event: 'wake'; score: number }
   | { event: 'speech-start' }
-  | { event: 'partial'; text: string }
+  | { event: 'speech-drop' }
   | { event: 'transcript'; id: number; text: string; ms?: number }
   /** Fala transcrita enquanto o Jarvis espera ser chamado (para "Jarvis, ..."). */
   | { event: 'heard'; text: string; ms?: number }
@@ -58,6 +58,8 @@ const RESTART_WINDOW_MS = 60_000;
  */
 /** Fala detectada e voz acima do eco, com ate este intervalo entre elas, interrompem na hora. */
 const BARGE_WINDOW_MS = 800;
+/** Ate quanto tempo depois de uma pergunta uma fala nova (antes da resposta) e continuacao dela. */
+const CONTINUE_MS = 8000;
 
 export class VoiceSession {
   state: VoiceState = 'off';
@@ -93,6 +95,10 @@ export class VoiceSession {
   // Interrupcao imediata: fala detectada (worker) + microfone acima do eco (cliente).
   private lastSpeechStart = -Infinity;
   private lastOverEcho = -Infinity;
+  // Pausa e continuacao: a ultima pergunta e a fala que espera a continuacao.
+  private lastAsk: { text: string; at: number } | undefined;
+  private continuation: string | undefined;
+  private turnAbort = new AbortController();
   private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number; tools: string[] } | undefined;
 
   constructor(
@@ -331,8 +337,12 @@ export class VoiceSession {
         }
         return;
       case 'speech-start':
-        // Pensando (sem audio tocando): e o usuario falando de novo.
-        if (this.state === 'thinking') this.interrupt(false);
+        // Pensando (sem audio tocando): o usuario fez uma pausa e continuou falando.
+        // A resposta para (por enquanto) e a fala nova sera emendada na anterior.
+        if (this.state === 'thinking') {
+          if (this.lastAsk && this.now() - this.lastAsk.at <= CONTINUE_MS) this.continuation = this.lastAsk.text;
+          this.interrupt(false);
+        }
         // Falando, pode ser o eco da propria voz: abaixa o volume (menos eco,
         // transcricao melhor) e decide pela transcricao (abaixo).
         else if (this.state === 'speaking') {
@@ -342,16 +352,10 @@ export class VoiceSession {
           else this.send({ type: 'duck', on: true });
         }
         return;
-      case 'partial': {
-        const text = e.text.trim();
-        if (!text) return;
-        if (this.state === 'speaking') {
-          if (!this.isUserTalking(text)) return;
-          this.interrupt(false); // o usuario falou por cima de verdade
-        }
-        if (this.state === 'listening') this.send({ type: 'caption', who: 'user', text });
+      case 'speech-drop':
+        // Era ruido: se a resposta anterior tinha sido calada por ele, pergunta de novo.
+        if (this.state === 'listening') this.resumeContinuation();
         return;
-      }
       case 'transcript': {
         const text = e.text.trim();
         if (this.state === 'speaking') {
@@ -361,7 +365,15 @@ export class VoiceSession {
           }
           this.interrupt(false);
         }
-        if (this.state !== 'listening' || !text) return;
+        if (this.state !== 'listening') return;
+        if (!text) return this.resumeContinuation();
+        if (this.continuation !== undefined) {
+          // Continuacao da fala anterior: cancela a resposta a ela e responde a fala completa.
+          const previous = this.continuation;
+          this.continuation = undefined;
+          this.turnAbort.abort();
+          return this.utterance(mergeUtterances(previous, text), e.ms);
+        }
         this.utterance(text, e.ms);
         return;
       }
@@ -404,22 +416,27 @@ export class VoiceSession {
   /** Nova pergunta: ela passa a ser a que fala; roda depois das anteriores. */
   private ask(text: string, ms?: number): void {
     this.timing = { heard: this.now(), stt: ms, tools: [] };
+    this.lastAsk = { text, at: this.now() };
+    this.continuation = undefined;
+    this.turnAbort.abort();
+    const turnAbort = (this.turnAbort = new AbortController());
+    const signal = AbortSignal.any([this.stopController.signal, turnAbort.signal]);
     this.send({ type: 'caption', who: 'user', text });
     this.farewell = isGoodbye(text);
     const turn = ++this.turn;
     this.brainDone = false;
     this.setState('thinking');
-    this.chain = this.chain.then(() => this.think(text, turn)).catch(() => {});
+    this.chain = this.chain.then(() => this.think(text, turn, signal)).catch(() => {});
   }
 
-  private async think(text: string, turn: number): Promise<void> {
+  private async think(text: string, turn: number, signal: AbortSignal): Promise<void> {
     const splitter = new SentenceSplitter();
     let said = '';
     const live = () => turn === this.turn && this.state !== 'off';
     try {
       const timing = this.timing;
       const hooks = { onTool: (name: string) => timing?.tools.push(name) };
-      for await (const delta of this.brain.reply(text, this.stopController.signal, hooks)) {
+      for await (const delta of this.brain.reply(text, signal, hooks)) {
         if (!live()) continue; // calada: segue ate o fim, em background
         if (this.timing && this.timing.firstToken === undefined) this.timing.firstToken = this.now();
         said += delta;
@@ -495,6 +512,15 @@ export class VoiceSession {
       this.setState('listening');
       this.worker.command({ cmd: 'listen' });
     }
+  }
+
+  /** A continuacao esperada nao veio (ruido): responde a fala anterior. */
+  private resumeContinuation(): void {
+    const previous = this.continuation;
+    if (previous === undefined) return;
+    this.continuation = undefined;
+    this.turnAbort.abort();
+    this.ask(previous);
   }
 
   /** Cala o Jarvis e volta a ouvir; `restartListening`: falso quando o usuario ja esta falando. */

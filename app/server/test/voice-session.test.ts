@@ -44,7 +44,7 @@ class FakeBrain implements Brain {
     this.calls.push(text);
     const step = this.script.shift() ?? [];
     if (step === 'hang') {
-      await new Promise((r) => signal.addEventListener('abort', r, { once: true }));
+      if (!signal.aborted) await new Promise((r) => signal.addEventListener('abort', r, { once: true }));
       return;
     }
     if (step instanceof Error) throw step;
@@ -158,7 +158,6 @@ test('o eco da propria voz nao interrompe o Jarvis', async () => {
   s.worker.fire({ event: 'transcript', id: 1, text: 'oi' });
   await waitFor(() => s.session.state === 'speaking' && s.worker.speaks().length === 2);
   s.worker.fire({ event: 'speech-start' });
-  s.worker.fire({ event: 'partial', text: 'boa noite senhor' });
   s.worker.fire({ event: 'transcript', id: 2, text: 'Boa noite, senhor. Tudo pronto.' });
   assert.equal(s.session.state, 'speaking');
   assert.ok(!s.sent.some((m) => m.type === 'stop-audio'));
@@ -173,11 +172,9 @@ test('falar por cima de verdade interrompe e a fala vira a nova pergunta', async
   const before = s.worker.commands.length;
   s.worker.fire({ event: 'speech-start' });
   assert.equal(s.session.state, 'speaking', 'so a deteccao de fala nao basta');
-  s.worker.fire({ event: 'partial', text: 'espera, abre o projeto' });
-  assert.equal(s.session.state, 'listening');
-  assert.ok(s.sent.some((m) => m.type === 'stop-audio'));
-  assert.ok(!s.worker.commands.slice(before).some((c) => c.cmd === 'listen'), 'nao reinicia a fala que esta sendo captada');
   s.worker.fire({ event: 'transcript', id: 2, text: 'espera, abre o projeto meu-app' });
+  assert.ok(s.sent.some((m) => m.type === 'stop-audio'));
+  assert.ok(!s.worker.commands.slice(before).some((c) => c.cmd === 'listen'), 'nao reinicia a escuta');
   await waitFor(() => s.brain.calls.length === 2);
   assert.equal(s.brain.calls[1], 'espera, abre o projeto meu-app');
 });
@@ -254,28 +251,16 @@ test('worker cai: reinicia uma vez; caindo de novo em 60 s, desliga', async () =
   assert.ok(s.sent.some((m) => m.type === 'error' && m.message.includes('parou')));
 });
 
-test('legenda parcial enquanto o usuario fala e log de latencia', async () => {
+test('log de latencia', async () => {
   let clock = 0;
   const s = await started([['Oi.']], () => clock);
   s.worker.fire({ event: 'wake', score: 0.9 });
-  s.worker.fire({ event: 'partial', text: 'qual o' });
-  s.worker.fire({ event: 'partial', text: 'qual o tempo' });
-  assert.deepEqual(
-    s.sent.filter((m) => m.type === 'caption').map((m) => (m as { text: string }).text),
-    ['qual o', 'qual o tempo'],
-  );
   clock = 1000;
   s.worker.fire({ event: 'transcript', id: 1, text: 'qual o tempo hoje', ms: 420 });
   await waitFor(() => s.worker.speaks().length === 1);
   clock = 1900;
   s.worker.fire({ event: 'audio', id: s.worker.speaks()[0].id, data: 'QQ==', last: true });
   assert.match(s.logs[0], /transcrição 420 ms .* 1º token 0 ms .* 1º áudio 900 ms/);
-});
-
-test('legenda parcial e ignorada fora do estado ouvindo', async () => {
-  const s = await started();
-  s.worker.fire({ event: 'partial', text: 'barulho' });
-  assert.equal(s.sent.filter((m) => m.type === 'caption').length, 0);
 });
 
 test('chamar pelo nome: "Jarvis" acorda; "Jarvis, abre..." ja executa', async () => {
@@ -383,8 +368,8 @@ test('interromper: a deteccao de fala abaixa a voz; "para" ou "Jarvis" no meio d
   assert.equal(s.session.state, 'speaking');
   assert.deepEqual(s.sent.filter((m) => m.type === 'duck').at(-1), { type: 'duck', on: false });
   // A fala do usuario misturada ao eco, com uma palavra de parada: interrompe.
-  s.worker.fire({ event: 'partial', text: 'vai chover à tarde para Jarvis' });
-  assert.equal(s.session.state, 'listening');
+  s.worker.fire({ event: 'transcript', id: 3, text: 'vai chover à tarde para Jarvis' });
+  assert.equal(s.session.state, 'thinking', 'parou de falar e ja responde ao que o usuario disse');
   assert.ok(s.sent.some((m) => m.type === 'stop-audio'));
 });
 
@@ -468,4 +453,38 @@ test('interromper na hora: fala detectada + microfone acima do eco (o usuario, n
   // O que ele disse vira o proximo pedido.
   s.worker.fire({ event: 'transcript', id: 2, text: 'espera, e amanhã?' });
   await waitFor(() => s.brain.calls.length === 2);
+});
+
+test('pausa e continuacao: a fala nova e emendada na anterior e so a completa e respondida', async () => {
+  const s = await started(['hang', ['Abrindo os dois.']]);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'abre o projeto meu-app.' });
+  assert.equal(s.session.state, 'thinking');
+  // O usuario continua antes da resposta: a resposta anterior e cancelada.
+  s.worker.fire({ event: 'speech-start' });
+  assert.equal(s.session.state, 'listening');
+  s.worker.fire({ event: 'transcript', id: 2, text: 'e o agendarse também' });
+  await waitFor(() => s.worker.speaks().length === 1);
+  assert.deepEqual(s.brain.calls, ['abre o projeto meu-app.', 'abre o projeto meu-app e o agendarse também']);
+  assert.equal(s.worker.speaks()[0].text, 'Abrindo os dois.');
+});
+
+test('pausa e correcao: se a fala nova contradiz a anterior, vale so a nova', async () => {
+  const s = await started(['hang', ['Abrindo.']]);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'abre o projeto meu-app' });
+  s.worker.fire({ event: 'speech-start' });
+  s.worker.fire({ event: 'transcript', id: 2, text: 'não, na verdade abre o agendarse' });
+  await waitFor(() => s.brain.calls.length === 2);
+  assert.equal(s.brain.calls[1], 'não, na verdade abre o agendarse');
+});
+
+test('pausa seguida de ruido: a fala anterior e respondida de novo', async () => {
+  const s = await started(['hang', ['Pronto.']]);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'que horas são' });
+  s.worker.fire({ event: 'speech-start' });
+  s.worker.fire({ event: 'speech-drop' });
+  await waitFor(() => s.worker.speaks().length === 1);
+  assert.deepEqual(s.brain.calls, ['que horas são', 'que horas são']);
 });

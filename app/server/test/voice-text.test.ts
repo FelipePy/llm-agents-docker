@@ -81,3 +81,12 @@ test('isReturn reconhece o pedido para voltar ao Jarvis', () => {
   assert.equal(isReturn('pode voltar'), true);
   assert.equal(isReturn('abre o projeto'), false);
 });
+
+test('mergeUtterances emenda a continuacao e, se for correcao, fica so com a nova', async () => {
+  const { mergeUtterances, isCorrection } = await import('../src/voice/text.ts');
+  assert.equal(mergeUtterances('abre o projeto meu-app.', 'e o agendarse'), 'abre o projeto meu-app e o agendarse');
+  assert.equal(mergeUtterances('abre o meu-app', 'Não, abre o agendarse'), 'Não, abre o agendarse');
+  assert.equal(mergeUtterances('abre o meu-app', 'quer dizer, o agendarse'), 'quer dizer, o agendarse');
+  assert.ok(isCorrection('Na verdade, esquece'));
+  assert.ok(!isCorrection('nos testes também'), '"nos" nao e "nao"');
+});

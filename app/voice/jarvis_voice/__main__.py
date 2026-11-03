@@ -21,9 +21,10 @@ from .segmenter import Segmenter
 FRAME_SAMPLES = 1280  # 80 ms a 16 kHz
 FRAME_BYTES = FRAME_SAMPLES * 2
 WAKE_DEBOUNCE_S = 2.0
-PARTIAL_EVERY_FRAMES = 6  # legenda parcial a cada ~0,5 s de fala
 AUDIO_CHUNK_BYTES = 2048  # envia a voz em pedacos (~0,3 s), enquanto o edge-tts gera
 HEARD_MAX_BYTES = 8 * 32000  # esperando ser chamado, so transcreve falas de ate 8 s
+# Janela do whisper (o CTranslate2 completa ate 30 s de todo jeito: janelas menores nao aceleram).
+WINDOW_S = int(os.environ.get("LLM_AGENT_VOICE_WINDOW_S", "30"))
 
 _lock = threading.Lock()
 
@@ -62,8 +63,10 @@ def load_whisper(name: str):
             return model
         except Exception as err:  # bibliotecas CUDA ausentes ou incompativeis
             log(f"whisper: GPU indisponivel ({err}); usando CPU")
-    log(f"whisper: modelo {name} na CPU (int8)")
-    return WhisperModel(name, device="cpu", compute_type="int8")
+    # Mais threads pioram (disputam a CPU com o detector de fala e a palavra de ativacao).
+    threads = int(os.environ.get("LLM_AGENT_VOICE_STT_THREADS", "4"))
+    log(f"whisper: modelo {name} na CPU (int8, {threads} threads)")
+    return WhisperModel(name, device="cpu", compute_type="int8", cpu_threads=threads)
 
 
 def main() -> None:
@@ -90,10 +93,11 @@ def main() -> None:
     prefetch_pool = ThreadPoolExecutor(max_workers=1)
     # Audio de frases curtas ja sintetizadas (saudacoes): tocam sem esperar o edge-tts.
     tts_cache: dict = {}
-    state = {"listen": False, "generation": 0, "transcript": 0, "last_wake": 0.0, "since_partial": 0, "prompt": "", "vocab": set()}
+    state = {"listen": False, "generation": 0, "transcript": 0, "last_wake": 0.0, "prompt": "", "vocab": set()}
     # Chamado pelo nome ("Jarvis, ..."): esperando, transcreve falas curtas e o servidor procura o nome.
     name_wake = os.environ.get("LLM_AGENT_VOICE_NAME_WAKE", "1") != "0"
-    end_ms = int(os.environ.get("LLM_AGENT_VOICE_END_MS", "500"))
+    # Fim da fala no primeiro silencio; se o usuario continuar, o servidor emenda as falas.
+    end_ms = int(os.environ.get("LLM_AGENT_VOICE_END_MS", "300"))
     segmenter = Segmenter(end_ms=end_ms)
     stt_busy = threading.Event()
 
@@ -108,6 +112,7 @@ def main() -> None:
             # "hotwords" destaca os nomes sem trata-los como fala anterior
             # (com initial_prompt, o whisper "transcrevia" a lista em ruido).
             hotwords=state["prompt"] or None,
+            chunk_length=WINDOW_S,
         )
         text = " ".join(p.text.strip() for p in parts).strip()
         if looks_like_vocabulary(text, state["vocab"]):
@@ -132,16 +137,6 @@ def main() -> None:
             text = run_whisper(segment)
             if text:
                 send({"event": "heard", "text": text, "ms": int((time.monotonic() - started) * 1000)})
-        except Exception:
-            log(traceback.format_exc())
-        finally:
-            stt_busy.clear()
-
-    def transcribe_partial(segment: bytes) -> None:
-        try:
-            text = run_whisper(segment)
-            if text:
-                send({"event": "partial", "text": text})
         except Exception:
             log(traceback.format_exc())
         finally:
@@ -246,6 +241,7 @@ def main() -> None:
                 send({"event": "wake", "score": round(float(score), 3)})
                 continue
             if state["listen"] or name_wake:
+                was_active = segmenter.active
                 started, segment = segmenter.feed(frame, float(vad.predict(samples, frame_size=640)))
                 if not state["listen"]:
                     # Esperando ser chamado: transcreve falas curtas (sem legenda ao vivo).
@@ -254,18 +250,13 @@ def main() -> None:
                         stt_pool.submit(transcribe_heard, segment)
                     continue
                 if started:
-                    state["since_partial"] = 0
                     send({"event": "speech-start"})
                 if segment is not None:
                     state["transcript"] += 1
                     stt_pool.submit(transcribe, segment, state["transcript"])
-                elif segmenter.active:
-                    state["since_partial"] += 1
-                    # Legenda ao vivo: so transcreve de novo quando a anterior terminou.
-                    if state["since_partial"] >= PARTIAL_EVERY_FRAMES and not stt_busy.is_set():
-                        state["since_partial"] = 0
-                        stt_busy.set()
-                        stt_pool.submit(transcribe_partial, segmenter.current())
+                elif was_active and not segmenter.active:
+                    # A fala detectada era curta demais (ruido): nada para transcrever.
+                    send({"event": "speech-drop"})
 
 
 if __name__ == "__main__":

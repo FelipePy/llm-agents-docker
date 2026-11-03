@@ -115,3 +115,24 @@ export class SentenceSplitter {
     return rest || null;
   }
 }
+
+/** Começos que corrigem ou desdizem o que a pessoa acabou de falar. */
+const CORRECTIONS = [
+  'nao', 'na verdade', 'quer dizer', 'digo', 'melhor', 'esquece', 'ao inves', 'em vez', 'mudei de ideia',
+  'pensando bem', 'corrigindo', 'ops', 'opa', 'pera', 'espera',
+];
+
+/** A fala nova corrige ou contradiz a anterior ("não, abre o outro", "na verdade...")? */
+export function isCorrection(text: string): boolean {
+  const n = normalize(text);
+  return CORRECTIONS.some((c) => n === c || n.startsWith(`${c} `));
+}
+
+/**
+ * A pessoa fez uma pausa e continuou: junta as duas falas numa so. Se a nova
+ * corrige a anterior, vale so a nova.
+ */
+export function mergeUtterances(first: string, second: string): string {
+  if (isCorrection(second)) return second.trim();
+  return `${first.trim().replace(/[.!?…]+$/, '')} ${second.trim()}`.trim();
+}
