@@ -56,18 +56,18 @@ class FakeBrain implements Brain {
   }
 }
 
-function setup(script: Step[] = [], now = () => 0) {
+function setup(script: Step[] = [], now = () => 0, opts: { incompleteWaitMs?: number } = {}) {
   const worker = new FakeWorker();
   const brain = new FakeBrain(script);
   const sent: VoiceServerMessage[] = [];
   const logs: string[] = [];
-  const session = new VoiceSession(worker, brain, (m) => sent.push(m), now, (l) => logs.push(l));
+  const session = new VoiceSession(worker, brain, (m) => sent.push(m), now, (l) => logs.push(l), opts);
   const states = () => sent.filter((m) => m.type === 'state').map((m) => (m as { state: string }).state);
   return { worker, brain, sent, session, states, logs };
 }
 
-async function started(script: Step[] = [], now?: () => number) {
-  const s = setup(script, now);
+async function started(script: Step[] = [], now?: () => number, opts?: { incompleteWaitMs?: number }) {
+  const s = setup(script, now, opts);
   await s.session.start();
   return s;
 }
@@ -517,6 +517,53 @@ test('pausa e continuacao: a fala nova e emendada na anterior e so a completa e 
   await waitFor(() => s.worker.speaks().length === 1);
   assert.deepEqual(s.brain.calls, ['abre o projeto meu-app.', 'abre o projeto meu-app e o agendarse também']);
   assert.equal(s.worker.speaks()[0].text, 'Abrindo os dois.');
+});
+
+test('fala incompleta: espera a continuacao e responde a frase inteira', async () => {
+  const s = await started([['Abrindo os dois.']], undefined, { incompleteWaitMs: 40 });
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'abre o projeto meu-app e' });
+  assert.equal(s.session.state, 'listening', 'parou em "e": nao responde ainda');
+  s.worker.fire({ event: 'speech-start' });
+  // A continuacao demora mais que o prazo: falando, o prazo nao corre.
+  await new Promise((r) => setTimeout(r, 80));
+  assert.deepEqual(s.brain.calls, []);
+  s.worker.fire({ event: 'transcript', id: 2, text: 'o agendarse também' });
+  await waitFor(() => s.worker.speaks().length === 1);
+  assert.deepEqual(s.brain.calls, ['abre o projeto meu-app e o agendarse também']);
+});
+
+test('fala incompleta sem continuacao: responde assim mesmo depois do prazo', async () => {
+  const s = await started([['Qual projeto?']], undefined, { incompleteWaitMs: 40 });
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'abre o projeto do' });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(s.brain.calls, []);
+  await waitFor(() => s.brain.calls.length === 1);
+  assert.deepEqual(s.brain.calls, ['abre o projeto do']);
+});
+
+test('fala incompleta seguida de ruido: responde a fala na hora', async () => {
+  const s = await started([['Pronto.']], undefined, { incompleteWaitMs: 60_000 });
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'que horas são em' });
+  s.worker.fire({ event: 'speech-start' });
+  s.worker.fire({ event: 'speech-drop' });
+  await waitFor(() => s.brain.calls.length === 1);
+  assert.deepEqual(s.brain.calls, ['que horas são em']);
+});
+
+test('fala completa e respondida sem espera extra; desligar descarta a fala incompleta', async () => {
+  const s = await started([['Meio-dia.']], undefined, { incompleteWaitMs: 30 });
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'que horas são?' });
+  assert.equal(s.session.state, 'thinking');
+  await waitFor(() => s.worker.speaks().length === 1);
+  s.session.client({ type: 'played', id: s.worker.speaks()[0].id });
+  s.worker.fire({ event: 'transcript', id: 2, text: 'e o tempo pra' });
+  s.session.stop();
+  await new Promise((r) => setTimeout(r, 60));
+  assert.deepEqual(s.brain.calls, ['que horas são?']);
 });
 
 test('pausa e correcao: se a fala nova contradiz a anterior, vale so a nova', async () => {
