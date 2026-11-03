@@ -182,7 +182,7 @@ Na primeira vez, o servidor cria um ambiente Python em `app/voice/.venv` e baixa
 | `LLM_AGENT_VOICE_STT_MODEL` | `auto` | modelo do whisper: `auto` usa o `small` na GPU NVIDIA e o `base` na CPU (mais rápido); `small` ou `medium` transcrevem melhor e demoram mais na CPU |
 | `LLM_AGENT_VOICE_WAKE_THRESHOLD` | `0.5` | sensibilidade do "Hey Jarvis" (maior = menos ativações falsas) |
 | `LLM_AGENT_VOICE_END_MS` | `500` | silêncio (ms) que marca o fim da sua fala |
-| `LLM_AGENT_VOICE_RATE` | `+0%` | velocidade da voz (ex.: `+10%` fala um pouco mais rápido) |
+| `LLM_AGENT_VOICE_RATE` | `+15%` | velocidade da voz (`+0%` é o ritmo padrão do edge-tts; `+25%` fala ainda mais rápido) |
 | `LLM_AGENT_VOICE_BARGE_IN` | `1` | `0` desliga a interrupção falando por cima |
 | `LLM_AGENT_VOICE_GREETINGS` | 7 frases ("Estou à disposição, senhor."…) | saudações ditas quando você chama sem pedir nada, separadas por `|`; vazio desliga |
 | `LLM_AGENT_VOICE_ANNOUNCE` | `1` | `0` desliga as falas espontâneas (boas-vindas, período do dia, notícias) |

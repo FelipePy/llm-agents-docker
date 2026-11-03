@@ -186,7 +186,7 @@ export function jarvisHandlers(ctx: JarvisContext) {
       const { list, project, candidates } = await pick(nome);
       if (!project) return notFound(nome, list, candidates);
       ctx.ui({ kind: 'nav', node: { kind: 'project', id: project.id } });
-      return `Abri o projeto ${project.name} (${project.path}).`;
+      return `Projeto ${project.name} aberto na tela.`;
     },
     async abrir_conversas({ projeto }: { projeto: string }) {
       const { list, project, candidates } = await pick(projeto);
@@ -272,7 +272,7 @@ export function jarvisHandlers(ctx: JarvisContext) {
       const label = `${LABEL[s.agent]} de ${projectName(s.projectPath, list)}`;
       ctx.relay({ id: s.id, label });
       ctx.ui({ kind: 'focus-session', id: s.id });
-      return `Pronto para a conversa direta com o ${label}: depois que você responder, tudo o que o usuário falar vai direto para lá. Avise que, para voltar a falar com você, é só dizer "Jarvis, volta".`;
+      return `Conversa direta com o ${label} ligada; a tela já mostra como enviar e sair. Confirme em poucas palavras que o usuário pode falar.`;
     },
     async fechar_sessao({ projeto }: { projeto?: string }) {
       const { list, session: s, error } = await pickSession(projeto);

@@ -157,7 +157,7 @@ test('enviar_para_sessao digita na sessao do projeto; falar_direto liga a conver
   assert.match(await h.enviar_para_sessao({ projeto: 'meu app', mensagem: 'roda os testes' }), /Enviei para o Claude de meu-app/);
   assert.deepEqual(sent, [{ id: 's1', text: 'roda os testes' }]);
   assert.match(await h.enviar_para_sessao({ projeto: 'agendarse', mensagem: 'x' }), /encerrada/);
-  assert.match(await h.falar_direto_com_sessao({ projeto: 'meu-app' }), /Jarvis, volta/);
+  assert.match(await h.falar_direto_com_sessao({ projeto: 'meu-app' }), /^Conversa direta com o Claude de meu-app ligada/);
   assert.deepEqual(relays, [{ id: 's1', label: 'Claude de meu-app' }]);
   assert.deepEqual(ui.at(-1), { kind: 'focus-session', id: 's1' });
 });

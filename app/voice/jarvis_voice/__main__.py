@@ -78,10 +78,11 @@ def main() -> None:
     vad = VAD()
     whisper = load_whisper(os.environ.get("LLM_AGENT_VOICE_STT_MODEL", "auto"))
     voice = os.environ.get("LLM_AGENT_VOICE", "pt-BR-AntonioNeural")
-    rate = os.environ.get("LLM_AGENT_VOICE_RATE", "+0%")
+    # Um pouco mais rapido que o padrao do edge-tts soa mais natural numa conversa.
+    rate = os.environ.get("LLM_AGENT_VOICE_RATE", "+15%")
     if not re.fullmatch(r"[+-]\d{1,2}%", rate):
-        log(f"LLM_AGENT_VOICE_RATE invalido ({rate!r}); usando +0%")
-        rate = "+0%"
+        log(f"LLM_AGENT_VOICE_RATE invalido ({rate!r}); usando +15%")
+        rate = "+15%"
     threshold = float(os.environ.get("LLM_AGENT_VOICE_WAKE_THRESHOLD", "0.5"))
 
     stt_pool = ThreadPoolExecutor(max_workers=1)
