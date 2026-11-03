@@ -2,17 +2,27 @@ import type { ClientMessage, DayInfo, Overview, ProjectDetail, ServerMessage } f
 
 export type SttProvider = 'local' | 'groq';
 export type GroqModel = 'whisper-large-v3-turbo' | 'whisper-large-v3';
+/** Pausas da fala: silencio que encerra a fala, espera total por frase incompleta e as palavras que a indicam. */
+export interface PauseSettings {
+  silenceMs: number;
+  incompleteMs: number;
+  continuationWords: string[];
+}
 export interface VoiceSettings {
   stt: SttProvider;
   groqModel: GroqModel;
   /** "gsk_…a1b2" se houver chave salva. */
   groqKeyHint: string | null;
+  pauses: PauseSettings;
+  /** Padroes das pausas (para restaurar). */
+  pauseDefaults: PauseSettings;
 }
 /** groqKey: nova chave; "" apaga; ausente mantem. */
 export interface VoiceSettingsInput {
   stt?: SttProvider;
   groqModel?: GroqModel;
   groqKey?: string;
+  pauses?: Partial<PauseSettings>;
 }
 
 /** Voz do usuario (so ela ativa o Jarvis, quando cadastrada). */
