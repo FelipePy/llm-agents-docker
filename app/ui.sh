@@ -86,6 +86,10 @@ else
     if [ ! -d "$app_dir/server/node_modules" ]; then
       echo "Instalando dependencias do servidor..." >&2
       npm --prefix "$app_dir/server" ci --silent >&2
+    elif [ "$app_dir/server/package-lock.json" -nt "$app_dir/server/node_modules" ]; then
+      # Dependencia nova no servidor (git pull, evolucao): instala antes de subir.
+      echo "Atualizando as dependencias do servidor..." >&2
+      npm --prefix "$app_dir/server" ci --silent >&2
     fi
     dist="$app_dir/web/dist/index.html"
     if [ ! -f "$dist" ]; then
