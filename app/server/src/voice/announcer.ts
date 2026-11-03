@@ -1,4 +1,5 @@
 import type { DayInfo, NewsItem, Weather } from '../types.ts';
+import { NewsHistory } from './news-history.ts';
 
 // Falas espontaneas do Jarvis enquanto ninguem esta falando com ele: ao ligar,
 // na virada do periodo do dia e com notícias novas de tempos em tempos.
@@ -56,14 +57,16 @@ export interface AnnouncerOptions {
   newsHours?: [number, number];
   random?: () => number;
   tickMs?: number;
+  /** Manchetes ja apresentadas (o mesmo historico da ferramenta de noticias). */
+  history?: NewsHistory;
 }
 
 export class Announcer {
-  private readonly opts: Required<Omit<AnnouncerOptions, 'tickMs'>> & { tickMs: number };
+  private readonly opts: Required<Omit<AnnouncerOptions, 'tickMs' | 'history'>> & { tickMs: number };
   private period: Period | undefined;
   private pendingPeriod: string | undefined;
   private lastNews = -Infinity;
-  private readonly seen = new Set<string>();
+  private readonly history: NewsHistory;
   private timer: ReturnType<typeof setInterval> | undefined;
 
   constructor(opts: AnnouncerOptions) {
@@ -75,6 +78,7 @@ export class Announcer {
       tickMs: 60e3,
       ...opts,
     };
+    this.history = opts.history ?? new NewsHistory(undefined, this.opts.now);
   }
 
   /** Saudacao inicial e primeira rodada; depois verifica uma vez por minuto. */
@@ -105,13 +109,13 @@ export class Announcer {
     const h = d.getHours();
     if (h < from || h >= to || this.opts.now() - this.lastNews < this.opts.newsEveryMs) return;
     const info = await this.opts.day().catch(() => null);
-    const fresh = (info?.news ?? []).filter((n) => !this.seen.has(n.title)).slice(0, 2);
+    const fresh = this.history.fresh(info?.news ?? []).slice(0, 2);
     if (!fresh.length) {
       this.lastNews = this.opts.now();
       return;
     }
     if (!this.opts.say(newsPhrase(fresh))) return; // ocupado: tenta no proximo minuto
-    for (const n of fresh) this.seen.add(n.title);
+    this.history.mark(fresh);
     this.lastNews = this.opts.now();
   }
 }

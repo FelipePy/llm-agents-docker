@@ -29,7 +29,7 @@ export const COMMANDS: VoiceCommand[] = [
   { name: 'esquecer', title: 'Apagar algo da memória', examples: ['esquece que eu tomo café sem açúcar'] },
   { name: 'criar_projeto', title: 'Criar um projeto', examples: ['cria um projeto chamado site-novo'] },
   { name: 'clima_agora', title: 'Clima de agora', examples: ['qual a temperatura agora?', 'vai chover hoje?'] },
-  { name: 'noticias_do_dia', title: 'Notícias do dia', examples: ['quais as notícias de hoje?'] },
+  { name: 'noticias_do_dia', title: 'Notícias do dia', examples: ['quais as notícias de hoje?', 'tem mais alguma notícia?'] },
   { name: 'pesquisar_na_web', title: 'Pesquisar na web', examples: ['pesquisa o que é computação quântica', 'procura na internet quem ganhou o jogo ontem'] },
   { name: 'rascunhar_evolucao', title: 'Criar uma funcionalidade nova para o Jarvis', examples: ['vamos criar uma funcionalidade nova para você', 'quero que você aprenda a me dar a previsão da semana'] },
   { name: 'resumir_evolucao', title: 'Aprovar a definição da funcionalidade', examples: ['está tudo certo, pode resumir'] },

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Announcer, newsPhrase, periodOf, periodPhrase, startupPhrase } from '../src/voice/announcer.ts';
 import type { DayInfo } from '../src/types.ts';
+import { NewsHistory } from '../src/voice/news-history.ts';
 
 const at = (h: number, m = 0) => new Date(2026, 10, 2, h, m);
 
@@ -77,6 +78,21 @@ test('noticias: so as novas, a cada intervalo, de dia, e espera quando ocupado',
   await s.a.tick();
   assert.ok(s.said.at(-1)!.includes('N3') && !s.said.at(-1)!.includes('N1'), 'so a noticia nova');
   s.a.stop();
+});
+
+test('noticias: nao anuncia as que ja foram apresentadas (historico compartilhado)', async () => {
+  const history = new NewsHistory();
+  history.mark([{ title: 'N1', source: 'G1', link: '', published: '' }]);
+  let said = '';
+  const a = new Announcer({
+    now: () => at(9).getTime(),
+    day: async () => ({ weather: null, news: ['N1', 'N2'].map((title) => ({ title, source: 'G1', link: '', published: '' })) }),
+    say: (text) => ((said = text), true),
+    history,
+  });
+  await a.tick();
+  assert.ok(said.includes('N2') && !said.includes('N1'));
+  assert.ok(history.has('N2'), 'a anunciada entra no historico');
 });
 
 test('noticias nao sao anunciadas de madrugada', async () => {

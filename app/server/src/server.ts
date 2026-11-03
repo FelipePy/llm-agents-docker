@@ -23,6 +23,7 @@ import { gitLines } from './catalog.ts';
 import { VoiceSession, type VoiceWorker } from './voice/session.ts';
 import type { VoiceSettingsStore } from './voice/settings.ts';
 import { JarvisMemory } from './voice/memory.ts';
+import { NewsHistory } from './voice/news-history.ts';
 import type { SessionInfo, VoiceClientMessage, VoiceServerMessage } from './types.ts';
 
 export interface AppOptions {
@@ -67,6 +68,8 @@ export interface AppOptions {
   selfCheck?: { brain?: () => Promise<void> };
   /** Memoria do Jarvis entre sessoes (sem ela, um arquivo na pasta de trabalho). */
   memory?: JarvisMemory;
+  /** Manchetes ja apresentadas por voz (sem ele, um arquivo na pasta de trabalho). */
+  newsHistory?: NewsHistory;
   /** Manual do app consultado pelo Jarvis (o README do projeto). */
   manualPath?: string;
 }
@@ -135,6 +138,7 @@ export function createApp(opts: AppOptions): App {
   const web = createSearchService({ fetch: opts.fetch ?? fetch, fallback: opts.webSearchFallback });
   const clients = new Set<WebSocket>();
   const memory = opts.memory ?? new JarvisMemory(join(workspace, '.jarvis-memory.json'));
+  const newsHistory = opts.newsHistory ?? new NewsHistory(join(workspace, '.jarvis-news.json'));
 
   const broadcast = (msg: ServerMessage): void => {
     const data = JSON.stringify(msg);
@@ -269,6 +273,7 @@ export function createApp(opts: AppOptions): App {
     endConversation: () => voiceSession?.endConversation(),
     userTurn: () => voiceSession?.userTurns ?? 0,
     memory,
+    newsHistory,
   };
 
   // Funcionalidades novas para o proprio Jarvis (definidas e aprovadas por voz).
@@ -472,6 +477,7 @@ export function createApp(opts: AppOptions): App {
             day: () => day.day(coords.lat, coords.lon),
             say: (text) => session.announce(text),
             newsEveryMs: voice.announce.newsEveryMin * 60e3,
+            history: newsHistory,
           });
           void announcer.start();
         },

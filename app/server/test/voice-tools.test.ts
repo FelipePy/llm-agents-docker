@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { findProject, jarvisHandlers, stripAnsi, type JarvisContext } from '../src/voice/tools.ts';
 import { COMMANDS } from '../src/voice/commands.ts';
 import { JarvisMemory } from '../src/voice/memory.ts';
+import { NewsHistory } from '../src/voice/news-history.ts';
 import { join } from 'node:path';
 import { tempHome } from './helpers.ts';
 import type { ProjectDetail, ProjectSummary, SessionInfo, UiCommand } from '../src/types.ts';
@@ -67,6 +68,7 @@ function ctx(over: Partial<JarvisContext> = {}) {
     closeSession: (id) => closed.push(id),
     endConversation: () => ended.push(true),
     memory: new JarvisMemory(join(tempHome(), 'm.json')),
+    newsHistory: new NewsHistory(),
     ...over,
   };
   return { c, ui, opened, sent, relays, closed, ended, h: jarvisHandlers(c) };
@@ -187,6 +189,20 @@ test('clima, noticias e hora vem das ferramentas', async () => {
   assert.match(await h.data_e_hora({}), /^Agora são 14:05 de segunda-feira, 2 de novembro de 2026\.$/);
   const off = ctx({ day: async () => ({ weather: null, weatherError: 'Permita a localização', news: [] }) });
   assert.match(await off.h.clima_agora({}), /Não consegui o clima agora: Permita a localização/);
+});
+
+test('noticias_do_dia: so as ainda nao apresentadas, ate 3 por vez, e avisa quando nao ha novidade', async () => {
+  const item = (title: string) => ({ title, source: 'G1', link: '', published: '' });
+  const history = new NewsHistory();
+  history.mark([item('Ja falada')]); // por exemplo, anunciada sozinha pelo Jarvis
+  const { h } = ctx({ newsHistory: history, day: async () => ({ weather: null, news: ['Ja falada', 'N1', 'N2', 'N3', 'N4'].map(item) }) });
+  const first = await h.noticias_do_dia({});
+  assert.match(first, /N1.*N2.*N3/s);
+  assert.doesNotMatch(first, /Ja falada|N4/);
+  const second = await h.noticias_do_dia({});
+  assert.match(second, /N4/);
+  assert.doesNotMatch(second, /N1|N2|N3|Ja falada/);
+  assert.match(await h.noticias_do_dia({}), /Não há notícias novas.*sem repetir/);
 });
 
 test('fechar_sessao fecha o terminal; encerrar_conversa poe o Jarvis para esperar', async () => {
