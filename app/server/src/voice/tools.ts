@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { DayInfo, NavNode, ProjectDetail, ProjectSummary, SessionAgent, SessionInfo, TaskName, UiCommand } from '../types.ts';
 import { COMMANDS } from './commands.ts';
 import { normalize } from './text.ts';
+import { TOPICS, type JarvisMemory, type MemoryTopic } from './memory.ts';
 
 /** O que as ferramentas do Jarvis podem fazer. Nada alem disto: sem shell nem escrita livre. */
 export interface JarvisContext {
@@ -31,6 +32,8 @@ export interface JarvisContext {
   closeSession(id: string): void;
   /** Depois da resposta atual, o Jarvis volta a esperar ser chamado. */
   endConversation(): void;
+  /** Memoria do Jarvis entre sessoes (fatos e resumos de conversa). */
+  memory: JarvisMemory;
 }
 
 const LABEL: Record<SessionAgent, string> = { claude: 'Claude', codex: 'Codex', shell: 'Shell' };
@@ -280,9 +283,26 @@ export function jarvisHandlers(ctx: JarvisContext) {
       ctx.closeSession(s.id);
       return `Fechei o terminal do ${LABEL[s.agent]} de ${projectName(s.projectPath, list)}.`;
     },
-    async encerrar_conversa(_args: Record<string, never>) {
+    async encerrar_conversa({ resumo }: { resumo?: string }) {
+      if (resumo?.trim()) ctx.memory.setSummary(resumo);
       ctx.endConversation();
       return 'Conversa encerrada: depois desta resposta, você volta a esperar ser chamado pelo nome.';
+    },
+    async lembrar({ fato, sobre, projeto, substitui }: { fato: string; sobre: MemoryTopic; projeto?: string; substitui?: string }) {
+      if (substitui && !ctx.memory.facts().some((f) => f.id === substitui)) {
+        throw new Error(`não encontrei o fato ${substitui} para substituir`);
+      }
+      const f = ctx.memory.remember({ text: fato, about: sobre, project: projeto, replaces: substitui });
+      return `Guardado [${f.id}].`;
+    },
+    async esquecer({ trecho, sobre }: { trecho?: string; sobre?: MemoryTopic }) {
+      const n = ctx.memory.forget({ text: trecho, about: sobre });
+      return n ? `Apaguei ${n} ${n === 1 ? 'fato' : 'fatos'}.` : 'Não encontrei nada guardado com isso.';
+    },
+    async o_que_voce_lembra({ sobre, projeto }: { sobre?: MemoryTopic; projeto?: string }) {
+      const facts = ctx.memory.facts({ about: sobre, project: projeto });
+      if (!facts.length) return 'Nada guardado sobre isso ainda.';
+      return facts.map((f) => `[${f.id}] ${f.project ? `(${f.project}) ` : ''}${f.text}`).join('\n');
     },
     async criar_skill(_args: Record<string, never>) {
       const s = await ctx.runTask('new-skill');
@@ -403,9 +423,32 @@ export function createJarvisServer(ctx: JarvisContext) {
       ),
       tool(
         'encerrar_conversa',
-        'Encerra a conversa por voz: depois da sua resposta, você volta a esperar o usuário chamar "Jarvis". Use quando ele se despedir ou disser que é só isso.',
-        {},
+        'Encerra a conversa por voz: depois da sua resposta, você volta a esperar o usuário chamar "Jarvis". Use quando ele se despedir ou disser que é só isso. Passe em resumo uma frase sobre o que foi feito ou decidido nesta conversa.',
+        { resumo: z.string().optional().describe('Uma frase: o que foi feito ou decidido nesta conversa.') },
         run(h.encerrar_conversa),
+      ),
+      tool(
+        'lembrar',
+        'Guarda um fato duradouro para as próximas conversas: sobre o usuário, preferências, pessoas, projetos (metas, decisões, stack, prazos). Para corrigir um fato que mudou, passe o id dele em substitui.',
+        {
+          fato: z.string().describe('O fato, numa frase curta e autossuficiente.'),
+          sobre: z.enum(TOPICS),
+          projeto: z.string().optional().describe('Nome do projeto, se o fato for de um projeto.'),
+          substitui: z.string().optional().describe('Id ([abc123]) do fato antigo que este corrige.'),
+        },
+        run(h.lembrar),
+      ),
+      tool(
+        'esquecer',
+        'Apaga fatos guardados que contêm um trecho, ou todos de um assunto. Antes de apagar um assunto inteiro, confirme com o usuário.',
+        { trecho: z.string().optional(), sobre: z.enum(TOPICS).optional() },
+        run(h.esquecer),
+      ),
+      tool(
+        'o_que_voce_lembra',
+        'Lista o que você guardou (de um assunto ou projeto, ou tudo). Use quando o usuário perguntar o que você sabe ou lembra.',
+        { sobre: z.enum(TOPICS).optional(), projeto: z.string().optional() },
+        run(h.o_que_voce_lembra),
       ),
       tool('criar_skill', 'Abre uma sessão do Claude dedicada a criar uma skill nova com o usuário.', {}, run(h.criar_skill)),
       tool('registrar_sobre_mim', 'Abre uma sessão do Claude dedicada a registrar informações sobre o usuário na memória.', {}, run(h.registrar_sobre_mim)),

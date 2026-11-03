@@ -114,7 +114,11 @@ export class JarvisMemory {
 
   noteRequest(text: string): void {
     this.current ??= { requests: [] };
-    if (this.current.requests.length < MAX_REQUESTS) this.current.requests.push(text.trim().slice(0, 120));
+    const req = text.trim().slice(0, 120);
+    // Fala continuada depois de uma pausa: o pedido emendado substitui o pedaco anterior.
+    const last = this.current.requests.at(-1);
+    if (last && normalize(req).startsWith(normalize(last))) this.current.requests[this.current.requests.length - 1] = req;
+    else if (this.current.requests.length < MAX_REQUESTS) this.current.requests.push(req);
   }
 
   setSummary(text: string): void {

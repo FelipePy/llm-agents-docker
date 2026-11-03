@@ -18,6 +18,7 @@ import { shortTitle } from './conversations.ts';
 import { gitLines } from './catalog.ts';
 import { VoiceSession, type VoiceWorker } from './voice/session.ts';
 import type { VoiceSettingsStore } from './voice/settings.ts';
+import { JarvisMemory } from './voice/memory.ts';
 import type { SessionInfo, VoiceClientMessage, VoiceServerMessage } from './types.ts';
 
 export interface AppOptions {
@@ -48,6 +49,8 @@ export interface AppOptions {
     /** Configuracoes feitas pela tela (transcricao local ou Groq). */
     settings?: VoiceSettingsStore;
   };
+  /** Memoria do Jarvis entre sessoes (sem ela, um arquivo na pasta de trabalho). */
+  memory?: JarvisMemory;
   /** Manual do app consultado pelo Jarvis (o README do projeto). */
   manualPath?: string;
 }
@@ -112,6 +115,7 @@ export function createApp(opts: AppOptions): App {
   const terminals = new TerminalManager(opts.bin);
   const day = createDayService({ fetch: opts.fetch ?? fetch, city: opts.city, newsUrl: opts.newsUrl ?? NEWS_DEFAULT });
   const clients = new Set<WebSocket>();
+  const memory = opts.memory ?? new JarvisMemory(join(workspace, '.jarvis-memory.json'));
 
   const broadcast = (msg: ServerMessage): void => {
     const data = JSON.stringify(msg);
@@ -137,6 +141,11 @@ export function createApp(opts: AppOptions): App {
       const result = await store.update(input);
       return 'error' in result ? send(res, 400, result) : send(res, 200, result.view);
     }
+    if (url.pathname === '/api/jarvis/memory' && req.method === 'GET') {
+      return send(res, 200, { facts: memory.facts(), conversations: memory.conversations() });
+    }
+    const mem = /^\/api\/jarvis\/memory\/([0-9a-f]{6})$/.exec(url.pathname);
+    if (mem && req.method === 'DELETE') return send(res, 200, { removed: memory.forget({ id: mem[1] }) });
     if (req.method !== 'GET') return send(res, 405, { error: 'use GET' });
     if (url.pathname === '/api/overview') {
       return send(res, 200, await buildOverview(opts.home, { hidden, projectsDir: opts.projectsDir }));
@@ -234,6 +243,7 @@ export function createApp(opts: AppOptions): App {
     now: () => new Date(),
     closeSession: (id) => terminals.close(id),
     endConversation: () => voiceSession?.endConversation(),
+    memory,
   };
 
   // Conversa direta (ditado): digita, envia (Enter) e apaga no terminal da sessao.
@@ -320,6 +330,7 @@ export function createApp(opts: AppOptions): App {
         bargeIn: voice.bargeIn ?? true,
         greetings: voice.greetings,
         relay: relayIo,
+        conversation: { start: () => memory.startConversation(), request: (t) => memory.noteRequest(t), end: () => memory.endConversation() },
         // Nomes que o whisper deve acertar: projetos e os agentes.
         vocabulary: async () => ['Jarvis', 'Claude', 'Codex', ...(await jarvis.projects()).map((p) => p.name)],
         onReady: () => {

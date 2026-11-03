@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tempHome } from './helpers.ts';
+import { startApp } from './app.ts';
 import { JarvisMemory } from '../src/voice/memory.ts';
 
 const clock = () => {
@@ -51,6 +52,7 @@ test('conversas: resumo do modelo, ou a lista de pedidos; no maximo 20', () => {
 
   m.startConversation();
   m.noteRequest('abre o meu-app');
+  m.noteRequest('abre o meu-app e o agendarse');
   m.noteRequest('como estão os testes?');
   m.endConversation();
   m.startConversation();
@@ -59,7 +61,7 @@ test('conversas: resumo do modelo, ou a lista de pedidos; no maximo 20', () => {
   m.endConversation();
   m.endConversation(); // repetido: nao duplica
   assert.deepEqual(m.conversations().map((c) => c.text), [
-    'Pedidos: abre o meu-app; como estão os testes?',
+    'Pedidos: abre o meu-app e o agendarse; como estão os testes?',
     'Revisamos os testes do meu-app.',
   ]);
   for (let i = 0; i < 25; i++) {
@@ -86,4 +88,21 @@ test('render agrupa os fatos com id e mostra as 5 ultimas conversas', () => {
   assert.match(out, /Projetos:\n- \[\w+\] \(meu-app\) usa Postgres/);
   assert.ok(!out.includes('conversa 1'), 'so as 5 ultimas');
   assert.match(out, /Últimas conversas:\n- .*conversa 2/);
+});
+
+test('/api/jarvis/memory: lista e apaga com token', async () => {
+  const memory = new JarvisMemory(join(tempHome(), 'm.json'));
+  const f = memory.remember({ text: 'Chama-se Felipe', about: 'usuario' });
+  const { app, base } = await startApp(tempHome(), { memory });
+  try {
+    const auth = { authorization: 'Bearer tok' };
+    assert.equal((await fetch(`${base}/api/jarvis/memory`)).status, 401);
+    const list = await (await fetch(`${base}/api/jarvis/memory`, { headers: auth })).json();
+    assert.equal(list.facts[0].text, 'Chama-se Felipe');
+    const del = await fetch(`${base}/api/jarvis/memory/${f.id}`, { method: 'DELETE', headers: auth });
+    assert.deepEqual(await del.json(), { removed: 1 });
+    assert.equal(memory.facts().length, 0);
+  } finally {
+    await app.close();
+  }
 });

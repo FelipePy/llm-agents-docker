@@ -101,6 +101,7 @@ export class VoiceSession {
   private lastAsk: { text: string; at: number } | undefined;
   private continuation: string | undefined;
   private turnAbort = new AbortController();
+  private readonly conversation: { start(): void; request(text: string): void; end(): void } | undefined;
   private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number; tools: string[] } | undefined;
 
   constructor(
@@ -119,9 +120,12 @@ export class VoiceSession {
       random?: () => number;
       /** Chamado quando a escuta fica pronta (para o anunciador comecar). */
       onReady?: () => void;
+      /** Registro da conversa (memoria do Jarvis): inicio, cada pedido e fim. */
+      conversation?: { start(): void; request(text: string): void; end(): void };
     } = {},
   ) {
     this.onReady = opts.onReady;
+    this.conversation = opts.conversation;
     this.greetings = (opts.greetings ?? []).map((g) => g.trim()).filter(Boolean);
     this.random = opts.random ?? Math.random;
     this.relayIo = opts.relay ?? { type: () => false, submit: () => false, erase: () => false };
@@ -143,6 +147,7 @@ export class VoiceSession {
 
   stop(): void {
     if (this.state === 'off') return;
+    if (this.state !== 'sleeping' && this.state !== 'preparing') this.conversation?.end();
     this.stopController.abort();
     this.mute();
     this.setRelay(null);
@@ -271,6 +276,8 @@ export class VoiceSession {
 
   /** Acordou; `greet`: chamado sem pedido, responde com uma saudacao. */
   private wakeUp(greet = false): void {
+    // Chamado de novo no meio da conversa (para interromper) nao comeca outra.
+    if (this.state === 'sleeping') this.conversation?.start();
     this.setState('listening');
     this.worker.command({ cmd: 'listen' });
     if (!greet || !this.greetings.length) {
@@ -417,6 +424,7 @@ export class VoiceSession {
 
   /** Nova pergunta: ela passa a ser a que fala; roda depois das anteriores. */
   private ask(text: string, ms?: number): void {
+    this.conversation?.request(text);
     this.timing = { heard: this.now(), stt: ms, tools: [] };
     this.lastAsk = { text, at: this.now() };
     this.continuation = undefined;
@@ -508,6 +516,7 @@ export class VoiceSession {
     if ((this.state !== 'speaking' && this.state !== 'thinking') || !this.brainDone || this.pending.size) return;
     if (this.farewell) {
       this.farewell = false;
+      this.conversation?.end();
       this.setState('sleeping');
       this.worker.command({ cmd: 'sleep' });
     } else {

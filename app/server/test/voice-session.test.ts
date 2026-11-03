@@ -131,6 +131,31 @@ test('despedida: o cerebro se despede com as proprias palavras e o Jarvis volta 
   assert.equal(s.worker.last(), 'sleep');
 });
 
+test('registro da conversa (memoria): inicio, pedidos e fim na despedida ou ao desligar', async () => {
+  const log: string[] = [];
+  const worker = new FakeWorker();
+  const brain = new FakeBrain([['Abrindo.'], ['Até mais!'], ['Oi.']]);
+  const session = new VoiceSession(worker, brain, () => {}, () => 0, () => {}, {
+    conversation: { start: () => log.push('start'), request: (t) => log.push(`req:${t}`), end: () => log.push('end') },
+  });
+  await session.start();
+  worker.fire({ event: 'wake', score: 0.9 });
+  worker.fire({ event: 'transcript', id: 1, text: 'abre o meu-app' });
+  await waitFor(() => worker.speaks().length === 1);
+  worker.fire({ event: 'wake', score: 0.9 }); // chamado de novo no meio: mesma conversa
+  worker.fire({ event: 'transcript', id: 2, text: 'obrigado, tchau' });
+  await waitFor(() => worker.speaks().length === 2);
+  session.client({ type: 'played', id: worker.speaks()[1].id });
+  assert.equal(session.state, 'sleeping');
+  assert.deepEqual(log, ['start', 'req:abre o meu-app', 'req:obrigado, tchau', 'end']);
+
+  worker.fire({ event: 'wake', score: 0.9 });
+  worker.fire({ event: 'transcript', id: 3, text: 'oi' });
+  await waitFor(() => worker.speaks().length === 3);
+  session.stop();
+  assert.deepEqual(log.slice(4), ['start', 'req:oi', 'end']);
+});
+
 test('palavra de ativacao durante a fala cala o Jarvis; a resposta termina em background', async () => {
   const s = await started([['Uma frase longa. ', 'Outra frase. ', 'Mais uma.'], ['Resposta nova.']]);
   s.worker.fire({ event: 'wake', score: 0.9 });

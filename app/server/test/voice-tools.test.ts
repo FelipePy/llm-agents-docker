@@ -2,6 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { findProject, jarvisHandlers, stripAnsi, type JarvisContext } from '../src/voice/tools.ts';
 import { COMMANDS } from '../src/voice/commands.ts';
+import { JarvisMemory } from '../src/voice/memory.ts';
+import { join } from 'node:path';
+import { tempHome } from './helpers.ts';
 import type { ProjectDetail, ProjectSummary, SessionInfo, UiCommand } from '../src/types.ts';
 
 const p = (name: string, path = `/w/${name}`): ProjectSummary => ({
@@ -57,6 +60,7 @@ function ctx(over: Partial<JarvisContext> = {}) {
     now: () => new Date(2026, 10, 2, 14, 5),
     closeSession: (id) => closed.push(id),
     endConversation: () => ended.push(true),
+    memory: new JarvisMemory(join(tempHome(), 'm.json')),
     ...over,
   };
   return { c, ui, opened, sent, relays, closed, ended, h: jarvisHandlers(c) };
@@ -186,4 +190,32 @@ test('fechar_sessao fecha o terminal; encerrar_conversa poe o Jarvis para espera
   assert.match(await h.fechar_sessao({ projeto: 'nowcasting-api' }), /Não há sessão/);
   assert.match(await h.encerrar_conversa({}), /encerrada/);
   assert.deepEqual(ended, [true]);
+});
+
+test('lembrar, o_que_voce_lembra e esquecer usam a memoria do Jarvis', async () => {
+  const { c } = ctx();
+  const h = jarvisHandlers(c);
+  assert.match(await h.lembrar({ fato: 'Chama-se Felipe', sobre: 'usuario' }), /Guardado \[\w+\]/);
+  await h.lembrar({ fato: 'meu-app usa Postgres', sobre: 'projeto', projeto: 'meu-app' });
+  const list = await h.o_que_voce_lembra({});
+  assert.match(list, /Chama-se Felipe/);
+  assert.match(list, /\(meu-app\) meu-app usa Postgres/);
+  assert.match(await h.o_que_voce_lembra({ sobre: 'pessoa' }), /Nada guardado/);
+  const id = c.memory.facts({ about: 'usuario' })[0].id;
+  await h.lembrar({ fato: 'Chama-se Felipe Sampaio', sobre: 'usuario', substitui: id });
+  assert.equal(c.memory.facts({ about: 'usuario' })[0].text, 'Chama-se Felipe Sampaio');
+  await assert.rejects(h.lembrar({ fato: 'x', sobre: 'usuario', substitui: 'zzz' }), /não encontrei o fato zzz/);
+  assert.match(await h.esquecer({ trecho: 'postgres' }), /Apaguei 1/);
+  assert.match(await h.esquecer({ trecho: 'nada disso' }), /Não encontrei/);
+  assert.match(await h.esquecer({ sobre: 'usuario' }), /Apaguei 1/);
+});
+
+test('encerrar_conversa guarda o resumo da conversa', async () => {
+  const { c, ended } = ctx();
+  c.memory.startConversation();
+  c.memory.noteRequest('roda os testes');
+  await jarvisHandlers(c).encerrar_conversa({ resumo: 'Rodamos os testes do meu-app.' });
+  c.memory.endConversation();
+  assert.equal(ended.length, 1);
+  assert.equal(c.memory.conversations()[0].text, 'Rodamos os testes do meu-app.');
 });

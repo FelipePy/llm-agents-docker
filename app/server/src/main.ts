@@ -9,6 +9,7 @@ import { createJarvisServer } from './voice/tools.ts';
 import { readProfile } from './catalog.ts';
 import { WorkerProcess } from './voice/worker.ts';
 import { VoiceSettingsStore, sttConfig } from './voice/settings.ts';
+import { JarvisMemory } from './voice/memory.ts';
 
 const home = process.env.HOME;
 if (!home) {
@@ -30,6 +31,8 @@ const stateDir =
   process.env.LLM_AGENT_UI_STATE_DIR ?? join(process.env.XDG_CONFIG_HOME ?? join(home, '.config'), 'llm-agent', 'ui');
 const workspaceDir = join(process.env.XDG_DATA_HOME ?? join(home, '.local', 'share'), 'llm-agent', 'workspace');
 const token = loadOrCreateToken(stateDir);
+// Memoria do Jarvis entre sessoes (fatos e resumos de conversa).
+const memory = new JarvisMemory(join(stateDir, 'jarvis-memory.json'));
 mkdirSync(workspaceDir, { recursive: true });
 
 // Voz: o worker Python so e preparado e iniciado quando a escuta e ligada.
@@ -58,7 +61,15 @@ const makeBrain = (ctx: Parameters<typeof createJarvisServer>[0]) =>
         .join('\n\n')
         .slice(0, 3000);
       const projects = (await ctx.projects()).map((p) => p.name).join(', ');
-      return `${memories}\n\nProjetos do usuário (nomes exatos): ${projects || 'nenhum ainda'}.`.trim();
+      const remembered = memory.render();
+      return [
+        memories,
+        remembered && `O que você (Jarvis) guardou nas conversas anteriores (ids entre colchetes):\n${remembered}`,
+        `Projetos do usuário (nomes exatos): ${projects || 'nenhum ainda'}.`,
+      ]
+        .filter(Boolean)
+        .join('\n\n')
+        .trim();
     },
   }));
 
@@ -86,6 +97,7 @@ const app = createApp({
     settings: voiceSettings,
   },
   manualPath: join(repo, 'README.md'),
+  memory,
 });
 
 const port = await app.listen();
