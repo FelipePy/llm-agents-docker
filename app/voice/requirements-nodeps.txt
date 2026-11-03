@@ -1,0 +1,3 @@
+# O openWakeWord pede tflite-runtime no Linux, que nao existe para Python >= 3.12.
+# Ele e instalado sem dependencias; usamos o backend ONNX (requirements.txt).
+openwakeword==0.6.0

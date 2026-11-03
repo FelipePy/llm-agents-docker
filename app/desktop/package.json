@@ -1,0 +1,12 @@
+{
+  "name": "llm-agent-desktop",
+  "private": true,
+  "scripts": {
+    "tauri": "tauri",
+    "icons": "tauri icon src-tauri/app-icon.png",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4"
+  }
+}

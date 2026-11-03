@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Jarvis</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; font-family: 'Segoe UI', system-ui, sans-serif; }
+      .wrap { height: 100%; display: flex; align-items: center; justify-content: center; }
+      .orb { flex: none; width: 54px; height: 54px; border-radius: 50%; background: #000; cursor: pointer; transition: box-shadow 0.3s;
+             box-shadow: 0 0 0 5px #2a1f08, 0 0 14px 5px rgba(255, 191, 60, 0.4); }
+      .orb.listening { box-shadow: 0 0 0 5px #4a3510, 0 0 22px 8px rgba(255, 211, 107, 0.7); }
+      .orb.thinking { animation: spin 1.2s linear infinite; box-shadow: 0 0 0 5px #4a2e08, 0 0 22px 8px rgba(255, 179, 71, 0.7); }
+      .orb.speaking { animation: pulse 0.7s ease-in-out infinite; }
+      .orb.off { opacity: 0.5; }
+      @keyframes pulse { 50% { box-shadow: 0 0 0 8px #5a3f12, 0 0 30px 12px rgba(255, 201, 74, 0.9); } }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="orb off" id="orb" title="Jarvis: clique para abrir (arraste para mover)"></div>
+    </div>
+    <script>
+      // Bolinha flutuante: mostra o estado da voz e a ultima fala do Jarvis (via /ws
+      // do servidor) e abre a janela principal ao ser clicada.
+      const { invoke } = window.__TAURI__.core;
+      const orb = document.getElementById('orb');
+
+      // A ultima fala do Jarvis aparece ao passar o mouse.
+      function show(state, text) {
+        const mode = { listening: 'listening', thinking: 'thinking', speaking: 'speaking', off: 'off', preparing: 'off' }[state] || '';
+        orb.className = `orb ${mode}`;
+        if (text) orb.title = `Jarvis: ${text}\n(clique para abrir; arraste para mover)`;
+      }
+
+      async function connect() {
+        const url = await invoke('server_url').catch(() => null);
+        if (!url) return setTimeout(connect, 2000);
+        const u = new URL(url);
+        const token = new URLSearchParams(u.hash.slice(1)).get('token');
+        const ws = new WebSocket(`ws://${u.host}/ws?token=${encodeURIComponent(token)}`);
+        ws.onmessage = (e) => {
+          const m = JSON.parse(e.data);
+          if (m.type === 'voice') show(m.state, m.text);
+        };
+        ws.onclose = () => setTimeout(connect, 2000);
+      }
+      connect();
+
+      // Clique abre o Jarvis; arrastar move a bolinha.
+      let down = null;
+      orb.addEventListener('pointerdown', (e) => (down = { x: e.screenX, y: e.screenY }));
+      orb.addEventListener('pointermove', (e) => {
+        if (down && Math.hypot(e.screenX - down.x, e.screenY - down.y) > 4) {
+          down = null;
+          window.__TAURI__.window.getCurrentWindow().startDragging();
+        }
+      });
+      orb.addEventListener('pointerup', () => {
+        if (down) invoke('show_main');
+        down = null;
+      });
+    </script>
+  </body>
+</html>

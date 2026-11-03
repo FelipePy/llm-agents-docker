@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Jarvis</title>
+    <style>
+      :root { color-scheme: dark; font-family: 'Segoe UI', system-ui, sans-serif; }
+      body { margin: 0; height: 100vh; display: grid; place-items: center; background: radial-gradient(ellipse at center, #14110a 0%, #05060a 70%); color: #e8e2d0; }
+      .box { text-align: center; max-width: 640px; padding: 24px; }
+      .ring { width: 120px; height: 120px; margin: 0 auto 28px; border-radius: 50%; background: #000; box-shadow: 0 0 0 10px #2a1f08, 0 0 40px 16px rgba(255, 191, 60, 0.45); animation: pulse 2.4s ease-in-out infinite; }
+      @keyframes pulse { 50% { box-shadow: 0 0 0 12px #3a2a0a, 0 0 60px 24px rgba(255, 191, 60, 0.7); } }
+      h1 { font-weight: 300; letter-spacing: 0.3em; text-transform: uppercase; color: #ffc94a; margin: 0 0 8px; }
+      #status { color: #9a937f; }
+      #error { display: none; margin-top: 20px; text-align: left; background: #1a1410; border: 1px solid #5a3b16; border-radius: 10px; padding: 14px 16px; }
+      #error pre { white-space: pre-wrap; font-size: 12px; color: #d9b98a; max-height: 240px; overflow: auto; }
+      code { color: #ffd98a; }
+      button { margin-top: 12px; font: inherit; color: #05060a; background: #ffc94a; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <div class="ring"></div>
+      <h1>Jarvis</h1>
+      <div id="status">Iniciando o servidor no WSL…</div>
+      <div id="error">
+        <strong>Não consegui iniciar a interface.</strong>
+        <pre id="detail"></pre>
+        <p>Confira se o <code>llm-agent</code> está instalado no WSL (<code>./install.sh</code>) e tente no terminal do WSL: <code>llm-agent ui</code></p>
+        <button id="retry">Tentar de novo</button>
+      </div>
+    </div>
+    <script>
+      // Chamadas pelo app (Rust) via eval.
+      window.setStatus = (text) => (document.getElementById('status').textContent = text);
+      window.showError = (text) => {
+        document.getElementById('status').textContent = '';
+        document.getElementById('detail').textContent = text;
+        document.getElementById('error').style.display = 'block';
+      };
+      document.getElementById('retry').addEventListener('click', () => {
+        document.getElementById('error').style.display = 'none';
+        window.setStatus('Tentando de novo…');
+        window.__TAURI__.core.invoke('retry');
+      });
+    </script>
+  </body>
+</html>

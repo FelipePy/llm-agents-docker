@@ -9,9 +9,11 @@ Agentes como esses costumam ser usados em modo autônomo (`--dangerously-skip-pe
 - Imagem única com Claude Code e Codex (versões fixadas e configuráveis).
 - Usa o **mesmo login e configuração** dos CLIs no host (`~/.claude`, `~/.claude.json`, `~/.codex`) — nada de logar de novo.
 - **Histórico de chats compartilhado** com o host: um chat iniciado fora do container pode ser retomado dentro dele (e vice-versa) com `claude --resume`.
+- **Remote Control ligado por padrão**: toda sessão do Claude Code aparece no app Claude do celular e em claude.ai/code.
 - Usuário do container com o mesmo UID/GID do seu usuário, então os arquivos criados pertencem a você.
 - Repassa, se existirem no host: SSH agent, `~/.ssh`, `gh`, `~/.gitconfig`, `~/.zshrc`/oh-my-zsh, nvm, pyenv, bun e `~/.local/bin`.
 - Container sem capabilities (`cap_drop: ALL`) e com `no-new-privileges`.
+- **Interface gráfica** (`llm-agent ui`): perfil, skills, projetos e conversas de todos os seus projetos, com terminais embutidos para abrir, retomar e alternar sessões do Claude Code, do Codex e do shell.
 
 ## Requisitos
 
@@ -102,6 +104,19 @@ llm-agent claude --resume     # escolhe entre os chats deste projeto
 
 Evite continuar o mesmo chat no host e no container ao mesmo tempo.
 
+### Usando pelo celular (Remote Control)
+
+Ao abrir o Claude Code, o `llm-agent` liga o Remote Control: a sessão aparece no app Claude do celular e em [claude.ai/code](https://claude.ai/code), e você pode continuar a conversa por lá enquanto o agente roda no seu computador.
+
+A sessão recebe o nome do container sem o prefixo `llm-agent-`, como `claude-meu-app` (ou `claude-meu-app-2` numa segunda sessão no mesmo projeto).
+
+```sh
+llm-agent claude --remote-control outro-nome   # escolhe outro nome
+LLM_AGENT_NO_REMOTE_CONTROL=1 llm-agent claude # abre sem Remote Control
+```
+
+O Remote Control exige login com uma conta claude.ai; ele não funciona com API key. Se não conseguir ligar, o Claude Code mostra o aviso e a sessão local continua funcionando.
+
 ### Atualizando os agentes
 
 Sempre que você abre o Claude Code ou o Codex, o `llm-agent` consulta a última versão publicada no npm. Se houver uma mais nova, ele pergunta antes de atualizar:
@@ -120,6 +135,91 @@ CLAUDE_CODE_VERSION=2.1.296 CODEX_VERSION=0.162.1 llm-agent --build
 ```
 
 Sem essas variáveis, o `llm-agent --build` mantém as versões já instaladas na imagem. O atualizador interno do Claude Code fica desativado no container, porque as versões são gerenciadas pela imagem.
+
+## Interface
+
+```sh
+llm-agent ui          # sobe a interface e imprime a URL
+llm-agent ui --stop   # encerra a interface e as sessões abertas nela
+```
+
+Abra a URL impressa no navegador. No WSL2, ela funciona direto no navegador do Windows. Na primeira execução, o comando instala as dependências e constrói a interface (precisa de Node.js 22.18 ou mais novo no host).
+
+A interface mostra:
+
+- **Você:** o `CLAUDE.md` e o `AGENTS.md` globais e as memórias que o Claude Code e o Codex guardaram sobre você.
+- **Skills:** as skills do Claude Code, dos plugins e do Codex.
+- **Projetos:** todos os projetos em que você já usou o Claude Code ou o Codex, com conversas, memória, instruções e branch do git.
+
+Em cada projeto, os botões **+ Claude**, **+ Codex** e **+ Shell** abrem uma sessão nova, e **Retomar** reabre uma conversa. As sessões rodam no `llm-agent` de sempre, dentro do container, em abas na parte de baixo da tela. Elas continuam rodando se você fechar a página; ao reabrir, as abas voltam com o conteúdo.
+
+No modo 3D, o centro é um globo holográfico: ele é a voz do Jarvis. Em volta do núcleo, milhares de fragmentos (traços, arcos e pequenos painéis) giram em faixas inclinadas, cada uma no seu sentido. Parado, o globo só deriva; ouvindo, ele pulsa; pensando, gira mais rápido; falando, acompanha o volume da voz: as camadas se expandem, os fragmentos crescem, tremem e brilham mais a cada sílaba (ligue **Demonstração de voz** para ver sem microfone). A cor (dourado, ciano ou branco) fica nas configurações, em **Cor do Jarvis**. Clicar no globo abre **Você**. À direita, de cima para baixo, ficam os cartões da área em que você está: Você, Projetos, Skills e Sessões abertas no início; dentro de um projeto, Sobre o projeto, Conversas, Memória, Instruções, git e os botões de nova sessão. Clicar num cartão abre os detalhes ou entra no nível seguinte; a trilha no topo mostra onde você está, e `Esc` volta.
+
+Os botões **+ Sobre mim**, **+ Nova skill** e **+ Novo projeto** abrem uma sessão do Claude já instruída para a tarefa: registrar uma informação sobre você, criar uma skill ou preparar um projeto novo. As duas primeiras rodam numa pasta de trabalho própria (`~/.local/share/llm-agent/workspace`); o projeto novo é criado ao lado dos seus outros projetos (ou em `LLM_AGENT_PROJECTS_DIR`).
+
+O espaço ocupa a tela toda. O painel do dia (hora, data, clima, notícias e as opções) fica numa gaveta à esquerda, fechada ao abrir: clique na aba da borda esquerda para abrir. O clima vem do [Open-Meteo](https://open-meteo.com/) (sem cadastro), usando a localização do navegador; para usar uma cidade fixa, defina `LLM_AGENT_UI_CITY` (por exemplo, `LLM_AGENT_UI_CITY="São Paulo" llm-agent ui`). As notícias vêm do RSS do Google Notícias; `LLM_AGENT_UI_NEWS_RSS` troca a fonte. As coordenadas são enviadas ao Open-Meteo para buscar a previsão.
+
+As configurações ficam escondidas atrás do botão ⚙ na borda esquerda (abaixo da aba do painel do dia): escuta ativa, demonstração de voz, **Modo 3D** (troca para a interface em lista), **Cor do Jarvis**, **Reduzir movimento**, **Sons de clique** e, no app desktop, **Iniciar com o sistema**. No navegador, há também **Abrir janela flutuante**: uma janelinha do Jarvis por cima das outras abas e programas (o navegador só a abre com um clique). Em GPUs mais fracas, a cena reduz a qualidade sozinha.
+
+Atalhos: `Ctrl+1`…`Ctrl+9` vão para uma aba, `Ctrl+Tab` e `Ctrl+Shift+Tab` alternam (no navegador, esses dois são do próprio navegador), `Ctrl+Shift+W` fecha a aba e `Ctrl+K`, fora do terminal, abre a busca.
+
+O servidor escuta só em `127.0.0.1` (porta 7777, ou `LLM_AGENT_UI_PORT`) e exige o token que vai na URL, salvo em `~/.config/llm-agent/ui/token`. Quem tem a URL pode abrir agentes autônomos nos seus projetos, então não a compartilhe.
+
+### Voz ("Hey Jarvis")
+
+A escuta já vem ligada sempre que você abre o app (permita o microfone na primeira vez); para desligar até a próxima abertura, use **Escuta ativa** nas configurações (⚙). Chame "Jarvis" (ou "Hey Jarvis", "Ei, Jarvis"), ou já peça direto: "Jarvis, abre o projeto meu-app". O globo pulsa e o Jarvis passa a ouvir. Ele entende a fala assim que você faz uma pausa; se você continuar falando antes de ele responder, ele junta as duas partes e responde à fala completa (e, se a parte nova corrigir a anterior, como "não, na verdade abre o outro", vale só a nova). O que ele entendeu aparece na legenda. Ele responde em voz e volta a ouvir sozinho, sem precisar repetir "Hey Jarvis"; se você ficar em silêncio, ele espera. Para encerrar, despeça-se do seu jeito ("tchau", "obrigado, até amanhã", "por hoje é só"): ele se despede e volta a esperar ser chamado. Para interromper, diga "Jarvis", "para" ou "espera", ou simplesmente fale outra coisa por cima (ou aperte `Esc`): ele pausa na hora (cerca de 0,3 s) e decide pelo que você disse. "Para", "espera aí" ou "chega" encerram a resposta; uma pergunta, um comando ou uma correção ("e amanhã?", "abre o meu-app", "não, o outro") viram o próximo pedido; ruído, palavras soltas ou uma conversa com outra pessoa são ignorados, e ele retoma do começo da frase em que parou. Quando não é claro, um segundo Claude rápido decide (cerca de 1 s; desligue com `LLM_AGENT_VOICE_JUDGE=0` para que qualquer fala troque a resposta). O que ele estava fazendo antes continua em background. Para não se interromper com o eco da própria voz, o app compara o volume do microfone com o que o Jarvis está tocando naquele instante: ele aprende quanto da voz dele volta pelo microfone e só para quando há uma voz bem acima desse eco, ao mesmo tempo em que o detector de fala percebe alguém falando. Se o volume não deixar claro (caixas de som altas, sem cancelamento de eco), ele abaixa a voz e decide pelas palavras: um pedido de parada ou palavras que ele não disse interrompem; o eco das palavras dele é ignorado. Fones de ouvido deixam a interrupção perfeita.
+
+O Jarvis responde também sobre o dia: clima de agora, notícias, data e hora (pelos mesmos dados do painel do dia). Ele também **pesquisa na web** sem abrir sessão: "pesquisa o que é computação quântica", "procura na internet quem ganhou o jogo ontem". A busca usa o DuckDuckGo e a Wikipedia em português (sem cadastro nem chave, cerca de 1 segundo), e o Jarvis responde em poucas frases com os pontos principais, dizendo de qual site veio cada informação. Quando o DuckDuckGo bloqueia a busca automática, a busca de reserva é a do próprio Claude (ferramenta WebSearch, no login do seu plano), mais lenta (15 a 20 segundos) porém confiável; `LLM_AGENT_VOICE_WEB_FALLBACK=0` a desliga. O assunto pesquisado é enviado a esses serviços. O Jarvis fala como um assistente pessoal, de forma natural, e conhece você pelas memórias que os agentes já guardaram (seção "Você"). Ele controla o app por voz: abre projetos e áreas, conta o estado de um projeto (git, commits, conversas recentes), abre sessões do Claude Code, do Codex ou do shell em background com uma tarefa, acompanha essas sessões e cria skills, projetos e anotações sobre você. Com a escuta ligada, o Jarvis também fala sozinho quando você não está conversando com ele: dá boas-vindas ao abrir o app (com o clima, se a localização estiver liberada), avisa quando o dia muda de período ("Já está à tarde, senhor", "Já está ficando a noite, senhor") e, a cada 90 minutos, entre 8h e 22h, conta as notícias novas do dia em uma frase. Ele nunca interrompe uma conversa: se estiver ocupado, deixa para depois. Você também pode falar com as sessões dos seus agentes: "manda pro Claude do meu-app: roda os testes" envia o recado na sessão; "quero falar direto com o Claude do meu-app" liga o **ditado**: o que você fala é digitado no terminal da sessão, sem enviar, e aparece numa barra na tela. Diga "envia" (ou clique em **▶ Enviar**) para enviar, "apaga" para desfazer o último trecho, "limpa" para apagar tudo, e "Jarvis, volta" (ou **Sair**) para voltar a falar com o Jarvis. "Fecha o terminal do meu-app" encerra a sessão. Ele também conhece o app: perguntas como "como eu crio um projeto novo?" são respondidas a partir deste README. O cartão **Comandos de voz** (no início) lista o que dá para pedir, com exemplos; pergunte também "o que você sabe fazer?". Por segurança, ele só age por essas ferramentas: não tem shell nem escrita livre no seu computador, e o trabalho nos projetos vai para as sessões isoladas no container.
+
+**Memória:** o Jarvis guarda o que aprende nas conversas (seu nome, preferências, pessoas, metas e decisões dos projetos) e um resumo de cada conversa, e usa isso nas próximas, mesmo depois de reiniciar. Diga "lembra que…" para guardar algo na hora, "o que você lembra sobre mim?" para ouvir, e "esquece que…" para apagar. Na seção **Você**, "O Jarvis lembra" mostra tudo, com um botão para apagar cada item. Fica só no seu PC, em `~/.config/llm-agent/ui/jarvis-memory.json` (permissão 600). O conteúdo vai para o Claude junto com as instruções do Jarvis, como as memórias dos agentes.
+
+Tudo é gratuito: a palavra de ativação ([openWakeWord](https://github.com/dscripka/openWakeWord)) e a transcrição ([faster-whisper](https://github.com/SYSTRAN/faster-whisper)) rodam na sua máquina, e a voz usa o [edge-tts](https://github.com/rany2/edge-tts) (vozes neurais da Microsoft, sem cadastro; precisa de internet). As respostas vêm do Claude (Haiku, pela velocidade; troque com `LLM_AGENT_VOICE_MODEL`) pelo Agent SDK, com o seu login: com o plano Pro/Max, isso consome os limites normais da assinatura. Nesta versão o Jarvis só conversa; abrir projetos e executar tarefas por voz vem depois.
+
+**Transcrição no Groq (opcional):** em ⚙ → Voz → **Transcrição da fala**, escolha **Groq (nuvem)**, cole a chave de API (crie em [console.groq.com/keys](https://console.groq.com/keys)) e salve. O app confere a chave com o Groq antes de salvar; ela fica só no seu PC, em `~/.config/llm-agent/ui/voice.json` (permissão 600), e a tela mostra apenas o começo e o fim. A transcrição fica bem mais rápida (cerca de 0,3 a 0,5 s, contra ~1,2 s do whisper local na CPU) e mais precisa. Vai para o Groq só o áudio do que você fala depois de chamar o Jarvis; a espera pelo nome continua local. Custa US$ 0,04 por hora de áudio no Whisper Large v3 Turbo (cada fala conta como no mínimo 10 s: umas 100 falas por dia dão cerca de US$ 0,35 por mês), e o plano gratuito do Groq costuma bastar para uso pessoal. Se o Groq falhar (sem internet, limite atingido), o Jarvis avisa e usa o whisper local.
+
+Na primeira vez, o servidor cria um ambiente Python em `app/voice/.venv` e baixa os modelos (algumas centenas de MB); isso exige Python 3.10 ou mais novo com `venv` (no Ubuntu/Debian: `sudo apt install python3-venv`). Configurações:
+
+| Variável | Padrão | Para quê |
+| --- | --- | --- |
+| `LLM_AGENT_VOICE_MODEL` | `haiku` | modelo do Claude que responde |
+| `LLM_AGENT_VOICE` | `pt-BR-AntonioNeural` | voz do edge-tts (`pt-BR-FranciscaNeural`, `pt-BR-ThalitaMultilingualNeural`…) |
+| `LLM_AGENT_VOICE_STT_MODEL` | `auto` | modelo do whisper: `auto` usa o `small` na GPU NVIDIA e o `base` na CPU (mais rápido); `small` ou `medium` transcrevem melhor e demoram mais na CPU |
+| `LLM_AGENT_VOICE_WAKE_THRESHOLD` | `0.5` | sensibilidade do "Hey Jarvis" (maior = menos ativações falsas) |
+| `LLM_AGENT_VOICE_END_MS` | `300` | silêncio (ms) que marca o fim da sua fala (se você continuar, as falas são emendadas) |
+| `LLM_AGENT_VOICE_STT_THREADS` | `4` | threads do whisper na CPU (mais threads costumam piorar) |
+| `LLM_AGENT_VOICE_WINDOW_S` | `30` | janela do whisper em segundos |
+| `LLM_AGENT_VOICE_RATE` | `+15%` | velocidade da voz (`+0%` é o ritmo padrão do edge-tts; `+25%` fala ainda mais rápido) |
+| `LLM_AGENT_VOICE_BARGE_IN` | `1` | `0` desliga a interrupção falando por cima |
+| `LLM_AGENT_VOICE_GREETINGS` | 7 frases ("Estou à disposição, senhor."…) | saudações ditas quando você chama sem pedir nada, separadas por `|`; vazio desliga |
+| `LLM_AGENT_VOICE_JUDGE` | `1` | `0` desliga o juiz das interrupções: qualquer fala por cima troca a resposta |
+| `LLM_AGENT_VOICE_WEB_FALLBACK` | `1` | `0` desliga a busca de reserva do Claude quando o DuckDuckGo bloqueia (fica só a Wikipedia) |
+| `LLM_AGENT_VOICE_ANNOUNCE` | `1` | `0` desliga as falas espontâneas (boas-vindas, período do dia, notícias) |
+| `LLM_AGENT_VOICE_NEWS_EVERY_MIN` | `90` | minutos entre as rodadas de notícias (mínimo 15) |
+| `LLM_AGENT_VOICE_NAME_WAKE` | `1` | `0` desliga o chamado só pelo nome (esperando, o whisper transcreve falas curtas para achar "Jarvis"; isso usa CPU) |
+
+Com GPU NVIDIA (no WSL, com o driver do Windows), a preparação da voz instala as bibliotecas CUDA e a transcrição roda na GPU, bem mais rápida. O painel do dia mostra os tempos da última resposta (transcrição, primeira palavra e voz), e o log do servidor (`~/.config/llm-agent/ui/server.log`) mostra o tempo de cada etapa de uma resposta (`[voz] latência: transcrição … · 1º token … · 1º áudio …`), útil para ajustar o modelo do whisper.
+
+## App desktop (Windows e Ubuntu)
+
+O **Jarvis** é a mesma interface numa janela própria (Tauri). Ao abrir, ele executa `llm-agent ui` (no Windows, dentro do WSL; no Ubuntu, direto) e carrega a interface; se algo falhar, mostra o erro e um botão para tentar de novo. O `llm-agent` precisa estar instalado (`./install.sh`; no Windows, dentro do WSL).
+
+- **Instaladores:** baixe do último release `desktop-v*` do repositório, ou dos artefatos do workflow **desktop** no GitHub Actions: `jarvis-windows` (`.msi` ou `.exe`) e `jarvis-linux` (`.deb` ou `.AppImage`).
+  - Windows: execute o `.msi` (ou o `.exe`) e abra **Jarvis** pelo menu Iniciar.
+  - Ubuntu: `sudo apt install ./Jarvis_*.deb` e abra **Jarvis** pelo menu de aplicativos; ou `chmod +x Jarvis_*.AppImage && ./Jarvis_*.AppImage`.
+- **Bolinha flutuante:** ao sair do app (outro programa em foco, janela minimizada ou fechada), uma bolinha do Jarvis fica na lateral da tela, por cima de tudo; ela brilha conforme ele ouve, pensa e fala, e mostra a última frase dele ao passar o mouse. Clique para voltar ao app; arraste para mudar de lugar. O Jarvis continua ouvindo.
+- **Bandeja:** fechar a janela só a esconde. Pelo ícone na bandeja: mostrar, iniciar com o sistema, reiniciar o servidor ou sair.
+- **Iniciar com o sistema:** nas configurações (⚙) ou na bandeja. O Jarvis abre minimizado, só com a bolinha, já ouvindo.
+- **Atalho global:** `Ctrl+Alt+J` mostra ou esconde a janela de qualquer lugar.
+- **Voz:** no app, o áudio toca sem precisar clicar antes e o microfone é liberado direto.
+- **Outra distribuição do WSL (Windows):** defina a variável de ambiente `JARVIS_WSL_DISTRO` (por exemplo, `Ubuntu-24.04`).
+
+Para compilar à mão (Rust e Node instalados; no Ubuntu, também `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf`; no Windows, as Build Tools do Visual Studio com C++):
+
+```sh
+cd app/desktop && npm ci && npm run icons
+npx tauri dev     # abre o app em modo de desenvolvimento
+npm run build     # instaladores em src-tauri/target/release/bundle/
+```
 
 ## O que o container enxerga
 
@@ -164,6 +264,25 @@ O usuário do Docker não consegue ler a pasta do repositório. Mova o clone par
 
 **`the input device is not a TTY`.**
 O `llm-agent` precisa de um terminal interativo; não o chame a partir de pipes ou scripts sem TTY.
+
+## Desenvolvimento
+
+Os testes do launcher usam um Docker falso e não precisam de Docker:
+
+```sh
+tests/remote-control.test.sh
+tests/ui.test.sh                          # requer: npm --prefix app/server ci
+npm --prefix app/server test              # servidor da interface
+npm --prefix app/web test                 # lógica da interface
+python3 -m unittest discover -s app/voice/tests -t app/voice   # worker de voz
+```
+
+Para mexer na interface com recarga automática:
+
+```sh
+LLM_AGENT_UI_ORIGINS=http://localhost:5173 llm-agent ui   # copie o token da URL
+npm --prefix app/web run dev                              # abra http://localhost:5173/#token=<token>
+```
 
 ## Licença
 
