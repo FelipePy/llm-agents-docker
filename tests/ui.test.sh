@@ -39,7 +39,7 @@ url="$("$repo/llm-agent" ui | tail -n 1)"
 token="$(cat "$state/token" 2>/dev/null)"
 check "imprime a URL com o token" "$base/#token=$token" "$url"
 check "token tem permissao 600" "600" "$(stat -c %a "$state/token" 2>/dev/null)"
-check "health responde" '{"ok":true}' "$(curl -fsS "$base/api/health")"
+check "health responde" 'true' "$(curl -fsS "$base/api/health" | grep -o '"ok":true' | cut -d: -f2)"
 check "API sem token: 401" "401" "$(curl -s -o /dev/null -w '%{http_code}' "$base/api/overview")"
 check "API com token: 200" "200" "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "$base/api/overview")"
 
@@ -50,5 +50,15 @@ check "reaproveita o servidor" "$pid1" "$(server_pid)"
 "$repo/llm-agent" ui --stop >/dev/null
 check "--stop encerra" "parado" "$(curl -fsS --max-time 1 "$base/api/health" >/dev/null 2>&1 && echo rodando || echo parado)"
 check "--stop remove o server.json" "nao" "$([ -e "$state/server.json" ] && echo sim || echo nao)"
+
+# Servidor orfao (server.json perdido): "ui" volta a registra-lo e "--stop" o encerra.
+"$repo/llm-agent" ui >/dev/null
+pid2="$(server_pid)"
+rm -f "$state/server.json"
+"$repo/llm-agent" ui >/dev/null 2>&1
+check "reaproveita um servidor sem server.json" "$pid2" "$(server_pid)"
+rm -f "$state/server.json"
+"$repo/llm-agent" ui --stop >/dev/null
+check "--stop encerra o servidor orfao" "parado" "$(curl -fsS --max-time 1 "$base/api/health" >/dev/null 2>&1 && echo rodando || echo parado)"
 
 [ "$failures" -eq 0 ] && echo "todos os testes passaram" || { echo "$failures falha(s)"; exit 1; }

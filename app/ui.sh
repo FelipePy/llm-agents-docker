@@ -28,20 +28,44 @@ running_pid() {
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && echo "$pid"
 }
 healthy() { curl -fsS --max-time 2 "http://127.0.0.1:$1/api/health" >/dev/null 2>&1; }
+# Campo numerico do /api/health de um servidor do llm-agent ui na porta (vazio se nao for um).
+health_field() {
+  curl -fsS --max-time 2 "http://127.0.0.1:$1/api/health" 2>/dev/null | grep '"app":"llm-agent-ui"' | grep -o "\"$2\":[0-9]*" | cut -d: -f2
+}
+# Encerra um processo; se ele nao sair em 5 s (encerramento travado), forca.
+stop_pid() {
+  kill "$1" 2>/dev/null || return 0
+  for _ in $(seq 1 50); do
+    kill -0 "$1" 2>/dev/null || return 0
+    sleep 0.1
+  done
+  kill -9 "$1" 2>/dev/null
+  for _ in $(seq 1 20); do
+    kill -0 "$1" 2>/dev/null || return 0
+    sleep 0.1
+  done
+}
+# Avisa se o servidor em execucao e anterior ao codigo atual (ele nao se atualiza sozinho).
+warn_outdated() {
+  local started
+  started="$(health_field "$1" startedAt)"
+  [ -n "$started" ] || return 0
+  if [ -n "$(find "$app_dir/server/src" -name '*.ts' -newermt "@$started" -print -quit 2>/dev/null)" ]; then
+    echo "llm-agent ui: o servidor em execução é de antes das últimas mudanças no código." >&2
+    echo "Para atualizar: llm-agent ui --stop && llm-agent ui (fecha as sessões abertas)." >&2
+  fi
+}
 
 if [ "${1:-}" = "--stop" ]; then
-  if pid="$(running_pid)"; then
-    kill "$pid"
-    for _ in $(seq 1 50); do
-      kill -0 "$pid" 2>/dev/null || break
-      sleep 0.1
-    done
-    rm -f "$server_json"
-    echo "Servidor encerrado."
-  else
-    rm -f "$server_json"
-    echo "O servidor nao esta rodando."
-  fi
+  # O do server.json e, se ele se perdeu, o que responde na porta (servidor orfao).
+  pids="$(running_pid || true) $(health_field "$(json_field port || echo "$port")" pid) $(health_field "$port" pid)"
+  stopped=""
+  for pid in $(printf '%s\n' $pids | sort -u); do
+    stop_pid "$pid"
+    stopped=1
+  done
+  rm -f "$server_json"
+  if [ -n "$stopped" ]; then echo "Servidor encerrado."; else echo "O servidor nao esta rodando."; fi
   exit 0
 fi
 
@@ -51,15 +75,27 @@ done
 
 if running_pid >/dev/null && healthy "$(json_field port)"; then
   port="$(json_field port)"
+  warn_outdated "$port"
+elif orphan="$(health_field "$port" pid)" && [ -n "$orphan" ]; then
+  # Servidor nosso na porta, mas sem server.json: volta a registra-lo (o --stop passa a ve-lo).
+  echo "{\"pid\":$orphan,\"port\":$port}" >"$server_json"
+  chmod 600 "$server_json"
+  warn_outdated "$port"
 else
   if [ -z "${LLM_AGENT_UI_NO_BUILD:-}" ]; then
     if [ ! -d "$app_dir/server/node_modules" ]; then
       echo "Instalando dependencias do servidor..." >&2
       npm --prefix "$app_dir/server" ci --silent >&2
     fi
-    if [ ! -f "$app_dir/web/dist/index.html" ]; then
+    dist="$app_dir/web/dist/index.html"
+    if [ ! -f "$dist" ]; then
       echo "Construindo a interface (so na primeira vez)..." >&2
       npm --prefix "$app_dir/web" ci --silent >&2
+      npm --prefix "$app_dir/web" run build --silent >&2
+    elif [ -n "$(find "$app_dir/web/src" "$app_dir/web/index.html" "$app_dir/web/package.json" -newer "$dist" -print -quit 2>/dev/null)" ]; then
+      # O codigo da interface mudou (git pull, branch nova): reconstroi antes de subir.
+      echo "Atualizando a interface..." >&2
+      [ "$app_dir/web/package-lock.json" -nt "$app_dir/web/node_modules" ] && npm --prefix "$app_dir/web" ci --silent >&2
       npm --prefix "$app_dir/web" run build --silent >&2
     fi
   fi

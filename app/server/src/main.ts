@@ -1,5 +1,5 @@
 // Processo do servidor da interface. Normalmente iniciado por "llm-agent ui".
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createApp } from './server.ts';
 import { loadOrCreateToken } from './auth.ts';
@@ -120,15 +120,29 @@ const stopWatching = watchPaths(
 );
 console.log(`llm-agent ui ouvindo em http://127.0.0.1:${port}`);
 
+/** Apaga o server.json so se ele for deste processo (outro servidor pode ter subido depois). */
+function removeServerJson(): void {
+  try {
+    if (JSON.parse(readFileSync(serverJson, 'utf8')).pid === process.pid) rmSync(serverJson, { force: true });
+  } catch {
+    // ja nao existe
+  }
+}
+
 let stopping = false;
 async function stop(): Promise<void> {
   if (stopping) return;
   stopping = true;
+  // Se algo travar no encerramento, sai assim mesmo: um servidor meio-fechado segura a porta.
+  setTimeout(() => {
+    removeServerJson();
+    process.exit(0);
+  }, 3000);
   stopWatching();
   await app.close();
   voiceWorker.stop();
   brain?.close();
-  rmSync(serverJson, { force: true });
+  removeServerJson();
   process.exit(0);
 }
 process.on('SIGTERM', stop);

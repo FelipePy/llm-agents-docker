@@ -77,6 +77,8 @@ const MIME: Record<string, string> = {
   '.woff2': 'font/woff2',
 };
 
+const STARTED_AT = Math.floor(Date.now() / 1000);
+
 const AGENTS: SessionAgent[] = ['claude', 'codex', 'shell'];
 
 function send(res: ServerResponse, status: number, body: unknown, type = 'application/json; charset=utf-8'): void {
@@ -185,7 +187,8 @@ export function createApp(opts: AppOptions): App {
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
-      if (url.pathname === '/api/health') return send(res, 200, { ok: true });
+      // pid e inicio: o "llm-agent ui" acha (e encerra) este servidor mesmo sem o server.json.
+      if (url.pathname === '/api/health') return send(res, 200, { ok: true, app: 'llm-agent-ui', pid: process.pid, startedAt: STARTED_AT });
       if (url.pathname.startsWith('/api/')) {
         if (!originAllowed(req.headers.origin, port, opts.extraOrigins)) return send(res, 403, { error: 'origem não permitida' });
         if (!tokenMatches(bearer(req.headers.authorization), opts.token)) return send(res, 401, { error: 'token inválido' });
@@ -426,6 +429,8 @@ export function createApp(opts: AppOptions): App {
       voiceSocket?.terminate();
       for (const c of clients) c.terminate();
       wss.close();
+      // Conexoes HTTP abertas (keep-alive do app) nao podem segurar o encerramento.
+      server.closeAllConnections();
       await new Promise<void>((ok) => server.close(() => ok()));
     },
     broadcast,
