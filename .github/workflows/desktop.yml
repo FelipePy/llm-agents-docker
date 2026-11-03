@@ -1,34 +1,74 @@
 name: desktop
 
 # Instaladores do Jarvis para Windows e Linux (Tauri).
-# - push em qualquer branch (versao de desenvolvimento) e merge na main:
-#   instaladores como artefatos da execucao;
-# - tag desktop-v*: tambem publica um release com os instaladores.
+# - push em qualquer branch: instaladores como artefatos da execucao (um por tipo);
+# - push na main: tambem publica um release do projeto (vX.Y.Z) com cada
+#   instalador como um arquivo separado, com a versao no nome.
+#
+# Versao: o arquivo VERSION da raiz e a base. O primeiro release dela sai com
+# esse numero; os seguintes, na mesma major.minor, sobem o patch sozinhos
+# (1.3.0, 1.3.1, ...). Para um salto maior, edite o VERSION (ex.: 1.4.0).
 on:
   push:
     branches: ['**']
-    tags: ['desktop-v*']
   workflow_dispatch:
 
 permissions:
   contents: write
 
+# Dois pushes seguidos na main nao podem calcular a mesma versao.
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: v
+        run: |
+          base="$(tr -d '[:space:]' < VERSION)"
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "version=$base" >>"$GITHUB_OUTPUT"
+            echo "release=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          existing="$(git tag --points-at HEAD -l 'v*' | sed 's/^v//' | sort -V | tail -1)"
+          if [ -n "$existing" ]; then
+            version="$existing"                      # execucao repetida do mesmo commit
+          elif ! git rev-parse -q --verify "refs/tags/v$base" >/dev/null; then
+            version="$base"                          # primeiro release desta base
+          else
+            mm="${base%.*}"
+            last="$(git tag -l "v$mm.*" | sed 's/^v//' | sort -V | tail -1)"
+            version="$mm.$(( ${last##*.} + 1 ))"
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "release=true" >>"$GITHUB_OUTPUT"
+          echo "Versão: $version" >>"$GITHUB_STEP_SUMMARY"
+
   build:
+    needs: version
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
-            name: jarvis-windows
-            bundles: |
-              app/desktop/src-tauri/target/release/bundle/msi/*.msi
-              app/desktop/src-tauri/target/release/bundle/nsis/*.exe
+            first: jarvis-windows-exe
+            first_path: app/desktop/src-tauri/target/release/bundle/nsis/*.exe
+            second: jarvis-windows-msi
+            second_path: app/desktop/src-tauri/target/release/bundle/msi/*.msi
           - os: ubuntu-22.04
-            name: jarvis-linux
-            bundles: |
-              app/desktop/src-tauri/target/release/bundle/deb/*.deb
-              app/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            first: jarvis-linux-deb
+            first_path: app/desktop/src-tauri/target/release/bundle/deb/*.deb
+            second: jarvis-linux-appimage
+            second_path: app/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -47,13 +87,49 @@ jobs:
         with:
           workspaces: app/desktop/src-tauri
       - run: npm ci
+      - run: node scripts/set-version.mjs ${{ needs.version.outputs.version }}
       - run: npm run icons
       - run: npm run build
+      # Um artefato por instalador: baixa-se so o que quiser.
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}
-          path: ${{ matrix.bundles }}
-      - if: startsWith(github.ref, 'refs/tags/desktop-v')
-        uses: softprops/action-gh-release@v2
+          name: ${{ matrix.first }}
+          path: ${{ matrix.first_path }}
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
         with:
-          files: ${{ matrix.bundles }}
+          name: ${{ matrix.second }}
+          path: ${{ matrix.second_path }}
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          pattern: jarvis-*
+          merge-multiple: true
+      - run: ls -la installers
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: v${{ needs.version.outputs.version }}
+          make_latest: true
+          generate_release_notes: true
+          body: |
+            ## Instaladores do Jarvis (app desktop)
+            Baixe só o do seu sistema, em **Assets** abaixo:
+
+            | Sistema | Arquivo |
+            | --- | --- |
+            | Windows (recomendado) | `Jarvis_${{ needs.version.outputs.version }}_x64-setup.exe` |
+            | Windows (MSI, para instalação gerenciada) | `Jarvis_${{ needs.version.outputs.version }}_x64_en-US.msi` |
+            | Ubuntu / Debian | `Jarvis_${{ needs.version.outputs.version }}_amd64.deb` |
+            | Outras distribuições Linux | `Jarvis_${{ needs.version.outputs.version }}_amd64.AppImage` |
+
+            O app usa o `llm-agent` instalado no WSL (Windows) ou no próprio Linux: rode `./install.sh` no repositório antes.
+          files: installers/*

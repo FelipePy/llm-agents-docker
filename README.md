@@ -203,7 +203,8 @@ Com GPU NVIDIA (no WSL, com o driver do Windows), a preparação da voz instala 
 
 O **Jarvis** é a mesma interface numa janela própria (Tauri). Ao abrir, ele executa `llm-agent ui` (no Windows, dentro do WSL; no Ubuntu, direto) e carrega a interface; se algo falhar, mostra o erro e um botão para tentar de novo. O `llm-agent` precisa estar instalado (`./install.sh`; no Windows, dentro do WSL).
 
-- **Instaladores:** baixe do último release `desktop-v*` do repositório, ou dos artefatos do workflow **desktop** no GitHub Actions: `jarvis-windows` (`.msi` ou `.exe`) e `jarvis-linux` (`.deb` ou `.AppImage`).
+- **Instaladores:** baixe do último [release](https://github.com/FelipePy/llm-agents-docker/releases/latest), só o arquivo do seu sistema: `Jarvis_<versão>_x64-setup.exe` (Windows, recomendado), `Jarvis_<versão>_x64_en-US.msi` (Windows, instalação gerenciada), `Jarvis_<versão>_amd64.deb` (Ubuntu/Debian) ou `Jarvis_<versão>_amd64.AppImage` (outras distribuições). Cada merge na `main` publica um release novo do projeto (a versão parte do arquivo `VERSION` e o patch sobe sozinho: 1.3.0, 1.3.1…; edite o `VERSION` para um salto maior). Builds de outras branches ficam nos artefatos do workflow **desktop**, um por instalador.
+- **Atualizar:** rode o instalador novo com o Jarvis aberto mesmo: ele encerra o Jarvis (que normalmente só se esconde na bandeja) e instala por cima.
   - Windows: execute o `.msi` (ou o `.exe`) e abra **Jarvis** pelo menu Iniciar.
   - Ubuntu: `sudo apt install ./Jarvis_*.deb` e abra **Jarvis** pelo menu de aplicativos; ou `chmod +x Jarvis_*.AppImage && ./Jarvis_*.AppImage`.
 - **Bolinha flutuante:** ao sair do app (outro programa em foco, janela minimizada ou fechada), uma bolinha do Jarvis fica na lateral da tela, por cima de tudo; ela brilha conforme ele ouve, pensa e fala, e mostra a última frase dele ao passar o mouse. Clique para voltar ao app; arraste para mudar de lugar. O Jarvis continua ouvindo.
