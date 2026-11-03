@@ -1,6 +1,6 @@
 import unittest
 
-from jarvis_voice.segmenter import Segmenter
+from jarvis_voice.segmenter import Segmenter, end_ms_from
 
 LOUD, QUIET = 0.9, 0.1
 
@@ -74,6 +74,16 @@ class SegmenterTest(unittest.TestCase):
         self.assertTrue(seg.active)
         seg.reset()
         self.assertFalse(seg.active)
+
+
+class EndMsFromTest(unittest.TestCase):
+    def test_limits_and_fallback(self):
+        self.assertEqual(end_ms_from(1500, 1000), 1500)
+        self.assertEqual(end_ms_from("2000", 1000), 2000)
+        self.assertEqual(end_ms_from(10, 1000), 300)
+        self.assertEqual(end_ms_from(99_999, 1000), 5000)
+        self.assertEqual(end_ms_from(None, 1200), 1200)
+        self.assertEqual(end_ms_from("x", 1200), 1200)
 
 
 if __name__ == "__main__":

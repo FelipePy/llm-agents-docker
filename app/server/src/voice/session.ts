@@ -15,6 +15,8 @@ export type WorkerCommand =
   | { cmd: 'prefetch'; texts: string[] }
   /** Quem transcreve a fala: o whisper local ou o Groq (nuvem). */
   | { cmd: 'stt'; provider: 'local' | 'groq'; key?: string; model?: string }
+  /** Silencio (ms) que encerra a fala do usuario. */
+  | { cmd: 'pauses'; end_ms: number }
   /** Vetores da voz (reconhecer o usuario): de trechos PCM em base64 ou de um trecho guardado pelo worker. */
   | { cmd: 'embed'; id: number; audio?: string[]; clip?: number };
 

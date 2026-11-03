@@ -19,7 +19,7 @@ process.stdin.on('data', (c) => {
     const kind = String.fromCharCode(buf[0]), payload = buf.subarray(5, 5 + size);
     buf = buf.subarray(5 + size);
     if (kind === 'A') { audio += payload.length; if (audio >= 2560) { send({ event: 'wake', score: 1 }); audio = 0; } }
-    else { const cmd = JSON.parse(payload); if (cmd.cmd === 'speak') send({ event: 'audio', id: cmd.id, data: 'QQ==', last: true }); if (cmd.cmd === 'die') process.exit(7); }
+    else { const cmd = JSON.parse(payload); if (cmd.cmd === 'speak') send({ event: 'audio', id: cmd.id, data: 'QQ==', last: true }); if (cmd.cmd === 'die') process.exit(7); if (cmd.cmd === 'pauses') send({ event: 'status', message: 'pauses ' + cmd.end_ms }); }
   }
 });
 `;
@@ -49,6 +49,21 @@ test('WorkerProcess prepara, inicia e troca mensagens com o worker', async () =>
     w.command({ cmd: 'die' } as never);
     await waitFor(() => events.some((e) => e.event === 'exit'));
     assert.deepEqual(events.find((e) => e.event === 'exit'), { event: 'exit', code: 7 });
+  } finally {
+    w.stop();
+  }
+});
+
+test('WorkerProcess manda o silencio configurado ao iniciar e ao mudar', async () => {
+  const w = new WorkerProcess({ voiceDir: voiceDir(), env: { ...process.env }, log: () => {} });
+  const status: string[] = [];
+  w.on('event', (e: WorkerEvent) => e.event === 'status' && status.push(e.message));
+  try {
+    w.configurePauses(1500);
+    await w.ensureReady();
+    await waitFor(() => status.includes('pauses 1500'));
+    w.configurePauses(800);
+    await waitFor(() => status.includes('pauses 800'));
   } finally {
     w.stop();
   }

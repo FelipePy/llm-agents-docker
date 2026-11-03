@@ -47,6 +47,7 @@ export class WorkerProcess extends EventEmitter implements VoiceWorker {
   private proc: ChildProcess | undefined;
   private ready: Promise<void> | undefined;
   private stt: SttConfig = { provider: 'local' };
+  private endMs: number | undefined;
 
   constructor(opts: WorkerOptions) {
     super();
@@ -69,6 +70,12 @@ export class WorkerProcess extends EventEmitter implements VoiceWorker {
   configureStt(stt: SttConfig): void {
     this.stt = stt;
     this.command({ cmd: 'stt', ...stt });
+  }
+
+  /** Silencio que encerra a fala; vale ja se o worker estiver rodando e a cada novo inicio. */
+  configurePauses(endMs: number): void {
+    this.endMs = endMs;
+    this.command({ cmd: 'pauses', end_ms: endMs });
   }
 
   sendAudio(pcm: Buffer): void {
@@ -131,6 +138,7 @@ export class WorkerProcess extends EventEmitter implements VoiceWorker {
           if (e.event === 'ready' && !isReady) {
             isReady = true;
             this.command({ cmd: 'stt', ...this.stt });
+            if (this.endMs !== undefined) this.command({ cmd: 'pauses', end_ms: this.endMs });
             resolve();
           }
           this.emitEvent(e);

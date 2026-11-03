@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .protocol import JSON, encode_json, read_message
 from .hallucination import looks_like_vocabulary, vocab_tokens
-from .segmenter import Segmenter
+from .segmenter import Segmenter, end_ms_from
 from .groq import GroqError, GroqStt
 from .speaker import Clips, SpeakerModel
 
@@ -106,8 +106,9 @@ def main() -> None:
     cloud = {"stt": None, "warned": 0.0}
     # Chamado pelo nome ("Jarvis, ..."): esperando, transcreve falas curtas e o servidor procura o nome.
     name_wake = os.environ.get("LLM_AGENT_VOICE_NAME_WAKE", "1") != "0"
-    # Fim da fala depois de 1 s de silencio; se a fala parecer incompleta, o servidor
-    # espera mais um pouco, e se o usuario continuar, emenda as falas.
+    # Fim da fala depois de 1 s de silencio (o servidor manda o das configuracoes no comando
+    # "pauses"); se a fala parecer incompleta, o servidor espera mais um pouco, e se o
+    # usuario continuar, emenda as falas.
     end_ms = int(os.environ.get("LLM_AGENT_VOICE_END_MS", "1000"))
     segmenter = Segmenter(end_ms=end_ms)
     stt_busy = threading.Event()
@@ -281,6 +282,10 @@ def main() -> None:
                 else:
                     cloud["stt"] = None
                     log("transcricao: whisper local")
+            elif name == "pauses":
+                end_ms = end_ms_from(cmd.get("end_ms"), end_ms)
+                segmenter.end_ms = end_ms
+                log(f"fim da fala: {end_ms} ms de silencio")
             elif name == "embed":
                 audio = [base64.b64decode(str(a)) for a in cmd.get("audio", [])][:MAX_EMBED_CLIPS]
                 speaker_pool.submit(embed, int(cmd["id"]), audio, cmd.get("clip"))
