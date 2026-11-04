@@ -10,9 +10,14 @@
 .crumbs button { background: rgba(10, 14, 26, 0.7); }
 .crumbs .current { border-color: #ffc94a; color: #ffc94a; }
 .crumbs .sep { color: var(--muted); }
-.navbar input { margin-left: auto; width: 220px; background: rgba(10, 14, 26, 0.7); }
-/* Onda do atalho de falar: logo abaixo da trilha e no meio da pagina (a .navbar comeca 24 px mais a direita do que termina). */
-.navbar > .hold-wave { position: absolute; top: calc(100% + 8px); left: calc(50% - 12px); pointer-events: none; }
+.top-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.top-actions input { width: 220px; margin-right: 6px; background: rgba(10, 14, 26, 0.7); }
+/* Flutuantes: so o icone sobre a cena. O foco pelo teclado aparece na cor, ja que nao ha contorno. */
+.top-action { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: none; outline: none; background: transparent; color: #ffd36b; line-height: 1; filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.9)); transition: color 0.15s, transform 0.15s; }
+.top-action.gear { font-size: 22px; }
+.top-action:hover, .top-action:focus-visible { color: #fff3cf; transform: scale(1.12); }
+/* Onda do atalho de falar: logo abaixo da trilha, no meio da pagina e por cima do modal. */
+.app > .hold-wave { position: fixed; top: 56px; left: 50%; z-index: 13; pointer-events: none; }
 .content > .hold-wave { position: fixed; top: 12px; left: calc(50% + 140px); z-index: 5; pointer-events: none; }
 .hold-wave {
   display: flex; align-items: center; gap: 2px; height: 44px; padding: 0 14px; border-radius: 22px;
@@ -103,21 +108,21 @@
 .commands .example { color: #ffd98a; font-size: 13px; }
 .weather .geo { margin-top: 6px; font-size: 12px; }
 
-/* Modo 3D: sem coluna fixa; o painel do dia vira uma gaveta a esquerda. */
+/* Modo 3D: sem coluna fixa; o painel do dia e as configuracoes abrem em modais. */
 .app.full { grid-template-columns: minmax(0, 1fr); }
 .app.full .content { grid-column: 1; }
-.day-drawer {
-  position: fixed; top: 0; bottom: 0; left: 0; z-index: 8; width: 320px;
-  transform: translateX(-100%); transition: transform 0.25s ease;
+/* Acima do terminal (o xterm usa z-index ate 11 por dentro). O overlay e leve, para a tela continuar visivel; o modal quase nao deixa ver o que ha atras. */
+.modal-overlay { position: fixed; inset: 0; z-index: 12; display: flex; align-items: center; justify-content: center; padding: 24px 16px; background: rgba(0, 0, 0, 0.4); }
+.modal-overlay[hidden] { display: none; }
+.modal { position: relative; display: flex; flex-direction: column; width: min(560px, 100%); max-height: 100%; background: rgba(10, 10, 16, 0.95); border: 1px solid rgba(255, 209, 102, 0.18); border-radius: 14px; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6); outline: none; }
+.modal.wide { width: min(940px, 100%); }
+.modal .day { flex: 1; min-height: 0; padding: 24px 28px; border: none; background: transparent; }
+.modal-close { position: absolute; top: 14px; right: 18px; z-index: 1; width: 28px; height: 28px; padding: 0; border: none; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; }
+.modal-close:hover, .modal-close:focus-visible { color: var(--text); outline: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .modal { animation: modal-in 0.18s ease-out; }
 }
-.day-drawer.open { transform: none; box-shadow: 8px 0 30px rgba(0, 0, 0, 0.5); }
-.day-drawer .day { height: 100%; border-right: 1px solid rgba(255, 209, 102, 0.18); background: rgba(10, 10, 16, 0.94); backdrop-filter: blur(8px); }
-.day-toggle {
-  position: absolute; top: 50%; left: 100%; transform: translateY(-50%);
-  width: 26px; height: 64px; padding: 0; border-radius: 0 10px 10px 0; border-left: none;
-  background: rgba(10, 10, 16, 0.85); color: #ffd36b; font-size: 18px;
-}
-.app.full .navbar { left: 40px; }
+@keyframes modal-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
 .dictation {
   position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); z-index: 4;
   width: min(620px, 70%); padding: 12px 14px; border-radius: 12px;
@@ -128,11 +133,6 @@
 .dictation-actions { display: flex; gap: 8px; }
 .dictation-actions .send { background: #ffc94a; color: #05060a; border-color: #ffc94a; font-weight: 600; }
 .dictation-actions button:disabled { opacity: 0.45; cursor: default; }
-.settings-toggle {
-  position: absolute; top: calc(50% + 44px); left: 100%;
-  width: 26px; height: 40px; padding: 0; border-radius: 0 10px 10px 0; border-left: none;
-  background: rgba(10, 10, 16, 0.85); color: #ffd36b; font-size: 15px;
-}
 .settings-panel section { display: flex; flex-direction: column; gap: 8px; }
 .settings-panel h2 { margin: 0 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
 .settings-panel label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; }

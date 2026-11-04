@@ -16,6 +16,7 @@ import { NewProjectPanel } from './components/NewProjectPanel.tsx';
 import { ProfilePanel } from './components/ProfilePanel.tsx';
 import { ProjectInfo } from './components/ProjectInfo.tsx';
 import { ProjectPanel } from './components/ProjectPanel.tsx';
+import { Modal } from './components/Modal.tsx';
 import { Ring } from './components/Ring.tsx';
 import { SearchDialog } from './components/SearchDialog.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
@@ -23,6 +24,7 @@ import { HoldWave } from './components/HoldWave.tsx';
 import { SkillDetail } from './components/SkillDetail.tsx';
 import { SkillsPanel } from './components/SkillsPanel.tsx';
 import { TerminalDrawer } from './components/TerminalDrawer.tsx';
+import { TopActions, type TopModal } from './components/TopActions.tsx';
 import { backgroundLabel } from './format.ts';
 import { OFF_VIEW, VoiceClient, VoiceConnectionError, timingText, voiceStatus, type VoiceView } from './voice/client.ts';
 import { floatSupported, openFloatingOrb, type FloatingOrb } from './voice/float.ts';
@@ -65,8 +67,8 @@ function Connected({ token }: { token: string }) {
   // Esperando a combinacao nova nas configuracoes: nenhum atalho do app reage as teclas.
   const [hotkeyCapturing, setHotkeyCapturing] = useState(false);
   const voiceActive = voiceOn || holdKey;
-  // Painel do dia (clima, noticias, opcoes): gaveta que comeca fechada.
-  const [drawer, setDrawer] = useState<'day' | 'settings' | null>(null);
+  // Modal aberto pelos botoes do topo: painel do dia (clima, noticias) ou configuracoes.
+  const [modal, setModal] = useState<TopModal | null>(null);
   const desktop = useDesktop();
   // Janela flutuante do navegador (Picture-in-Picture): aberta por um clique nas configuracoes.
   const [floating, setFloating] = useState<FloatingOrb | null>(null);
@@ -114,8 +116,8 @@ function Connected({ token }: { token: string }) {
   const [coreMode, setCoreMode] = useState<CoreSignal['mode']>('idle');
 
   const talkHotkey = holdKey ? hotkey : null;
-  const refs = useRef({ tabs, panel, searchOpen, use3d, talkHotkey, hotkeyCapturing });
-  refs.current = { tabs, panel, searchOpen, use3d, talkHotkey, hotkeyCapturing };
+  const refs = useRef({ tabs, panel, modal, searchOpen, use3d, talkHotkey, hotkeyCapturing });
+  refs.current = { tabs, panel, modal, searchOpen, use3d, talkHotkey, hotkeyCapturing };
 
   useEffect(() => {
     api.overview().then(
@@ -423,6 +425,8 @@ function Connected({ token }: { token: string }) {
   }, [floating, coreMode, voice.jarvis, voice.user]);
 
   onUiRef.current = (command: UiCommand) => {
+    // O modal cobre a tela: o que o Jarvis abrir precisa ficar a vista.
+    setModal(null);
     if (command.kind === 'back') return dispatch({ type: 'back' });
     if (command.kind === 'focus-session') return focusTab(command.id);
     if (command.kind === 'commands') return setPanel({ kind: 'commands' });
@@ -446,12 +450,19 @@ function Connected({ token }: { token: string }) {
       const inTerminal = target?.closest?.('.terminal') != null;
       if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k' && !inTerminal) {
         e.preventDefault();
+        setModal(null);
         setSearchOpen(true);
         return;
       }
       const talking = voiceRef.current?.state === 'thinking' || voiceRef.current?.state === 'speaking';
       if (e.key === 'Escape' && !inTerminal && talking) {
         voiceRef.current?.interrupt();
+        return;
+      }
+      if (e.key === 'Escape' && refs.current.modal) {
+        // Vale ate com o foco no terminal, que pode pega-lo sozinho ao abrir uma sessao.
+        e.stopPropagation();
+        setModal(null);
         return;
       }
       if (e.key === 'Escape' && !inTerminal && !refs.current.searchOpen && refs.current.use3d) {
@@ -508,8 +519,9 @@ function Connected({ token }: { token: string }) {
   return (
     <div className={use3d ? 'app full' : 'app'}>
       {use3d ? (
-        <div className={drawer ? 'day-drawer open' : 'day-drawer'}>
-          {drawer === 'settings' ? (
+        // Mesmo fechado, o painel do dia fica montado: mantem o clima e as noticias em dia para a abertura.
+        <Modal open={modal !== null} label={modal === 'settings' ? 'Configurações' : 'Notícias'} wide={modal === 'settings'} onClose={() => setModal(null)}>
+          {modal === 'settings' ? (
             <SettingsPanel
               api={api}
               settings={settings}
@@ -522,23 +534,7 @@ function Connected({ token }: { token: string }) {
           ) : (
             <DayPanel api={api} voiceStatus={fullVoiceStatus} />
           )}
-          <button
-            className="day-toggle"
-            onClick={() => setDrawer(drawer === 'day' ? null : 'day')}
-            aria-label={drawer === 'day' ? 'Fechar o painel do dia' : 'Abrir o painel do dia'}
-            title={drawer === 'day' ? 'Fechar' : 'Hora, clima e notícias'}
-          >
-            {drawer === 'day' ? '‹' : '›'}
-          </button>
-          <button
-            className="settings-toggle"
-            onClick={() => setDrawer(drawer === 'settings' ? null : 'settings')}
-            aria-label={drawer === 'settings' ? 'Fechar as configurações' : 'Abrir as configurações'}
-            title="Configurações"
-          >
-            ⚙
-          </button>
-        </div>
+        </Modal>
       ) : (
         <Sidebar overview={overview} view={view} sessions={sessions} settings={settings} toggles={toggles} onSelect={setView} />
       )}
@@ -574,14 +570,7 @@ function Connected({ token }: { token: string }) {
                   </Fragment>
                 ))}
               </div>
-              {showFilter && (
-                <input
-                  placeholder="Filtrar"
-                  value={nav.filter}
-                  onChange={(e) => dispatch({ type: 'filter', value: e.target.value })}
-                />
-              )}
-              {holdWave}
+              <TopActions filter={showFilter ? nav.filter : null} onFilter={(value) => dispatch({ type: 'filter', value })} onOpen={setModal} />
             </div>
             <Ring
               items={items}
@@ -630,6 +619,7 @@ function Connected({ token }: { token: string }) {
           </>
         )}
       </main>
+      {use3d && holdWave}
       {backgroundCount > 0 && (
         <div className="background-tasks" role="status">
           {backgroundLabel(backgroundCount)}

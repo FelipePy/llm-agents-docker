@@ -19,7 +19,7 @@ interface Props {
   floating: { open: boolean; toggle: () => void } | null;
 }
 
-/** Configuracoes, na gaveta lateral (aberta pelo botao de engrenagem). */
+/** Configuracoes, no modal aberto pelo botao de engrenagem. */
 export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, onAutostart, floating }: Props) {
   const use3d = settings.webgl && settings.mode3d;
   return (
