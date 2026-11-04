@@ -47,9 +47,17 @@ bash tests/ui.test.sh && bash tests/restart.test.sh             # se mexer em ap
 bash tests/voice-setup.test.sh                                  # se mexer em app/voice/setup.sh
 ```
 
+## Fluxo de trabalho
+- **Pedido para criar uma issue:** só registra em `ISSUES.md` (seção Pendentes). Não implementa nem cria branch.
+- **Pedido direto:** não cria issue. Abre uma branch a partir da `main`, faz o trabalho e roda as verificações.
+- **Merge e push:** só com a aprovação do usuário: `merge --no-ff` na `main` e push para o `origin`, nunca para o `upstream`.
+- **Issue concluída:** apagada do `ISSUES.md` na própria branch, para sair da lista junto com o merge.
+- **Depois do merge:** apaga a branch local (`git branch -d`) e, se foi enviada, a remota (`git push origin --delete`).
+
 ## Regras
 - Um push roda só as verificações no CI. Os instaladores e o release (workflow `desktop`) só saem quando o usuário pede.
-- Commits pequenos, com testes, mensagem em inglês no imperativo. Sem push (quem aplica é o usuário, pelo Jarvis).
+- Commits pequenos, com testes, mensagem em inglês no imperativo.
+- Na sessão de evolução do Jarvis (`aplicar_evolucao`), sem merge e sem push: quem aplica é o usuário, pelo Jarvis.
 - Siga os padrões do código ao redor; comentários em português sem acento, como no resto do código.
 - Nada de chaves, tokens ou dados pessoais em arquivos versionados.
 - Não mexa em `app/desktop` sem necessidade (exige instalador novo) e avise no resumo quando mexer.
