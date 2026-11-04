@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .protocol import JSON, encode_json, read_message
 from .hallucination import looks_like_vocabulary, vocab_tokens
-from .segmenter import Segmenter, end_ms_from
+from .segmenter import HoldBuffer, Segmenter, end_ms_from
 from .groq import GroqError, GroqStt
 from .heard import HeardQueue
 from .speaker import Clips, SpeakerModel, vad_frames, voiced
@@ -202,6 +202,8 @@ def main() -> None:
         except Exception as err:
             log(traceback.format_exc())
             send({"event": "error", "message": f"falha na transcrição: {err}"})
+            # A fala se perdeu: quem esperava a transcricao nao fica esperando para sempre.
+            send({"event": "speech-drop"})
 
     def transcribe_heard(segment: bytes, clip: int, hid: int) -> None:
         sent = False
@@ -308,6 +310,8 @@ def main() -> None:
 
     send({"event": "ready"})
     pending = b""
+    # Fala segurando o atalho (entre os comandos "hold" e "release"); None fora dela.
+    hold = None
     stdin = sys.stdin.buffer
     while True:
         message = read_message(stdin)
@@ -317,7 +321,20 @@ def main() -> None:
         if kind == JSON:
             cmd = json.loads(payload)
             name = cmd.get("cmd")
-            if name == "listen":
+            if name == "hold":
+                hold = HoldBuffer()
+                pending = b""
+                vad.reset_states()
+            elif name == "release":
+                segment = hold.finish() if hold else None
+                hold = None
+                if segment is None:
+                    send({"event": "speech-drop"})
+                else:
+                    state["transcript"] += 1
+                    stt_pool.submit(transcribe, segment, state["transcript"])
+            elif name == "listen":
+                hold = None
                 state["listen"] = True
                 # Enquanto o Jarvis fala ("barge"), so conta como fala do usuario
                 # voz mais forte e mais longa, para o eco nao interromper.
@@ -331,6 +348,7 @@ def main() -> None:
                 # A fala ouvida em espera que estava em andamento continua como fala da conversa.
                 heard.abandon()
             elif name == "sleep":
+                hold = None
                 state["listen"] = False
                 segmenter = Segmenter(end_ms=sleep_end())
                 heard.abandon()
@@ -367,6 +385,10 @@ def main() -> None:
             samples = np.frombuffer(frame, dtype=np.int16)
             # O VAD roda em todo quadro: o segmentador usa, e o trecho da ativacao e cortado por ele.
             speech = float(vad.predict(samples, frame_size=640))
+            # Segurando o atalho, a fala e so a dele: sem palavra de ativacao nem segmentador.
+            if hold is not None:
+                hold.feed(frame, speech)
+                continue
             clips.feed(frame, speech)
             score = max(wake.predict(samples).values())
             now = time.monotonic()

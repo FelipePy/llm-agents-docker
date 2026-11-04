@@ -133,8 +133,12 @@ export type VoiceServerMessage =
   | { type: 'error'; message: string };
 
 export type VoiceClientMessage =
-  | { type: 'start'; lat?: number; lon?: number }
+  /** hold: o usuario fala segurando o atalho; a escuta continua fica desligada. */
+  | { type: 'start'; lat?: number; lon?: number; hold?: boolean }
   | { type: 'stop' }
+  /** Apertou e soltou o atalho de falar (o audio da fala vai entre as duas mensagens). */
+  | { type: 'hold-start' }
+  | { type: 'hold-end' }
   | { type: 'interrupt' }
   | { type: 'played'; id: number }
   /** Conversa direta: envia o texto ditado, apaga o ditado ou sai da conversa direta. */

@@ -4,6 +4,7 @@ import { startCapture } from './capture.ts';
 import { micHeld } from './record.ts';
 import { Player } from './player.ts';
 import { EchoGate } from './echo.ts';
+import { HoldGate, frameRms, waveLevel } from './hold.ts';
 
 export interface VoiceView {
   state: VoiceState;
@@ -14,6 +15,8 @@ export interface VoiceView {
   relay?: string | null;
   /** Texto ditado na conversa direta, ainda nao enviado. */
   relayDraft?: string;
+  /** O usuario esta segurando o atalho de falar. */
+  holding?: boolean;
   /** Tempos da ultima resposta (ms desde o fim da fala) e as ferramentas que ela usou. */
   timing?: { stt: number | null; firstToken: number | null; firstAudio: number | null; tools?: string[] };
 }
@@ -39,15 +42,19 @@ const MODE: Record<VoiceState, CoreMode> = {
   speaking: 'speaking',
 };
 
-export function voiceStatus(v: VoiceView): string {
-  if (v.relay && v.state !== 'off') return `ditando para o ${v.relay} — diga “envia” para enviar, “Jarvis, volta” para sair`;
+/** `hold`: nome do atalho, se fala-se segurando ele (nao ha escuta esperando o nome). */
+export function voiceStatus(v: VoiceView, hold?: string): string {
+  if (v.relay && v.state !== 'off') {
+    const how = hold ? `segure ${hold} e diga` : 'diga';
+    return `ditando para o ${v.relay} — ${how} “envia” para enviar, “Jarvis, volta” para sair`;
+  }
   switch (v.state) {
     case 'off':
       return '';
     case 'preparing':
       return v.detail ? `${v.detail}…` : 'preparando a voz…';
     case 'sleeping':
-      return 'diga “Jarvis”';
+      return hold ? `segure ${hold} para falar` : 'diga “Jarvis”';
     case 'listening':
       return 'ouvindo…';
     case 'thinking':
@@ -77,6 +84,16 @@ export class VoiceClient {
   private outPeak = 0;
   private outTimer: ReturnType<typeof setInterval> | undefined;
   private lastOverEcho = 0;
+  /** Fala-se segurando o atalho: o microfone so vai para o servidor durante o aperto. */
+  private readonly hold: boolean;
+  private readonly gate = new HoldGate({
+    start: () => this.send({ type: 'hold-start' }),
+    frame: (pcm) => {
+      if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(pcm.buffer as ArrayBuffer);
+    },
+    end: () => this.send({ type: 'hold-end' }),
+  });
+  private micVolume = 0;
 
   constructor(
     token: string,
@@ -85,7 +102,9 @@ export class VoiceClient {
     onUi: (command: UiCommand) => void,
     /** A conexao caiu depois de aberta (sem isso, vira um erro na tela). */
     onDrop?: () => void,
+    hold = false,
   ) {
+    this.hold = hold;
     this.onDrop = onDrop;
     this.onUi = onUi;
     this.token = token;
@@ -122,6 +141,12 @@ export class VoiceClient {
         this.outPeak = Math.max(this.outPeak, this.player?.outputRms() ?? 0);
       }, 20);
       this.stopCapture = await startCapture((pcm) => {
+        if (this.hold) {
+          this.micVolume = frameRms(pcm);
+          // Gravando o cadastro da voz, o aperto nao comeca (ver holdStart).
+          this.gate.frame(pcm);
+          return;
+        }
         // Gravando o cadastro da voz: o Jarvis nao ouve (ver record.ts).
         if (ws.readyState === WebSocket.OPEN && !micHeld()) ws.send(pcm.buffer as ArrayBuffer);
         this.checkEcho(pcm);
@@ -135,7 +160,8 @@ export class VoiceClient {
       navigator.geolocation.getCurrentPosition((p) => resolve(p.coords), () => resolve(null), { timeout: 3000, maximumAge: 3600e3 });
     });
     // A localizacao (se permitida) serve para o clima da saudacao inicial.
-    this.send(coords ? { type: 'start', lat: coords.latitude, lon: coords.longitude } : { type: 'start' });
+    const hold = this.hold ? { hold: true } : {};
+    this.send(coords ? { type: 'start', lat: coords.latitude, lon: coords.longitude, ...hold } : { type: 'start', ...hold });
   }
 
   stop(): void {
@@ -148,6 +174,27 @@ export class VoiceClient {
   interrupt(): void {
     this.player?.stop();
     this.send({ type: 'interrupt' });
+  }
+
+  /** Apertou o atalho de falar: se o Jarvis estiver falando, ele cala na hora. */
+  holdStart(): void {
+    if (!this.hold || this.gate.holding || micHeld()) return;
+    if (this.state === 'off' || this.state === 'preparing') return;
+    if (this.state === 'thinking' || this.state === 'speaking') this.player?.stop();
+    this.gate.press();
+    this.onView({ holding: true });
+  }
+
+  /** Soltou o atalho: a fala terminou. */
+  holdEnd(): void {
+    if (!this.gate.holding) return;
+    this.gate.release();
+    this.onView({ holding: false });
+  }
+
+  /** Volume captado para a onda do atalho (0 a 1). */
+  micLevel(): number {
+    return this.gate.holding ? waveLevel(this.micVolume) : 0;
   }
 
   /** Conversa direta: envia o ditado, apaga o ditado, ou sai sem enviar. */
@@ -227,6 +274,10 @@ export class VoiceClient {
 
   private setState(state: VoiceState, detail?: string): void {
     this.state = state;
+    if ((state === 'off' || state === 'preparing') && this.gate.holding) {
+      this.gate.cancel();
+      this.onView({ holding: false });
+    }
     this.onView({ state, detail });
   }
 
@@ -235,6 +286,7 @@ export class VoiceClient {
   }
 
   private cleanup(): void {
+    this.gate.cancel();
     clearInterval(this.outTimer);
     this.outTimer = undefined;
     this.stopCapture?.();

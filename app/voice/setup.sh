@@ -5,11 +5,29 @@
 set -euo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-py="${LLM_AGENT_PYTHON:-python3}"
 venv="$dir/.venv"
 
-if ! "$py" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
-  echo "A voz precisa de Python 3.10 ou mais novo (encontrado: $("$py" --version 2>&1 || echo nenhum))." >&2
+# Python usado: o de LLM_AGENT_PYTHON, se definido (sem troca-lo por outro); senao
+# o python3 e, se ele for antigo (como no Ubuntu 20.04), uma versao instalada ao
+# lado dele. A 3.12 vem antes das demais por ser a testada no CI.
+if [ -n "${LLM_AGENT_PYTHON:-}" ]; then
+  candidates=("$LLM_AGENT_PYTHON")
+else
+  candidates=(python3 python3.12 python3.13 python3.14 python3.11 python3.10)
+fi
+py=""
+for candidate in "${candidates[@]}"; do
+  if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+    py="$candidate"
+    break
+  fi
+done
+if [ -z "$py" ]; then
+  found="nenhum"
+  if command -v "${candidates[0]}" >/dev/null 2>&1; then
+    found="$("${candidates[0]}" --version 2>&1 || echo nenhum)"
+  fi
+  echo "A voz precisa de Python 3.10 ou mais novo (encontrado: $found)." >&2
   exit 2
 fi
 
@@ -26,7 +44,7 @@ if [ -f "$venv/.installed" ] && [ "$(cat "$venv/.installed")" = "$want" ]; then
 fi
 
 if [ ! -x "$venv/bin/python" ] && ! "$py" -m venv "$venv"; then
-  echo "Nao consegui criar o ambiente virtual. No Ubuntu/Debian: sudo apt install python3-venv" >&2
+  echo "Nao consegui criar o ambiente virtual. No Ubuntu/Debian: sudo apt install ${py##*/}-venv" >&2
   exit 3
 fi
 

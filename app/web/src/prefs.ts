@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { DEFAULT_HOTKEY, parseHotkey, usableHotkey, type Hotkey } from './voice/hotkey.ts';
 
 export function hasWebGL(): boolean {
   try {
@@ -10,6 +11,12 @@ export function hasWebGL(): boolean {
 
 export const systemReducedMotion = (): boolean =>
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+
+/**
+ * Ha um mouse (ou trackpad) no aparelho. O navegador nao conta quantos botoes ele tem: um mouse
+ * sem o botao do meio so nunca manda o aperto, e por isso a gravacao nunca o registra.
+ */
+export const hasMouse = (): boolean => window.matchMedia?.('(any-pointer: fine)').matches ?? true;
 
 /** Preferencia booleana guardada no localStorage ('1' / '0'). */
 export function usePref(key: string, initial: boolean): [boolean, (v: boolean) => void] {
@@ -35,4 +42,17 @@ export function useChoice<T extends string>(key: string, initial: T, valid: (v: 
     setValue(v);
   };
   return [value, set];
+}
+
+/**
+ * Atalho de falar, guardado no localStorage; o que estiver invalido volta ao padrao.
+ * Com o botao do meio e sem mouse, vale o padrao, mas a escolha fica guardada para quando o mouse voltar.
+ */
+export function useHotkey(key: string): [Hotkey, (h: Hotkey) => void] {
+  const [value, setValue] = useState<Hotkey>(() => parseHotkey(localStorage.getItem(key)) ?? DEFAULT_HOTKEY);
+  const set = (h: Hotkey) => {
+    localStorage.setItem(key, JSON.stringify(h));
+    setValue(h);
+  };
+  return [usableHotkey(value, hasMouse()), set];
 }
