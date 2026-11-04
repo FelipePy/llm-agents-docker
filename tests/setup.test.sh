@@ -63,7 +63,10 @@ running_version() {
 setup() { bash "$repo_root/app/setup.sh" "$@" 2>>"$work/err"; }
 
 p1="$(payload 1.0.0)"
-out="$(setup start --payload "$p1")"
+check "start nao instala do zero (precisa da aprovacao)" "1 nao" "$(setup start --payload "$p1" >/dev/null; echo $? $([ -e "$root/current" ] && echo sim || echo nao))"
+setup install --payload "$p1" app >/dev/null
+rm -rf "$root"
+out="$(setup deploy "$p1"; setup start --payload "$p1")"
 check "primeira abertura: imprime a URL na ultima linha" "http://127.0.0.1:" "$(echo "$out" | tail -1 | grep -o '^http://127.0.0.1:')"
 check "mostra o progresso da instalacao" "@status Instalando o Jarvis 1.0.0…" "$(echo "$out" | head -1)"
 check "current aponta para a versao" "$root/versions/1.0.0" "$(readlink -f "$root/current")"
