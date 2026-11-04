@@ -10,6 +10,7 @@ const render = (props: { active?: boolean; index?: number } = {}) =>
   renderToStaticMarkup(
     createElement(TerminalTab, {
       session,
+      label: 'Claude',
       projectName: 'jarvis',
       index: 0,
       active: false,
@@ -27,9 +28,16 @@ describe('aba do terminal', () => {
     expect(html.indexOf('class="dot claude"')).toBeGreaterThan(-1);
     expect(html.indexOf('class="dot claude"')).toBeLessThan(html.indexOf('tab-name'));
   });
-  it('mostra o nome completo na dica', () => {
+  it('mostra o nome curto na aba e o completo na dica', () => {
     expect(render()).toContain('title="jarvis · Claude · Sessão 1"');
-    expect(render()).toContain('<span class="tab-name">jarvis · Claude · Sessão 1</span>');
+    expect(render()).toContain('<span class="tab-name">Claude</span>');
+  });
+  it('marca a aba de sessao encerrada', () => {
+    expect(render()).not.toContain('ended');
+    const html = renderToStaticMarkup(
+      createElement(TerminalTab, { session: { ...session, alive: false }, label: 'Claude', index: 0, active: false, onActivate: () => {}, onClose: () => {} }),
+    );
+    expect(html).toContain('class="tab tab-ended"');
   });
   it('numera so as abas com atalho (Ctrl+1 a Ctrl+9)', () => {
     expect(render({ index: 8 })).toContain('<kbd>9</kbd>');

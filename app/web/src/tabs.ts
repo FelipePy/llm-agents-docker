@@ -48,6 +48,37 @@ export function tabName(s: Pick<SessionInfo, 'projectPath' | 'agent' | 'title' |
   return s.alive ? name : `${name} (encerrada)`;
 }
 
+/** Titulos que o servidor da a toda sessao nova: nao ajudam a diferenciar uma aba da outra. */
+const GENERIC_TITLES = new Set(['shell', 'nova conversa']);
+
+/**
+ * Nome curto de cada aba, com o que diferencia uma da outra primeiro: o titulo da conversa ou
+ * o agente; o projeto so entra com mais de um aberto; nomes repetidos ganham numero (Shell 2).
+ */
+export function tabLabels(sessions: Pick<SessionInfo, 'id' | 'projectPath' | 'agent' | 'title'>[], projectNames: Map<string, string>): Map<string, string> {
+  const manyProjects = new Set(sessions.map((s) => s.projectPath)).size > 1;
+  const bases = sessions.map((s) => {
+    const base = GENERIC_TITLES.has(s.title) ? LABEL[s.agent] : s.title;
+    return manyProjects ? `${projectNames.get(s.projectPath) ?? s.projectPath} · ${base}` : base;
+  });
+  const seen = new Map<string, number>();
+  return new Map(
+    sessions.map((s, i) => {
+      const base = bases[i];
+      const n = (seen.get(base) ?? 0) + 1;
+      seen.set(base, n);
+      return [s.id, bases.filter((b) => b === base).length > 1 ? `${base} ${n}` : base];
+    }),
+  );
+}
+
+/** Novo scrollLeft da barra para a aba ficar inteira na tela (nao mexe se ela ja estiver). */
+export function revealScroll(scrollLeft: number, viewWidth: number, itemLeft: number, itemWidth: number): number {
+  if (itemLeft < scrollLeft) return itemLeft;
+  if (itemLeft + itemWidth > scrollLeft + viewWidth) return itemLeft + itemWidth - viewWidth;
+  return scrollLeft;
+}
+
 export function shortcut(e: { key: string; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }): TabAction | null {
   if (!e.ctrlKey || e.altKey) return null;
   if (e.key === 'Tab') return { type: e.shiftKey ? 'prev' : 'next' };

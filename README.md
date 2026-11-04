@@ -161,6 +161,8 @@ O espaço ocupa a tela toda. O painel do dia (hora, data, clima, notícias e as 
 
 As configurações ficam escondidas atrás do botão ⚙ na borda esquerda (abaixo da aba do painel do dia): escuta ativa, **Falar com Ctrl+Espaço** (o nome acompanha o atalho escolhido), **Atalho para falar**, demonstração de voz, **Modo 3D** (troca para a interface em lista), **Cor do Jarvis**, **Reduzir movimento**, **Sons de clique** e, no app desktop, **Iniciar com o sistema**. No navegador, há também **Abrir janela flutuante**: uma janelinha do Jarvis por cima das outras abas e programas (o navegador só a abre com um clique). Em GPUs mais fracas, a cena reduz a qualidade sozinha.
 
+Com muitos terminais abertos, as abas encolhem até uma largura mínima e, dali em diante, a barra rola pelas setas ou pela roda do mouse; o botão com o número de terminais lista todos, com busca. A aba mostra um nome curto (`Shell 2`, o título da conversa, e o projeto quando há mais de um aberto), e o nome completo aparece ao passar o mouse. Abas de sessões encerradas ficam em itálico. A página não rola: só as áreas internas, como o histórico do terminal.
+
 Atalhos: `Ctrl+1`…`Ctrl+9` vão para uma aba, `Ctrl+Tab` e `Ctrl+Shift+Tab` alternam (no navegador, esses dois são do próprio navegador), `Ctrl+Shift+W` fecha a aba e `Ctrl+K`, fora do terminal, abre a busca. Se ligado nas configurações, segurar `Ctrl+Espaço` (ou o atalho gravado em ⚙ → Voz, que pode incluir o botão do meio do mouse) fala com o Jarvis.
 
 O servidor escuta só em `127.0.0.1` (porta 7777, ou `LLM_AGENT_UI_PORT`) e exige o token que vai na URL, salvo em `~/.config/llm-agent/ui/token`. Quem tem a URL pode abrir agentes autônomos nos seus projetos, então não a compartilhe.
