@@ -40,7 +40,20 @@ esac'
 fake getent 'cat "$FAKE/getent" 2>/dev/null'
 for c in apt-get usermod useradd systemctl add-apt-repository; do fake "$c" "echo \"$c \$*\" >>$log"; done
 fake nvidia-smi 'exit 1'
-export PATH="$work/bin:$PATH"
+# PATH isolado: os falsos e os comandos do sistema, menos os que o setup.sh detecta
+# (um runner do CI tem Docker, Node e systemd de verdade; os testes nao podem ve-los).
+mkdir -p "$work/sys"
+IFS=: read -ra path_dirs <<<"$PATH"
+for dir in "${path_dirs[@]}"; do
+  for f in "$dir"/*; do
+    name="${f##*/}"
+    case "$name" in
+      docker | docker-* | dockerd | containerd* | dpkg-query | systemctl | apt-get | add-apt-repository | node | npm | npx | nvidia-smi | usermod | useradd | getent | id) continue ;;
+    esac
+    [ -x "$f" ] && [ ! -e "$work/sys/$name" ] && ln -s "$f" "$work/sys/$name"
+  done
+done
+export PATH="$work/bin:$work/sys"
 
 item_state() { grep "\"id\":\"$1\"" | grep -o '"state":"[^"]*"' | cut -d'"' -f4; }
 run() { bash "$repo_root/app/setup.sh" "$@" 2>>"$work/err"; }
