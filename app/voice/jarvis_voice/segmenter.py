@@ -5,6 +5,8 @@ FRAME_MS = 80
 # Faixa do silencio que encerra a fala (o servidor ja limita; aqui e so por garantia).
 END_MS_MIN = 300
 END_MS_MAX = 5000
+# Fala segurando o atalho: o que passar disto fica de fora (protege a memoria e a transcricao).
+HOLD_MAX_MS = 120_000
 
 
 def end_ms_from(value, fallback: int) -> int:
@@ -74,3 +76,25 @@ class Segmenter:
         self.last_frames = list(zip(self._speech, self._scores))
         self.reset()
         return False, segment if speech_ms >= self.min_ms else None
+
+
+class HoldBuffer:
+    """Fala do atalho: vai de apertar a soltar, sem depender de silencio. O VAD so descarta o aperto sem voz."""
+
+    def __init__(self, threshold: float = 0.5, min_voiced_frames: int = 2, max_ms: int = HOLD_MAX_MS):
+        self.threshold = threshold
+        self.min_voiced_frames = min_voiced_frames
+        self.max_frames = max_ms // FRAME_MS
+        self._frames: List[bytes] = []
+        self._voiced = 0
+
+    def feed(self, frame: bytes, score: float) -> None:
+        if len(self._frames) >= self.max_frames:
+            return
+        self._frames.append(frame)
+        if score >= self.threshold:
+            self._voiced += 1
+
+    def finish(self) -> Optional[bytes]:
+        """Audio segurado, ou None se nao houve voz."""
+        return b"".join(self._frames) if self._voiced >= self.min_voiced_frames else None
