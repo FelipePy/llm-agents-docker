@@ -25,7 +25,9 @@ if [ -f "$venv/.installed" ] && [ "$(cat "$venv/.installed")" = "$want" ]; then
   exit 0
 fi
 
-if [ ! -x "$venv/bin/python" ] && ! "$py" -m venv "$venv"; then
+# O .venv pode ser um link (instalacao do app desktop: o ambiente fica fora da versao),
+# e o venv nao cria o ambiente atraves de um link: cria no destino dele.
+if [ ! -x "$venv/bin/python" ] && ! "$py" -m venv "$(readlink -f "$venv")"; then
   echo "Nao consegui criar o ambiente virtual. No Ubuntu/Debian: sudo apt install python3-venv" >&2
   exit 3
 fi
