@@ -30,21 +30,52 @@ export const isClear = (text: string): boolean => /^(limpa|limpa tudo|apaga tudo
 export const isStopRequest = (text: string): boolean =>
   /\b(jarvis|javis|jarbas|para|pare|parar|espera|espere|chega|silencio|cala)\b/.test(normalize(text));
 
-const GREETINGS = new Set(['hey', 'hei', 'ei', 'oi', 'ola', 'fala', 'ok', 'okay', 'alo']);
+const GREETINGS = new Set(['hey', 'hei', 'ei', 'oi', 'ola', 'fala', 'ok', 'okay', 'alo', 'rei']);
 // Grafias que o whisper costuma produzir para "Jarvis".
 const JARVIS = new Set(['jarvis', 'javis', 'jarvas', 'jarves', 'jarbas', 'jarviz', 'djarvis', 'jarvi', 'garvis']);
+
+/** Distancia de edicao (insercoes, remocoes e trocas de letra). */
+function editDistance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = row;
+  }
+  return prev[b.length];
+}
+
+/**
+ * Palavra que o whisper escreveu no lugar de "Jarvis" ("Charvis", "Jervis", "Jarbis"...):
+ * troca os sons parecidos (ch/dj/g/y -> j, b/w -> v, z -> s) e aceita uma letra de diferenca.
+ */
+export function isJarvisWord(word: string): boolean {
+  const w = normalize(word).replace(/\s/g, '');
+  if (JARVIS.has(w)) return true;
+  if (w.length < 5 || w.length > 8) return false;
+  const sound = w.replace(/^(dj|ch|sh|g|y)/, 'j').replace(/[bw]/g, 'v').replace(/z/g, 's').replace(/y/g, 'i');
+  return editDistance(sound, 'jarvis') <= 1;
+}
 
 /**
  * Fala que comeca chamando o Jarvis ("Jarvis", "Ei, Jarvis, abre o meu-app").
  * Devolve o pedido que veio junto (vazio se foi so o chamado), ou null.
+ * O nome pode vir mal escrito pelo whisper, ou partido em dois ("Jar vis").
  */
 export function matchWake(text: string): { rest: string } | null {
   const words = text.trim().split(/\s+/).filter(Boolean);
   let i = 0;
   if (words.length > 1 && normalize(words[0]) === 'e' && normalize(words[1]) === 'ai') i = 2;
   else if (words.length && GREETINGS.has(normalize(words[0]))) i = 1;
-  if (i >= words.length || !JARVIS.has(normalize(words[i]))) return null;
-  return { rest: words.slice(i + 1).join(' ').replace(/^[\s,.:;!?-]+/, '').trim() };
+  if (i >= words.length) return null;
+  let next = i + 1;
+  if (!isJarvisWord(words[i])) {
+    const head = normalize(words[i]);
+    const split = i + 1 < words.length && head.length >= 2 && head.length <= 3 && /^(j|g|ch|dj|y)/.test(head) && isJarvisWord(words[i] + words[i + 1]);
+    if (!split) return null;
+    next = i + 2;
+  }
+  return { rest: words.slice(next).join(' ').replace(/^[\s,.:;!?-]+/, '').trim() };
 }
 
 /** "volta", "voltar", "sair": pedido para sair da conversa direta com uma sessao. */

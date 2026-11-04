@@ -33,10 +33,13 @@ export interface VoiceProfile {
   emailHint: string | null;
   /** Da para receber o codigo de recuperacao por e-mail. */
   emailRecovery: boolean;
+  /** O perfil tem as chamadas curtas ("Jarvis")? Perfis antigos nao: vale refazer. */
+  calls: boolean;
 }
-/** Cadastro: 4 frases (PCM 16 kHz em base64); senha na 1a vez, senha atual para refazer. */
+/** Cadastro: 4 frases e 3 chamadas (PCM 16 kHz em base64); senha na 1a vez, senha atual para refazer. */
 export interface VoiceEnrollInput {
   audio: string[];
+  calls: string[];
   password?: string;
   currentPassword?: string;
   email?: string;

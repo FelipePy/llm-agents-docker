@@ -18,7 +18,7 @@ export type WorkerCommand =
   /** Silencio (ms) que encerra a fala do usuario. */
   | { cmd: 'pauses'; end_ms: number }
   /** Vetores da voz (reconhecer o usuario): de trechos PCM em base64 ou de um trecho guardado pelo worker. */
-  | { cmd: 'embed'; id: number; audio?: string[]; clip?: number };
+  | { cmd: 'embed'; id: number; audio?: string[]; trim?: boolean; clip?: number };
 
 export type WorkerEvent =
   | { event: 'ready' }
@@ -28,8 +28,14 @@ export type WorkerEvent =
   | { event: 'speech-start' }
   | { event: 'speech-drop' }
   | { event: 'transcript'; id: number; text: string; ms?: number }
-  /** Fala transcrita enquanto o Jarvis espera ser chamado (para "Jarvis, ..."). */
-  | { event: 'heard'; text: string; ms?: number; clip?: number }
+  /**
+   * Fala transcrita enquanto o Jarvis espera ser chamado (para "Jarvis, ..."). `id` e o
+   * mesmo do "heard-start"; "heard-drop" avisa que a fala nao vai virar "heard" (ruido,
+   * longa demais, transcricao vazia).
+   */
+  | { event: 'heard'; text: string; ms?: number; clip?: number; id?: number }
+  | { event: 'heard-start'; id: number }
+  | { event: 'heard-drop'; id: number }
   /** Resposta ao "embed": um vetor por trecho (null se curto demais), ou o erro. */
   | { event: 'embedding'; id: number; vectors?: (number[] | null)[]; error?: string }
   | { event: 'audio'; id: number; data: string; last: boolean }
@@ -88,6 +94,13 @@ const ANNOUNCE_QUIET_MS = 10_000;
 const NOTICE_CONTEXT_MS = 10 * 60_000;
 /** Depois de falar "acesso negado", outros chamados recusados neste intervalo so aparecem na legenda. */
 const REFUSE_REPEAT_MS = 30_000;
+/**
+ * "Jarvis" ... pausa ... "abre o meu-app": a fala depois do chamado (ainda ouvida no modo
+ * de espera) vale como o pedido se chegar ate este tempo depois do chamado.
+ */
+const FOLLOW_UP_MS = 10_000;
+/** Fala ouvida em espera sem transcricao nem descarte depois disto e esquecida (o worker trocou de modo). */
+const HEARING_STALE_MS = 15_000;
 /**
  * Fala que parou no meio da frase ("abre o projeto e"): o worker ja esperou 1 s de
  * silencio; o Jarvis espera mais isto pela continuacao (3 s no total) e entao responde.
@@ -168,6 +181,15 @@ export class VoiceSession {
   private readonly speaker: SpeakerCheck | undefined;
   /** Conferindo a voz de quem chamou: outras ativacoes esperam o resultado. */
   private checkingVoice = false;
+  /**
+   * Chamado em andamento: o pedido que veio junto, as falas ouvidas depois dele (que
+   * completam o pedido) e o numero da ultima fala que ja fazia parte do chamado.
+   * `awake`: ja acordou sem saudacao, esperando a fala que ainda estava sendo transcrita.
+   */
+  private call: { rest: string; parts: string[]; ms?: number; after: number; until: number; awake: boolean } | null = null;
+  /** Falas que o worker comecou a ouvir em espera e ainda nao transcreveu (numero -> quando). */
+  private readonly hearing = new Map<number, number>();
+  private lastHeardId = 0;
   /** Falando que nao reconheceu a voz: nada interrompe nem abre a conversa. */
   private refusing = false;
   /** Quando o Jarvis falou "acesso negado" por ultimo (para nao repetir o aviso sem parar). */
@@ -234,6 +256,8 @@ export class VoiceSession {
     this.dropUnfinished();
     this.refusing = false;
     this.checkingVoice = false;
+    this.call = null;
+    this.hearing.clear();
     this.mute();
     this.setRelay(null);
     this.worker.off('event', this.listener);
@@ -377,10 +401,13 @@ export class VoiceSession {
   /**
    * Chamado enquanto esperava: com voz cadastrada, so acorda se a voz de quem
    * chamou for a do usuario; se nao for, avisa e continua esperando.
+   * `rest`: o pedido que veio junto do nome; `after`: numero da fala do chamado
+   * (as seguintes podem ser a continuacao: "Jarvis" ... pausa ... "abre o meu-app").
    */
-  private activate(clip: number | undefined, wake: () => void, heard?: string): void {
-    if (!this.speaker?.enrolled()) return wake();
+  private activate(clip: number | undefined, rest: string, after: number, ms?: number, heard?: string): void {
     if (this.checkingVoice) return;
+    this.call = { rest, parts: [], ms, after, until: this.now() + FOLLOW_UP_MS, awake: false };
+    if (!this.speaker?.enrolled()) return this.answerCall();
     this.checkingVoice = true;
     const stopped = this.stopController.signal;
     void this.speaker
@@ -392,10 +419,75 @@ export class VoiceSession {
       .then((ok) => {
         this.checkingVoice = false;
         if (stopped.aborted || this.state !== 'sleeping') return;
-        if (ok) return wake();
-        if (ok === null) return this.refuse(VOICE_CHECK_FAILED, heard);
-        this.deny(heard);
+        if (ok) return this.answerCall();
+        // A continuacao ouvida durante a verificacao tambem aparece como ignorada.
+        const ignored = [heard, ...(this.call?.parts ?? [])].filter(Boolean).join(' ') || undefined;
+        this.call = null;
+        if (ok === null) return this.refuse(VOICE_CHECK_FAILED, ignored);
+        this.deny(ignored);
       });
+  }
+
+  /**
+   * Voz conferida: acorda. O pedido e o que veio com o nome mais o que foi ouvido
+   * depois (durante a verificacao). So o nome, sem pedido: se o usuario ja voltou a
+   * falar (a fala ainda esta sendo ouvida ou transcrita), acorda sem saudacao para
+   * nao falar por cima e espera essa fala; se nao, cumprimenta.
+   */
+  private answerCall(): void {
+    const call = this.call;
+    if (!call) return this.wakeUp(true);
+    const request = [call.rest, ...call.parts].filter(Boolean).join(' ');
+    if (request) {
+      this.call = null;
+      this.wakeUp(false);
+      this.utterance(request, call.ms);
+      return;
+    }
+    if (this.stillHearing(call.after)) {
+      this.log('chamado sem pedido, mas o usuário continuou falando: espera o pedido sem saudação');
+      call.awake = true;
+      this.wakeUp(false);
+      return;
+    }
+    this.call = null;
+    this.wakeUp(true);
+  }
+
+  /** Alguma fala depois da `after` ainda esta sendo ouvida ou transcrita no modo de espera? */
+  private stillHearing(after: number): boolean {
+    const now = this.now();
+    for (const [id, at] of this.hearing) {
+      if (now - at > HEARING_STALE_MS) this.hearing.delete(id);
+      else if (id > after) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Fala ouvida em espera logo depois de um chamado: completa o pedido. Durante a
+   * verificacao, junta ao chamado; ja acordado (sem saudacao, esperando), vira o pedido.
+   * Devolve se a fala foi usada (um "Jarvis" repetido e so descartado).
+   */
+  private followUp(text: string, ms?: number): boolean {
+    const call = this.call;
+    if (!call) return false;
+    if (this.now() > call.until) {
+      this.call = null;
+      return false;
+    }
+    if (this.state === 'sleeping' && this.checkingVoice) {
+      if (text) call.parts.push(text);
+      if (ms !== undefined) call.ms = ms;
+      return true;
+    }
+    if (call.awake && this.state === 'listening') {
+      if (!text) return true;
+      this.call = null;
+      this.utterance(text, ms);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -489,24 +581,27 @@ export class VoiceSession {
       case 'status':
         if (this.state === 'preparing') this.setState('preparing', e.message);
         return;
+      case 'heard-start':
+        this.hearing.set(e.id, this.now());
+        this.lastHeardId = Math.max(this.lastHeardId, e.id);
+        return;
+      case 'heard-drop':
+        this.hearing.delete(e.id);
+        return;
       case 'heard': {
-        // Chamado pelo nome ("Jarvis", "Jarvis, abre o meu-app") enquanto espera.
-        if (this.state !== 'sleeping') return;
+        if (e.id !== undefined) this.hearing.delete(e.id);
         const called = matchWake(e.text);
-        if (!called) return;
-        return this.activate(
-          e.clip,
-          () => {
-            this.wakeUp(!called.rest);
-            if (called.rest) this.utterance(called.rest, e.ms);
-          },
-          e.text.trim(),
-        );
+        // Continuacao de um chamado: "Jarvis" ... pausa ... "abre o meu-app".
+        if (this.followUp(called ? called.rest : e.text.trim(), e.ms)) return;
+        // Chamado pelo nome ("Jarvis", "Jarvis, abre o meu-app") enquanto espera.
+        if (this.state !== 'sleeping' || !called) return;
+        return this.activate(e.clip, called.rest, e.id ?? this.lastHeardId, e.ms, e.text.trim());
       }
       case 'wake':
         if (this.refusing) return;
         if (this.state === 'sleeping') {
-          this.activate(e.clip, () => this.wakeUp(true));
+          // A fala que contem a palavra de ativacao ja comecou: so as seguintes sao continuacao.
+          this.activate(e.clip, '', this.lastHeardId);
         } else if (this.relay && this.state === 'listening') {
           this.setRelay(null);
           this.send({ type: 'chime' });
@@ -865,6 +960,8 @@ export class VoiceSession {
 
   private setState(state: VoiceState, detail?: string): void {
     if (state === 'listening' && this.state !== 'listening') this.listeningAt = this.now();
+    // O pedido depois do chamado ja chegou (ou a conversa seguiu): nada mais a completar.
+    if ((state !== 'listening' && this.call?.awake) || (state === 'sleeping' && !this.checkingVoice)) this.call = null;
     this.state = state;
     this.send(detail ? { type: 'state', state, detail } : { type: 'state', state });
   }

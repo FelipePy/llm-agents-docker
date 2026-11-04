@@ -9,6 +9,13 @@ export const PHRASES = [
   'Quais são as notícias mais importantes desta manhã?',
   'Me avisa quando a sessão terminar, por favor.',
 ];
+/**
+ * Chamadas curtas, como no dia a dia: comparar o chamado com chamadas da mesma pessoa
+ * reconhece bem melhor do que so com as frases. Enquanto grava, o Jarvis nao ouve.
+ */
+export const CALLS = ['Jarvis', 'Hey Jarvis', 'Ei, Jarvis'];
+/** Cada chamada grava um tempo fixo e para sozinha (o nome e curto demais para "Parar"). */
+export const CALL_RECORD_S = 2.5;
 const MIN_PASSWORD = 8;
 
 type Notice = { kind: 'ok' | 'error' | 'busy'; text: string } | null;
@@ -18,12 +25,14 @@ const errorText = (err: unknown) => (err instanceof Error ? err.message : String
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '');
 
 /** Botao de gravar uma frase: Gravar -> Parar (com os segundos) -> Regravar. */
-function Recorder({ phrase, audio, onAudio, onError, disabled }: {
+function Recorder({ phrase, audio, onAudio, onError, disabled, fixedS }: {
   phrase: string;
   audio: string | null;
   onAudio: (b64: string | null) => void;
   onError: (text: string) => void;
   disabled?: boolean;
+  /** Grava este tempo e para sozinha (chamadas curtas). */
+  fixedS?: number;
 }) {
   const [secs, setSecs] = useState<number | null>(null);
   const rec = useRef<{ stop(): string; cancel(): void } | null>(null);
@@ -40,14 +49,14 @@ function Recorder({ phrase, audio, onAudio, onError, disabled }: {
     if (!r) return;
     const b64 = r.stop();
     setSecs(null);
-    if (recorded.current < MIN_RECORD_S) onError('Gravação curta demais: leia a frase inteira.');
+    if (recorded.current < MIN_RECORD_S) onError(fixedS ? 'Gravação interrompida: grave a chamada de novo.' : 'Gravação curta demais: leia a frase inteira.');
     else onAudio(b64);
   };
   const start = async () => {
     onAudio(null);
     tick(0);
     try {
-      rec.current = await recordPhrase(tick, finish);
+      rec.current = await recordPhrase(tick, finish, fixedS);
     } catch (err) {
       setSecs(null);
       onError(`Não consegui abrir o microfone (${errorText(err)}).`);
@@ -58,7 +67,11 @@ function Recorder({ phrase, audio, onAudio, onError, disabled }: {
     <div className="voice-phrase">
       <span>“{phrase}”</span>
       {secs !== null ? (
-        <button onClick={finish}>Parar ({secs.toFixed(0)} s)</button>
+        fixedS ? (
+          <button disabled>Chame agora…</button>
+        ) : (
+          <button onClick={finish}>Parar ({secs.toFixed(0)} s)</button>
+        )
       ) : (
         <button disabled={disabled} onClick={() => void start()}>
           {audio ? 'Regravar' : 'Gravar'}
@@ -75,6 +88,7 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
   const [mode, setMode] = useState<Mode>('view');
   const [notice, setNotice] = useState<Notice>(null);
   const [audio, setAudio] = useState<(string | null)[]>(PHRASES.map(() => null));
+  const [calls, setCalls] = useState<(string | null)[]>(CALLS.map(() => null));
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [current, setCurrent] = useState('');
@@ -90,6 +104,7 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
     setMode(next);
     setNotice(null);
     setAudio(PHRASES.map(() => null));
+    setCalls(CALLS.map(() => null));
     setPassword('');
     setConfirm('');
     setCurrent('');
@@ -112,6 +127,7 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
   const busy = notice?.kind === 'busy';
   const fail = (text: string) => setNotice({ kind: 'error', text });
   const setPhrase = (i: number) => (b64: string | null) => setAudio((a) => a.map((v, j) => (j === i ? b64 : v)));
+  const setCall = (i: number) => (b64: string | null) => setCalls((a) => a.map((v, j) => (j === i ? b64 : v)));
   const newPasswordOk = password.length >= MIN_PASSWORD && password === confirm;
 
   const notes = notice && <p className={`stt-notice ${notice.kind}`}>{notice.text}</p>;
@@ -133,13 +149,14 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
   if (mode === 'enroll') {
     const redo = profile.enrolled;
     const passwordOk = redo ? current.length > 0 && (!password || newPasswordOk) : newPasswordOk;
-    const ready = audio.every(Boolean) && passwordOk && !busy;
+    const ready = audio.every(Boolean) && calls.every(Boolean) && passwordOk && !busy;
     const submit = () =>
       void run(
         'Analisando a sua voz (na primeira vez o modelo é baixado, ~26 MB)…',
         () =>
           api.enrollVoice({
             audio: audio as string[],
+            calls: calls as string[],
             ...(password ? { password } : {}),
             ...(redo ? { currentPassword: current } : {}),
             ...(email.trim() || !redo ? { email: email.trim() } : {}),
@@ -152,6 +169,13 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
         <p className="muted">Num lugar silencioso, grave cada frase com a sua voz normal, como fala com o Jarvis.</p>
         {PHRASES.map((phrase, i) => (
           <Recorder key={i} phrase={phrase} audio={audio[i]} onAudio={setPhrase(i)} onError={fail} disabled={busy} />
+        ))}
+        <p className="muted">
+          Agora chame o Jarvis 3 vezes, do jeito e do lugar de onde você costuma chamar. Cada gravação dura{' '}
+          {CALL_RECORD_S.toLocaleString('pt-BR')} s e para sozinha; enquanto grava, ele não ouve.
+        </p>
+        {CALLS.map((call, i) => (
+          <Recorder key={`c${i}`} phrase={call} audio={calls[i]} onAudio={setCall(i)} onError={fail} disabled={busy} fixedS={CALL_RECORD_S} />
         ))}
         {redo && (
           <label className="field">
@@ -252,6 +276,9 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
           ? `✓ Voz cadastrada${profile.enrolledAt ? ` em ${date(profile.enrolledAt)}` : ''}: só ela ativa o Jarvis.`
           : 'Nenhuma voz cadastrada: qualquer voz ativa o Jarvis.'}
       </p>
+      {profile.enrolled && !profile.calls && (
+        <p className="muted">Cadastro antigo, sem as chamadas ("Jarvis"): refaça a voz para ele reconhecer você melhor quando chamar.</p>
+      )}
       <div className="stt-actions">
         <button onClick={() => open('enroll')}>{profile.enrolled ? 'Refazer voz' : 'Cadastrar voz'}</button>
         {profile.enrolled && (

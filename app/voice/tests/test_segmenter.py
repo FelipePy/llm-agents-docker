@@ -39,6 +39,8 @@ class SegmenterTest(unittest.TestCase):
         self.assertEqual(segment, expected)
         self.assertFalse(seg.active)
         self.assertTrue(all(e[1] is None for e in events[:-1]))
+        # Os quadros vem com o score do VAD (para cortar o silencio antes de conferir a voz).
+        self.assertEqual(seg.last_frames, [(frame(i), scores[i]) for i in range(1, 21)])
 
     def test_one_second_pause_ends_the_speech(self):
         # Fim da fala do Jarvis: 1 s de silencio; pausas menores nao cortam a frase.

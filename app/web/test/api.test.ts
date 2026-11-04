@@ -149,11 +149,12 @@ it('enrollVoice e recoverVoice enviam POST e mostram o erro do servidor', async 
     calls.push({ url, init });
     return url.endsWith('/recover')
       ? new Response('{"error":"Não reconheci a sua voz."}', { status: 400 })
-      : new Response('{"enrolled":true,"enrolledAt":"2026-11-03T10:00:00Z","emailHint":null,"emailRecovery":false}');
+      : new Response('{"enrolled":true,"enrolledAt":"2026-11-03T10:00:00Z","emailHint":null,"emailRecovery":false,"calls":true}');
   }) as unknown as typeof fetch;
   const api = new Api('tok', fetchImpl);
-  expect((await api.enrollVoice({ audio: ['AAAA'], password: 'senha-boa' })).enrolled).toBe(true);
+  expect((await api.enrollVoice({ audio: ['AAAA'], calls: ['BBBB'], password: 'senha-boa' })).enrolled).toBe(true);
   expect(calls[0].url).toBe('/api/voice/profile');
+  expect(JSON.parse(String(calls[0].init?.body)).calls).toEqual(['BBBB']);
   expect(calls[0].init?.method).toBe('POST');
   expect((calls[0].init?.headers as Record<string, string>).authorization).toBe('Bearer tok');
   await expect(api.recoverVoice({ method: 'voice', audio: 'AAAA', password: 'nova-senha' })).rejects.toThrow('Não reconheci a sua voz.');

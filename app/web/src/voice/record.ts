@@ -6,6 +6,21 @@ export const MAX_RECORD_S = 12;
 export const MIN_RECORD_S = 1.5;
 const RATE = 16000;
 
+// Gravando o cadastro da voz: o microfone nao vai para o Jarvis (as chamadas
+// "Jarvis" gravadas acordariam ele, e as frases virariam conversa de fundo).
+let holds = 0;
+export const micHeld = (): boolean => holds > 0;
+/** Segura o microfone; a funcao devolvida solta (so a primeira chamada conta). */
+export function holdMic(): () => void {
+  holds++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    holds--;
+  };
+}
+
 /** PCM 16 bits (little-endian) em base64, o formato que o servidor espera. */
 export function pcmBase64(frames: Int16Array[]): string {
   const total = frames.reduce((n, f) => n + f.length, 0);
@@ -21,22 +36,34 @@ export function pcmBase64(frames: Int16Array[]): string {
 export const seconds = (frames: Int16Array[]): number => frames.reduce((n, f) => n + f.length, 0) / RATE;
 
 /**
- * Grava uma frase do microfone (16 kHz). Para sozinha em MAX_RECORD_S;
+ * Grava uma frase do microfone (16 kHz). Para sozinha em `maxS` (padrao MAX_RECORD_S);
  * `stop` devolve o audio em base64. `onTick` recebe os segundos gravados.
  */
-export async function recordPhrase(onTick: (s: number) => void, onAutoStop: () => void): Promise<{ stop(): string; cancel(): void }> {
+export async function recordPhrase(
+  onTick: (s: number) => void,
+  onAutoStop: () => void,
+  maxS = MAX_RECORD_S,
+): Promise<{ stop(): string; cancel(): void }> {
   const frames: Int16Array[] = [];
   let stopped = false;
-  const stopCapture = await startCapture((pcm) => {
-    if (stopped) return;
-    frames.push(pcm.slice());
-    const s = seconds(frames);
-    onTick(s);
-    if (s >= MAX_RECORD_S) onAutoStop();
-  });
+  const release = holdMic();
+  let stopCapture: () => void;
+  try {
+    stopCapture = await startCapture((pcm) => {
+      if (stopped) return;
+      frames.push(pcm.slice());
+      const s = seconds(frames);
+      onTick(s);
+      if (s >= maxS) onAutoStop();
+    });
+  } catch (err) {
+    release();
+    throw err;
+  }
   const end = () => {
     if (!stopped) stopCapture();
     stopped = true;
+    release();
   };
   return {
     stop: () => {

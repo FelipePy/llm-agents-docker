@@ -867,3 +867,110 @@ test('sem voz cadastrada, qualquer voz ativa (sem conferir)', async () => {
   assert.equal(session.state, 'listening');
   assert.equal(asked, 0);
 });
+
+/** Sessao com voz cadastrada e saudacao; a verificacao so termina com `release`. */
+async function withGate(enrolled = true) {
+  const worker = new FakeWorker();
+  const brain = new FakeBrain([['Abrindo.']]);
+  const sent: VoiceServerMessage[] = [];
+  const logs: string[] = [];
+  let release: (ok: boolean) => void = () => {};
+  const session = new VoiceSession(worker, brain, (m) => sent.push(m), () => 0, (l) => logs.push(l), {
+    greetings: ['Oi, pode falar.'],
+    speaker: {
+      enrolled: () => enrolled,
+      verify: () => new Promise<boolean>((ok) => (release = ok)),
+    },
+  });
+  await session.start();
+  const greeted = () => worker.speaks().some((c) => c.text === 'Oi, pode falar.');
+  const flush = () => new Promise((r) => setImmediate(r));
+  return { worker, brain, sent, logs, session, greeted, flush, release: (ok: boolean) => release(ok) };
+}
+
+test('"Jarvis" ... pausa ... pedido: a fala ouvida durante a verificacao vira o pedido, sem saudacao', async () => {
+  const s = await withGate();
+  s.worker.fire({ event: 'heard-start', id: 1 });
+  s.worker.fire({ event: 'heard', text: 'Jarvis', clip: 1, id: 1 });
+  s.worker.fire({ event: 'heard-start', id: 2 });
+  s.worker.fire({ event: 'heard', text: 'abre o meu-app', clip: 2, id: 2 });
+  assert.equal(s.session.state, 'sleeping', 'ainda conferindo a voz');
+  s.release(true);
+  await waitFor(() => s.brain.calls.length === 1);
+  assert.deepEqual(s.brain.calls, ['abre o meu-app']);
+  assert.equal(s.greeted(), false);
+});
+
+test('"Jarvis" ... pausa ... pedido ainda sendo transcrito: acorda sem saudacao e espera o pedido', async () => {
+  const s = await withGate();
+  s.worker.fire({ event: 'heard-start', id: 1 });
+  s.worker.fire({ event: 'heard', text: 'Jarvis', clip: 1, id: 1 });
+  s.worker.fire({ event: 'heard-start', id: 2 });
+  s.release(true);
+  await waitFor(() => s.session.state === 'listening');
+  assert.equal(s.greeted(), false, 'nao fala por cima do pedido');
+  assert.ok(s.logs.some((l) => /continuou falando/.test(l)));
+  // A transcricao da fala ouvida em espera chega ja acordado: vira o pedido.
+  s.worker.fire({ event: 'heard', text: 'abre o meu-app', clip: 2, id: 2 });
+  await waitFor(() => s.brain.calls.length === 1);
+  assert.deepEqual(s.brain.calls, ['abre o meu-app']);
+});
+
+test('"Jarvis" sem continuacao: cumprimenta como antes (ruido descartado nao conta)', async () => {
+  const s = await withGate();
+  s.worker.fire({ event: 'heard-start', id: 1 });
+  s.worker.fire({ event: 'heard', text: 'Jarvis', clip: 1, id: 1 });
+  s.worker.fire({ event: 'heard-start', id: 2 });
+  s.worker.fire({ event: 'heard-drop', id: 2 });
+  s.release(true);
+  await waitFor(() => s.greeted());
+  assert.equal(s.session.state, 'speaking');
+  // O "Jarvis" repetido que chega depois nao vira pedido.
+  s.worker.fire({ event: 'heard', text: 'Jarvis', clip: 3, id: 3 });
+  await s.flush();
+  assert.deepEqual(s.brain.calls, []);
+});
+
+test('palavra de ativacao: a propria fala do chamado nao segura a saudacao; o pedido junto dela vale', async () => {
+  const s = await withGate();
+  // "Hey Jarvis" sozinho: a fala que contem o chamado ainda esta aberta.
+  s.worker.fire({ event: 'heard-start', id: 1 });
+  s.worker.fire({ event: 'wake', score: 0.9, clip: 5 });
+  s.release(true);
+  await waitFor(() => s.greeted());
+  s.session.stop();
+
+  // "Hey Jarvis, abre o meu-app" terminado antes da verificacao: o pedido nao se perde.
+  const t = await withGate();
+  t.worker.fire({ event: 'heard-start', id: 1 });
+  t.worker.fire({ event: 'wake', score: 0.9, clip: 5 });
+  t.worker.fire({ event: 'heard', text: 'Hey Jarvis, abre o meu-app', clip: 6, id: 1 });
+  t.release(true);
+  await waitFor(() => t.brain.calls.length === 1);
+  assert.deepEqual(t.brain.calls, ['abre o meu-app']);
+  assert.equal(t.greeted(), false);
+});
+
+test('voz recusada: a continuacao tambem e ignorada e nada e executado', async () => {
+  const s = await withGate();
+  s.worker.fire({ event: 'heard-start', id: 1 });
+  s.worker.fire({ event: 'heard', text: 'Jarvis', clip: 1, id: 1 });
+  s.worker.fire({ event: 'heard', text: 'apaga tudo', clip: 2, id: 2 });
+  s.release(false);
+  await waitFor(() => s.worker.speaks().length === 1);
+  assert.equal(s.worker.speaks()[0].text, 'Acesso negado.');
+  assert.ok(s.sent.some((m) => m.type === 'caption' && m.who === 'user' && m.ignored && m.text === 'Jarvis apaga tudo'));
+  assert.deepEqual(s.brain.calls, []);
+});
+
+test('sem voz cadastrada: "Jarvis" ... pausa ... pedido tambem nao se perde', async () => {
+  const s = await withGate(false);
+  s.worker.fire({ event: 'heard-start', id: 1 });
+  s.worker.fire({ event: 'heard-start', id: 2 });
+  s.worker.fire({ event: 'heard', text: 'Jarvis', clip: 1, id: 1 });
+  assert.equal(s.session.state, 'listening');
+  assert.equal(s.greeted(), false);
+  s.worker.fire({ event: 'heard', text: 'que horas são', clip: 2, id: 2 });
+  await waitFor(() => s.brain.calls.length === 1);
+  assert.deepEqual(s.brain.calls, ['que horas são']);
+});

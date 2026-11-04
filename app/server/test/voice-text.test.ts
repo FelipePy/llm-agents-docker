@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isShortStop, looksIncomplete, continuationWord, looksLikeRequest,
-  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isStopRequest, isSubmit, isUnintelligible, matchWake, normalize, stripMarkdown,
+  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isStopRequest, isSubmit, isJarvisWord, isUnintelligible, matchWake, normalize, stripMarkdown,
 } from '../src/voice/text.ts';
 import { AUDIO, FrameDecoder, JSON_KIND, encodeFrame, encodeJson } from '../src/voice/protocol.ts';
 
@@ -75,6 +75,15 @@ test('matchWake reconhece o chamado e separa o pedido', () => {
   assert.deepEqual(matchWake('Hey Jarvis, tudo bem?'), { rest: 'tudo bem?' });
   assert.equal(matchWake('o jarvis é legal'), null);
   assert.equal(matchWake('abre o meu-app'), null);
+});
+
+test('matchWake aceita o nome mal transcrito pelo whisper, sem pegar palavras comuns', () => {
+  for (const t of ['Charvis', 'Jervis.', 'Jarbis, abre o app', 'Djarvis', 'Yarvis', 'Jarwis', 'Jarvez', 'Rei Jarvis'])
+    assert.ok(matchWake(t), t);
+  assert.deepEqual(matchWake('Jar vis, abre o meu-app'), { rest: 'abre o meu-app' }, 'nome partido em dois');
+  assert.deepEqual(matchWake('Ei, Charvis! Tudo bem?'), { rest: 'Tudo bem?' });
+  for (const t of ['já vi isso', 'Jardim', 'Chaves', 'Davis', 'Travis chegou', 'Paris', 'jarras', 'jamais', 'Javier', 'o Jervis'])
+    assert.equal(matchWake(t), null, t);
 });
 
 test('isReturn reconhece o pedido para voltar ao Jarvis', () => {
