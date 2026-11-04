@@ -41,6 +41,19 @@
       #setup .buttons { display: flex; gap: 10px; flex-wrap: wrap; }
       #setup-log { margin-top: 12px; font-size: 12px; color: #7f7866; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.2em; }
       #setup-notice { display: none; margin-top: 14px; background: #1a1410; border: 1px solid #5a3b16; border-radius: 10px; padding: 12px 14px; color: #e8d6b0; white-space: pre-wrap; }
+      /* Progresso da instalacao: porcentagem, item atual e tempo restante. */
+      #setup-progress { display: none; margin: 4px 0 16px; padding: 12px 14px; background: #120f0a; border: 1px solid #3a2c12; border-radius: 10px; }
+      #setup-progress .top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+      #sp-pct { font-size: 22px; font-weight: 300; color: #ffc94a; font-variant-numeric: tabular-nums; }
+      #sp-eta { font-size: 13px; color: #9a937f; font-variant-numeric: tabular-nums; }
+      #sp-item { margin-top: 2px; font-size: 13px; color: #d9cfb5; }
+      .bar { margin-top: 10px; height: 8px; border-radius: 999px; background: #2a1f08; overflow: hidden; }
+      .bar .fill { height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, #c8901f, #ffc94a); transition: width 0.8s ease; }
+      .bar.busy .fill { background-size: 200% 100%; background-image: linear-gradient(90deg, #c8901f, #ffe08a, #c8901f); animation: shimmer 1.6s linear infinite; }
+      @keyframes shimmer { to { background-position: -200% 0; } }
+      #setup-progress.fail .fill { background: #b8563a; animation: none; }
+      #setup-progress.done .fill { background: #8cc276; animation: none; }
+      @media (prefers-reduced-motion: reduce) { .bar .fill { transition: none; } .bar.busy .fill { animation: none; } }
       @media (max-width: 520px) { body.setup .box { padding: 16px; } }
     </style>
   </head>
@@ -57,6 +70,11 @@
       </div>
       <div id="setup">
         <p class="intro" id="setup-intro"></p>
+        <div id="setup-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="top"><span id="sp-pct">0%</span><span id="sp-eta"></span></div>
+          <div id="sp-item"></div>
+          <div class="bar busy"><div class="fill"></div></div>
+        </div>
         <div id="setup-items"></div>
         <div class="buttons">
           <button id="setup-install">Instalar selecionados</button>
@@ -89,6 +107,7 @@
       };
       let rows = {};
       let busy = false;
+      let lastItems = [];
       const el = (tag, cls, text) => {
         const e = document.createElement(tag);
         if (cls) e.className = cls;
@@ -105,6 +124,10 @@
       window.showSetup = (items, repair) => {
         busy = false;
         rows = {};
+        lastItems = items;
+        clearInterval(progress.timer);
+        progress.timer = null;
+        $('setup-progress').style.display = 'none';
         document.body.classList.add('setup');
         $('error').style.display = 'none';
         $('status').textContent = '';
@@ -150,7 +173,72 @@
         $('setup').style.display = 'block';
         refresh();
       };
+      // Progresso: cada item pesa o tempo tipico dele (secs, do setup.sh). A estimativa
+      // se corrige pelo ritmo real dos itens ja instalados.
+      const progress = { plan: [], done: {}, current: null, started: 0, timer: null };
+      const fmtLeft = (s) => (s < 50 ? 'menos de 1 min restante' : `cerca de ${Math.round(s / 60)} min restante${Math.round(s / 60) > 1 ? 's' : ''}`);
+      const drawProgress = (final) => {
+        const p = progress;
+        const total = p.plan.reduce((n, i) => n + i.secs, 0) || 1;
+        const doneIds = Object.keys(p.done);
+        const doneEst = p.plan.filter((i) => p.done[i.id] !== undefined).reduce((n, i) => n + i.secs, 0);
+        const doneReal = doneIds.reduce((n, id) => n + p.done[id], 0);
+        const pace = doneEst ? Math.min(3, Math.max(0.4, doneReal / doneEst)) : 1;
+        const cur = p.plan.find((i) => i.id === p.current);
+        const elapsed = cur ? (Date.now() - p.started) / 1000 : 0;
+        const curFrac = cur ? Math.min(0.95, elapsed / (cur.secs * pace)) : 0;
+        let pct = ((doneEst + (cur ? cur.secs * curFrac : 0)) / total) * 100;
+        if (final === 'done') pct = 100;
+        pct = Math.max(0, Math.min(100, Math.round(pct)));
+        const left = p.plan.filter((i) => p.done[i.id] === undefined && i.id !== p.current).reduce((n, i) => n + i.secs * pace, 0)
+          + (cur ? Math.max(cur.secs * pace * 0.05, cur.secs * pace - elapsed) : 0);
+        $('sp-pct').textContent = `${pct}%`;
+        $('setup-progress').setAttribute('aria-valuenow', String(pct));
+        $('setup-progress').querySelector('.fill').style.width = `${pct}%`;
+        const idx = cur ? p.plan.indexOf(cur) + 1 : doneIds.length;
+        if (final === 'done') {
+          $('sp-item').textContent = 'Instalação concluída.';
+          $('sp-eta').textContent = '';
+        } else if (final === 'fail') {
+          $('sp-item').textContent = cur ? `Parou em: ${cur.title} (${idx} de ${p.plan.length})` : 'A instalação parou.';
+          $('sp-eta').textContent = '';
+        } else if (cur) {
+          $('sp-item').textContent = `Instalando: ${cur.title} (${idx} de ${p.plan.length})`;
+          $('sp-eta').textContent = fmtLeft(left);
+        } else {
+          $('sp-item').textContent = doneIds.length >= p.plan.length ? 'Conferindo a instalação…' : 'Preparando…';
+          $('sp-eta').textContent = doneIds.length >= p.plan.length ? '' : fmtLeft(left);
+        }
+      };
+      const startProgress = (plan) => {
+        Object.assign(progress, { plan, done: {}, current: null, started: Date.now() });
+        const box = $('setup-progress');
+        box.className = '';
+        box.querySelector('.bar').classList.add('busy');
+        box.style.display = 'block';
+        clearInterval(progress.timer);
+        progress.timer = setInterval(() => drawProgress(), 1000);
+        drawProgress();
+      };
+      const stopProgress = (final) => {
+        clearInterval(progress.timer);
+        const box = $('setup-progress');
+        if (box.style.display !== 'block') return;
+        box.querySelector('.bar').classList.remove('busy');
+        box.className = final;
+        drawProgress(final);
+      };
+
       window.setupStep = (step) => {
+        if (step.state === 'start') {
+          progress.current = step.id;
+          progress.started = Date.now();
+        } else if (step.state === 'ok') {
+          progress.done[step.id] = (Date.now() - progress.started) / 1000;
+          if (progress.current === step.id) progress.current = null;
+        }
+        if (progress.timer) drawProgress(step.state === 'fail' ? 'fail' : undefined);
+        if (step.state === 'fail') stopProgress('fail');
         const r = rows[step.id];
         if (!r) return;
         r.progress.style.display = 'block';
@@ -159,6 +247,7 @@
       };
       window.setupLog = (text) => ($('setup-log').textContent = text);
       window.setupDone = (done) => {
+        stopProgress(done.error ? 'fail' : 'done');
         busy = false;
         refresh();
         const notice = $('setup-notice');
@@ -167,7 +256,7 @@
           notice.style.display = 'block';
         };
         if (done.error) {
-          say(`A instalação parou neste erro:\n${done.error}\n\nO que já foi instalado continua; corrija o problema (o registro do passo está acima) e confira de novo para continuar de onde parou.`);
+          say(`A instalação parou neste erro:\n${done.error}\n\nO que já foi instalado continua; corrija o problema e confira de novo para continuar de onde parou. A saída completa fica em setup.log, na pasta de logs do Jarvis (no Windows, %LOCALAPPDATA%\\dev.llmagent.jarvis\\logs).`);
           $('setup-retry').style.display = '';
         } else if (done.restart === 'windows') {
           say('O WSL foi ligado: reinicie o computador e abra o Jarvis de novo para continuar a instalação.');
@@ -186,6 +275,7 @@
         $('setup-notice').style.display = 'none';
         $('setup-retry').style.display = 'none';
         for (const r of Object.values(rows)) if (r.box) r.box.disabled = true;
+        startProgress(lastItems.filter((i) => ids.includes(i.id)).map((i) => ({ id: i.id, title: i.title, secs: Math.max(5, Number(i.secs) || 30) })));
         window.__TAURI__.core.invoke('setup_install', { ids });
       });
       $('setup-skip').addEventListener('click', () => {

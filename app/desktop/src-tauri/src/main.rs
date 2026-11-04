@@ -179,16 +179,21 @@ fn start_server(app: &AppHandle, restart: bool) -> Result<String, String> {
         })
 }
 
-/// Erro que nao impede o app de abrir: vai para jarvis.log, na pasta de logs do app
-/// (no Windows, %LOCALAPPDATA%\dev.llmagent.jarvis\logs).
-fn log_error(app: &AppHandle, what: &str, err: impl std::fmt::Display) {
+/// Linha num arquivo da pasta de logs do app (no Windows,
+/// %LOCALAPPDATA%\dev.llmagent.jarvis\logs; no Linux, ~/.local/share/dev.llmagent.jarvis/logs).
+fn append_log(app: &AppHandle, file: &str, line: &str) {
     use std::io::Write;
     let Ok(dir) = app.path().app_log_dir() else { return };
     let _ = std::fs::create_dir_all(&dir);
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("jarvis.log")) {
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join(file)) {
         let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let _ = writeln!(f, "[{secs}] {what}: {err}");
+        let _ = writeln!(f, "[{secs}] {line}");
     }
+}
+
+/// Erro que nao impede o app de abrir: vai para jarvis.log.
+fn log_error(app: &AppHandle, what: &str, err: impl std::fmt::Display) {
+    append_log(app, "jarvis.log", &format!("{what}: {err}"));
 }
 
 fn eval(app: &AppHandle, js: &str) {
@@ -354,7 +359,11 @@ fn linux_user_name() -> String {
 /// @restart (guardado em `restarts`) e o resto como registro.
 fn setup_lines(app: &AppHandle, restarts: Arc<Mutex<Vec<String>>>) -> LineFn {
     let app = app.clone();
-    Arc::new(move |line, _| {
+    Arc::new(move |line, is_err| {
+        // Toda a saida da instalacao fica em setup.log (para entender um erro depois).
+        if !line.trim().is_empty() {
+            append_log(&app, "setup.log", &format!("{}{line}", if is_err { "! " } else { "" }));
+        }
         if let Some(step) = line.strip_prefix("@step ").and_then(|j| serde_json::from_str::<Value>(j).ok()) {
             eval(&app, &format!("window.setupStep && window.setupStep({step})"));
         } else if let Some(kind) = line.strip_prefix("@restart ") {
@@ -377,6 +386,10 @@ fn setup_step(app: &AppHandle, id: &str, state: &str, message: &str) {
 }
 
 fn setup_done(app: &AppHandle, restart: Option<&str>, error: Option<&str>) {
+    if let Some(e) = error {
+        append_log(app, "setup.log", &format!("a instalação parou: {e}"));
+        log_error(app, "instalação", e);
+    }
     let done = serde_json::json!({ "restart": restart, "error": error });
     eval(app, &format!("window.setupDone && window.setupDone({done})"));
 }
@@ -390,6 +403,7 @@ fn install(app: &AppHandle, ids: &[String]) {
         Err(_) => return,
     };
     let is_root = |id: &str| items.iter().any(|i| i["id"] == id && i["root"] == true);
+    append_log(app, "setup.log", &format!("instalando (aprovado pelo usuário): {}", ids.join(" ")));
     let restarts = Arc::new(Mutex::new(Vec::<String>::new()));
 
     #[cfg(windows)]
@@ -502,6 +516,7 @@ fn wsl_missing() -> Option<Vec<Value>> {
         "why": "No Windows, os agentes, os containers e o servidor do Jarvis rodam num Linux dentro do WSL. Depois dele, o Jarvis confere o resto (Docker, Node, Python e a voz).",
         "action": format!("Instala o WSL2 e o {distro} (wsl --install -d {distro}). O Windows pede permissão de administrador e pode pedir para reiniciar o computador."),
         "size": "~1 GB",
+        "secs": 300,
     })])
 }
 
