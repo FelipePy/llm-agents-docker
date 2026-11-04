@@ -20,11 +20,11 @@ Agentes como esses costumam ser usados em modo autônomo (`--dangerously-skip-pe
 - Linux (ou WSL2) com Docker e o plugin `docker compose` v2.
 - Uma conta do Claude e/ou da OpenAI para os respectivos CLIs.
 
-Quem usa o app desktop (Jarvis) não precisa clonar o repositório: o instalador já traz o llm-agents-docker (veja [App desktop](#app-desktop-windows-e-ubuntu)).
+Quem usa o app desktop (Jarvis) não precisa preparar nada à mão nem clonar o repositório: o instalador já traz o llm-agents-docker e, ao abrir, o app confere e instala o resto com a sua aprovação: WSL2 e Ubuntu (Windows), Docker e `docker compose`, Node 22.18+ (instala o 24), Python 3.10+ com venv, `git`/`curl`, a imagem dos agentes e os modelos da voz (veja [App desktop](#app-desktop-windows-e-ubuntu)). Por enquanto, a instalação automática usa o `apt` (Ubuntu/Debian; no WSL, o Ubuntu).
 
 ## Instalação
 
-Pelo app desktop: baixe o instalador do Jarvis e abra o app; ele instala o código desta versão sozinho. Pelo repositório (desenvolvimento, servidores sem interface):
+Pelo app desktop: baixe o instalador do Jarvis, abra o app e aprove o que ele listar (veja [Primeira abertura](#primeira-abertura-o-que-o-jarvis-instala)). Pelo repositório (desenvolvimento, servidores sem interface):
 
 ```sh
 git clone https://github.com/FelipePy/llm-agents-docker.git
@@ -185,7 +185,7 @@ Tudo é gratuito: a palavra de ativação ([openWakeWord](https://github.com/dsc
 
 **Transcrição no Groq (opcional):** em ⚙ → Voz → **Transcrição da fala**, escolha **Groq (nuvem)**, cole a chave de API (crie em [console.groq.com/keys](https://console.groq.com/keys)) e salve. O app confere a chave com o Groq antes de salvar; ela fica só no seu PC, em `~/.config/llm-agent/ui/voice.json` (permissão 600), e a tela mostra apenas o começo e o fim. A transcrição fica bem mais rápida (cerca de 0,3 a 0,5 s, contra ~1,2 s do whisper local na CPU) e mais precisa. Vai para o Groq só o áudio do que você fala depois de chamar o Jarvis; a espera pelo nome continua local. Custa US$ 0,04 por hora de áudio no Whisper Large v3 Turbo (cada fala conta como no mínimo 10 s: umas 100 falas por dia dão cerca de US$ 0,35 por mês), e o plano gratuito do Groq costuma bastar para uso pessoal. Se o Groq falhar (sem internet, limite atingido), o Jarvis avisa e usa o whisper local.
 
-Na primeira vez, o servidor cria um ambiente Python em `app/voice/.venv` e baixa os modelos (algumas centenas de MB); isso exige Python 3.10 ou mais novo com `venv` (no Ubuntu/Debian: `sudo apt install python3-venv`). Configurações:
+No app desktop, o ambiente da voz e os modelos entram na lista da primeira abertura, com o tamanho, e só são baixados com a sua aprovação. Fora dele (ou se você pulou esse item), na primeira vez que a voz liga o servidor cria um ambiente Python em `app/voice/.venv` e baixa os modelos (algumas centenas de MB); isso exige Python 3.10 ou mais novo com `venv` (no Ubuntu/Debian: `sudo apt install python3-venv`). Configurações:
 
 | Variável | Padrão | Para quê |
 | --- | --- | --- |
@@ -212,7 +212,27 @@ Com GPU NVIDIA (no WSL, com o driver do Windows), a preparação da voz instala 
 
 ## App desktop (Windows e Ubuntu)
 
-O **Jarvis** é a mesma interface numa janela própria (Tauri). O instalador traz o llm-agents-docker da mesma versão (o comando `llm-agent`, o `Dockerfile`/`docker-compose.yml`, o servidor com as dependências, a interface já construída e o worker de voz): não é preciso clonar o repositório nem rodar o `./install.sh`. Ao abrir, o app instala (ou atualiza) esse código e sobe o servidor da interface (no Windows, dentro do WSL, onde os containers rodam; no Ubuntu, direto) e carrega a interface; se algo falhar, mostra o erro e um botão para tentar de novo.
+O **Jarvis** é a mesma interface numa janela própria (Tauri). O instalador traz o llm-agents-docker da mesma versão (o comando `llm-agent`, o `Dockerfile`/`docker-compose.yml`, o servidor com as dependências, a interface já construída e o worker de voz): não é preciso clonar o repositório nem rodar o `./install.sh`. Ao abrir, o app confere as dependências, atualiza esse código se o app for mais novo, sobe o servidor da interface (no Windows, dentro do WSL, onde os containers rodam; no Ubuntu, direto) e carrega a interface; se algo falhar, mostra o erro e um botão para tentar de novo.
+
+### Primeira abertura: o que o Jarvis instala
+
+O app confere cada dependência e, se faltar alguma, mostra a lista: o que é, por que o Jarvis precisa, o que será feito e o tamanho do download. **Nada é instalado sem você marcar e clicar em "Instalar selecionados"** (tudo ou item a item; "Agora não" abre o Jarvis sem instalar). Cada passo mostra o progresso; se um falhar, a instalação para ali com o erro, e "Conferir de novo" continua de onde parou (cada passo pode ser repetido sem estragar o que já foi feito).
+
+| Item | Para quê | O que é feito |
+| --- | --- | --- |
+| WSL2 e Ubuntu (Windows) | os agentes, os containers e o servidor rodam no Linux | `wsl --install -d Ubuntu`; o Windows pede permissão de administrador e pode pedir para reiniciar (depois, abra o Jarvis de novo) |
+| Usuário do Linux (Windows) | não rodar como root | cria o seu usuário no Ubuntu (o nome do usuário do Windows, sem senha: defina uma com `passwd`) e o deixa como padrão |
+| `git` e `curl` | baixar o que falta e versionar o Jarvis (evolução) | `apt` |
+| Docker e `docker compose` | containers isolados por projeto | `apt` (`docker.io`, `docker-compose-v2`), liga o serviço e põe você no grupo `docker`; no WSL, liga o systemd e reinicia a distribuição. No Ubuntu, o grupo só vale depois de sair e entrar de novo. Com o Docker Desktop, o app só pede para abrir o Docker Desktop e ligar a integração com o WSL |
+| Node.js | servidor da interface | baixa o Node 24 de nodejs.org, confere o SHA-256 e instala em `/usr/local` (também se o seu for anterior ao 22.18) |
+| Python com venv | a voz | `apt` (`python3`, `python3-venv`); num Ubuntu com Python anterior ao 3.10, o 3.12 do PPA deadsnakes |
+| llm-agents-docker | o próprio Jarvis | copia o código do instalador (nada é baixado) |
+| Imagem dos agentes | o container do Claude Code e do Codex | `llm-agent --build` |
+| Voz do Jarvis | ouvir, transcrever e falar | ambiente Python da voz e modelos (whisper, palavra de ativação, reconhecimento da sua voz): ~450 MB de download, ~2,5 GB com GPU NVIDIA |
+
+Os passos de administrador pedem a senha numa janela do sistema (`pkexec`, no Ubuntu) ou rodam como root dentro do WSL (sem senha). Numa máquina pronta, a conferência não acha nada e o Jarvis abre direto, sem reinstalar nada. Para reparar ou reinstalar algo, use **Verificar a instalação** na bandeja: a lista aparece com tudo, inclusive o que já está instalado.
+
+### Uso do app
 
 - **Onde fica:** `~/.local/share/llm-agent/versions/<versão>`, com o link `current` para a versão em uso, e o comando `~/.local/bin/llm-agent` (se ele já existir apontando para um clone seu, fica como está). No Windows, dentro do WSL. O ambiente da voz (`voice-venv`, pacotes e modelos) é compartilhado entre as versões.
 - **Versão única:** atualizar o app atualiza o servidor e a voz para a versão dele. Na primeira abertura depois da atualização, o servidor é reiniciado com a versão nova e verificado (`app/restart.sh --switch`); se não subir ou falhar nas verificações, o app volta para a versão anterior e não tenta de novo até vir outro instalador. Funcionalidades que o Jarvis desenvolveu nele mesmo nessa instalação são substituídas pela versão do instalador novo.
@@ -223,7 +243,7 @@ O **Jarvis** é a mesma interface numa janela própria (Tauri). O instalador tra
   - Windows: execute o `.msi` (ou o `.exe`) e abra **Jarvis** pelo menu Iniciar.
   - Ubuntu: `sudo apt install ./Jarvis_*.deb` e abra **Jarvis** pelo menu de aplicativos; ou `chmod +x Jarvis_*.AppImage && ./Jarvis_*.AppImage`.
 - **Bolinha flutuante:** ao sair do app (outro programa em foco, janela minimizada ou fechada), uma bolinha do Jarvis fica na lateral da tela, por cima de tudo; ela brilha conforme ele ouve, pensa e fala, e mostra a última frase dele ao passar o mouse. Clique para voltar ao app; arraste para mudar de lugar. O Jarvis continua ouvindo.
-- **Bandeja:** fechar a janela só a esconde. Pelo ícone na bandeja: mostrar, iniciar com o sistema, reiniciar o servidor ou sair.
+- **Bandeja:** fechar a janela só a esconde. Pelo ícone na bandeja: mostrar, iniciar com o sistema, reiniciar o servidor, verificar a instalação (reparar ou reinstalar dependências) ou sair.
 - **Iniciar com o sistema:** nas configurações (⚙) ou na bandeja. O Jarvis abre minimizado, só com a bolinha, já ouvindo.
 - **Atalho global:** `Ctrl+Alt+J` mostra ou esconde a janela de qualquer lugar.
 - **Voz:** no app, o áudio toca sem precisar clicar antes e o microfone é liberado direto.

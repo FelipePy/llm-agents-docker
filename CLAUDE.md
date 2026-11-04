@@ -45,7 +45,7 @@ npm --prefix app/web run typecheck
 npm --prefix app/web run build
 python3 -m unittest discover -s app/voice/tests -t app/voice   # se mexer no worker (usa o .venv de app/voice)
 bash tests/ui.test.sh && bash tests/restart.test.sh             # se mexer em app/ui.sh ou app/restart.sh
-bash tests/setup.test.sh                                        # se mexer em app/setup.sh ou app/restart.sh
+bash tests/setup.test.sh && bash tests/setup-deps.test.sh      # se mexer em app/setup.sh ou app/restart.sh
 ```
 
 ## Regras
