@@ -109,3 +109,23 @@ test('o estado da voz e a fala do Jarvis chegam tambem ao /ws principal (bolinha
     await app.close();
   }
 });
+
+test('/ws/voice no modo atalho: o audio so passa entre apertar e soltar', async () => {
+  const worker = new FakeWorker();
+  const { app, port } = await startApp(tempHome(), { voice: { worker, brain } });
+  try {
+    const a = open(port);
+    await a.ready;
+    a.ws.send(JSON.stringify({ type: 'start', hold: true }));
+    await waitFor(() => a.messages.some((m) => m.type === 'state' && m.state === 'sleeping'));
+    a.ws.send(Buffer.alloc(2560));
+    a.ws.send(JSON.stringify({ type: 'hold-start' }));
+    a.ws.send(Buffer.alloc(1280));
+    a.ws.send(JSON.stringify({ type: 'hold-end' }));
+    await waitFor(() => worker.commands.some((c) => c.cmd === 'release'));
+    assert.equal(worker.audioBytes, 1280);
+    a.ws.close();
+  } finally {
+    await app.close();
+  }
+});
