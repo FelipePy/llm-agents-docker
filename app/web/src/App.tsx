@@ -19,11 +19,13 @@ import { ProjectPanel } from './components/ProjectPanel.tsx';
 import { Ring } from './components/Ring.tsx';
 import { SearchDialog } from './components/SearchDialog.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
+import { HoldWave } from './components/HoldWave.tsx';
 import { SkillDetail } from './components/SkillDetail.tsx';
 import { SkillsPanel } from './components/SkillsPanel.tsx';
 import { TerminalDrawer } from './components/TerminalDrawer.tsx';
 import { OFF_VIEW, VoiceClient, VoiceConnectionError, timingText, voiceStatus, type VoiceView } from './voice/client.ts';
 import { floatSupported, openFloatingOrb, type FloatingOrb } from './voice/float.ts';
+import { HoldKeys } from './voice/hold.ts';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { setAutostart, useDesktop } from './desktop.ts';
 
@@ -55,6 +57,9 @@ function Connected({ token }: { token: string }) {
   const [voiceDemo, setVoiceDemo] = usePref('llm-agent-voice-demo', false);
   // O Jarvis ja comeca ouvindo a cada abertura do app (desligar vale so ate fechar).
   const [voiceOn, setVoiceOn] = useState(true);
+  // Atalho de falar (Ctrl+Espaco): ligado, ele e o modo de falar e a escuta continua fica desligada.
+  const [holdKey, setHoldKey] = usePref('llm-agent-hold-key', false);
+  const voiceActive = voiceOn || holdKey;
   // Painel do dia (clima, noticias, opcoes): gaveta que comeca fechada.
   const [drawer, setDrawer] = useState<'day' | 'settings' | null>(null);
   const desktop = useDesktop();
@@ -67,12 +72,13 @@ function Connected({ token }: { token: string }) {
   // Ordens do Jarvis para a interface; atualizada a cada render (ver mais abaixo).
   const onUiRef = useRef<(command: UiCommand) => void>(() => {});
   const use3d = webgl && mode3d;
-  const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn, globeColor, sounds };
+  const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn && !holdKey, holdKey, globeColor, sounds };
   const toggles = {
     on3d: () => setMode3d(!mode3d),
     onReduceMotion: () => setReduceMotion(!reduceMotion),
     onVoiceDemo: () => setVoiceDemo(!voiceDemo),
     onVoice: () => setVoiceOn(!voiceOn),
+    onHoldKey: () => setHoldKey(!holdKey),
     onGlobeColor: (c: GlobeColor) => setGlobeColor(c),
     onSounds: () => setSounds(!sounds),
   };
@@ -124,12 +130,12 @@ function Connected({ token }: { token: string }) {
     };
   }, [api, projectId, revision]);
 
-  // Conversa por voz: liga e desliga o cliente junto com a "Escuta ativa". Se o
-  // servidor cair (reinicio, atualizacao do Jarvis), reconecta sozinho.
+  // Conversa por voz: liga e desliga o cliente junto com a "Escuta ativa" ou o atalho
+  // de falar. Se o servidor cair (reinicio, atualizacao do Jarvis), reconecta sozinho.
   const [voiceEpoch, setVoiceEpoch] = useState(0);
   const voiceRetry = useRef(0);
   useEffect(() => {
-    if (!voiceOn) return;
+    if (!voiceActive) return;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const reconnect = () => {
       setVoice((v) => ({ ...OFF_VIEW, timing: v.timing, state: 'preparing', detail: 'reconectando a voz' }));
@@ -141,6 +147,7 @@ function Connected({ token }: { token: string }) {
       (message) => setError(message),
       (command) => onUiRef.current(command),
       reconnect,
+      holdKey,
     );
     voiceRef.current = client;
     client.start().then(
@@ -150,7 +157,9 @@ function Connected({ token }: { token: string }) {
       (err: Error) => {
         if (err instanceof VoiceConnectionError) return reconnect();
         setError(err.message);
-        setVoiceOn(false);
+        // Com o atalho, a opcao continua ligada: o proximo aperto tenta de novo (ver abaixo).
+        if (holdKey) voiceRef.current = null;
+        else setVoiceOn(false);
       },
     );
     return () => {
@@ -160,7 +169,40 @@ function Connected({ token }: { token: string }) {
       setVoice(OFF_VIEW);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voiceOn, token, voiceEpoch]);
+  }, [voiceActive, holdKey, token, voiceEpoch]);
+
+  // Atalho de falar: funciona em toda a pagina, inclusive com o foco num terminal.
+  useEffect(() => {
+    if (!holdKey) return;
+    const keys = new HoldKeys(
+      () => {
+        if (voiceRef.current) voiceRef.current.holdStart();
+        else setVoiceEpoch((e) => e + 1); // o microfone falhou: tenta abrir de novo
+      },
+      () => voiceRef.current?.holdEnd(),
+    );
+    const consume = (taken: boolean, e: KeyboardEvent) => {
+      if (!taken) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    const down = (e: KeyboardEvent) => consume(keys.keydown(e), e);
+    const up = (e: KeyboardEvent) => consume(keys.keyup(e), e);
+    const lost = () => keys.cancel();
+    const hidden = () => document.hidden && keys.cancel();
+    window.addEventListener('keydown', down, true);
+    window.addEventListener('keyup', up, true);
+    window.addEventListener('blur', lost);
+    document.addEventListener('visibilitychange', hidden);
+    return () => {
+      window.removeEventListener('keydown', down, true);
+      window.removeEventListener('keyup', up, true);
+      window.removeEventListener('blur', lost);
+      document.removeEventListener('visibilitychange', hidden);
+    };
+  }, [holdKey]);
+  const holdLevel = useCallback(() => voiceRef.current?.micLevel() ?? 0, []);
+  const holdWave = voice.holding ? <HoldWave level={holdLevel} reduced={reduceMotion} /> : null;
 
   // Legendas somem 8 s depois que a conversa volta a esperar "Hey Jarvis".
   useEffect(() => {
@@ -171,8 +213,8 @@ function Connected({ token }: { token: string }) {
 
   // Sinal do nucleo: voz real, demonstracao ou parado.
   useEffect(() => {
-    const demo = voiceDemo && use3d && !voiceOn;
-    if (!voiceOn && !demo) {
+    const demo = voiceDemo && use3d && !voiceActive;
+    if (!voiceActive && !demo) {
       signal.current = { mode: 'idle', level: 0 };
       setCoreMode('idle');
       return;
@@ -187,7 +229,7 @@ function Connected({ token }: { token: string }) {
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [voiceDemo, use3d, voiceOn]);
+  }, [voiceDemo, use3d, voiceActive]);
 
   useEffect(() => {
     // Depois de (re)conectar, o primeiro "sessions" pede o historico de todas.
@@ -325,7 +367,7 @@ function Connected({ token }: { token: string }) {
     return () => window.removeEventListener('pointerdown', onDown, true);
   }, [sounds]);
 
-  const fullVoiceStatus = [voiceStatus(voice), timingText(voice)].filter(Boolean).join('\n');
+  const fullVoiceStatus = [voiceStatus(voice, holdKey), timingText(voice)].filter(Boolean).join('\n');
 
   // Janela flutuante (navegador): acompanha o estado da voz e a ultima fala do Jarvis.
   const toggleFloating = useCallback(() => {
@@ -502,6 +544,7 @@ function Connected({ token }: { token: string }) {
                   onChange={(e) => dispatch({ type: 'filter', value: e.target.value })}
                 />
               )}
+              {holdWave}
             </div>
             <Ring
               items={items}
@@ -514,7 +557,7 @@ function Connected({ token }: { token: string }) {
             {voice.relay && (
               <div className="dictation">
                 <div className="dictation-head">Ditando para o {voice.relay}</div>
-                <div className="dictation-text">{voice.relayDraft || 'Fale; o texto aparece aqui e no terminal, sem enviar.'}</div>
+                <div className="dictation-text">{voice.relayDraft || `${holdKey ? 'Segure Ctrl+Espaço e fale' : 'Fale'}; o texto aparece aqui e no terminal, sem enviar.`}</div>
                 <div className="dictation-actions">
                   <button className="send" disabled={!voice.relayDraft} onClick={() => voiceRef.current?.relaySubmit()}>
                     ▶ Enviar
@@ -544,7 +587,10 @@ function Connected({ token }: { token: string }) {
             )}
           </>
         ) : (
-          listPanel
+          <>
+            {holdWave}
+            {listPanel}
+          </>
         )}
       </main>
       <TerminalDrawer

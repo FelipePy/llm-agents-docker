@@ -27,13 +27,20 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
 
       <section>
         <h2>Voz</h2>
-        <label title="Escuta o microfone esperando “Jarvis”">
-          <input type="checkbox" checked={settings.voice} onChange={toggles.onVoice} />
+        <label title={settings.holdKey ? 'Desligada enquanto o atalho Ctrl+Espaço estiver ativado' : 'Escuta o microfone esperando “Jarvis”'}>
+          <input type="checkbox" checked={settings.voice} disabled={settings.holdKey} onChange={toggles.onVoice} />
           Escuta ativa
         </label>
-        {settings.voice && voiceStatus && <div className="voice-status">{voiceStatus}</div>}
+        <label title="Segure Ctrl+Espaço para falar; ao soltar, o Jarvis responde">
+          <input type="checkbox" checked={settings.holdKey} onChange={toggles.onHoldKey} />
+          Falar com Ctrl+Espaço
+        </label>
+        {settings.holdKey && (
+          <p className="muted">Segure para falar e solte para o Jarvis responder. Ele não fica esperando ser chamado: o que o microfone capta só vai para ele enquanto você segura.</p>
+        )}
+        {(settings.voice || settings.holdKey) && voiceStatus && <div className="voice-status">{voiceStatus}</div>}
         <label title="Simula a voz do agente para ver o núcleo reagir">
-          <input type="checkbox" checked={settings.voiceDemo} disabled={!use3d || settings.voice} onChange={toggles.onVoiceDemo} />
+          <input type="checkbox" checked={settings.voiceDemo} disabled={!use3d || settings.voice || settings.holdKey} onChange={toggles.onVoiceDemo} />
           Demonstração de voz
         </label>
         <PauseSettings api={api} />
