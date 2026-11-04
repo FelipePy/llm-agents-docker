@@ -30,12 +30,6 @@ Oferecer mais opções além de dourado, ciano e branco, como vermelho, verde e 
 
 **Situação:** pendente; nenhum sinal no código da interface.
 
-### 4. Aviso de confiança na pasta do projeto
-O aviso para confiar na pasta aparece de novo nas sessões abertas pelo Jarvis. Investigar por que a confiança não fica salva
-e como pular essa etapa.
-
-**Situação:** pendente; nada no código trata disso.
-
 ### 5. Novas estéticas para o globo
 Criar pelo menos mais dois estilos para o globo, trocáveis direto nas configurações. Falta conferir se o código está
 organizado para aceitar estilos diferentes.

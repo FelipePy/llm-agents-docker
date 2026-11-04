@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tempHome, waitFor } from './helpers.ts';
 import { EvolutionManager, devPrompt, markUpdateAnnounced, readUpdate, slugify, updateNotice, updateOutcome, ROLLBACK_GRACE_MS, type RunResult, type UpdateRecord } from '../src/evolution.ts';
@@ -101,6 +101,38 @@ test('dois OKs: so comeca depois do resumo lido e de uma resposta do usuario', a
   assert.match(s.opened[0].prompt, /5 dias/);
   assert.match(s.m.draft('Outra', 'x'), /Já existe uma funcionalidade em andamento/);
   assert.match(await s.m.status(), /em desenvolvimento.*0 commits/s);
+});
+
+test('o clone fica sempre na mesma pasta, para a confianca do Claude Code valer de uma vez so', async () => {
+  const s = await setup();
+  s.m.draft('Previsão', 'spec');
+  s.m.summarize('resumo', 1);
+  await s.m.start(2);
+  const first = s.m.get()!;
+  assert.equal(first.dir, join(s.home, 'dev', 'atual'));
+  assert.equal(first.branch, 'jarvis/previsao');
+  await s.m.discard();
+  s.m.draft('Outra coisa', 'spec');
+  s.m.summarize('resumo', 3);
+  assert.doesNotMatch(await s.m.start(4), /guardada/, 'a pasta foi apagada ao descartar: nada a guardar');
+  assert.equal(s.m.get()?.dir, first.dir);
+  assert.equal(s.m.get()?.branch, 'jarvis/outra-coisa');
+});
+
+test('sobra na pasta de trabalho nunca e apagada: fica guardada e o usuario e avisado', async () => {
+  const s = await setup();
+  const dir = join(s.home, 'dev', 'atual');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'trabalho.txt'), 'commit que so existe aqui\n');
+  s.m.draft('Previsão', 'spec');
+  s.m.summarize('resumo', 1);
+  const said = await s.m.start(2);
+  const [kept] = readdirSync(join(s.home, 'dev')).filter((d) => d !== 'atual');
+  assert.match(kept, /^atual-\d{8}-\d{6}$/);
+  assert.equal(readFileSync(join(s.home, 'dev', kept, 'trabalho.txt'), 'utf8'), 'commit que so existe aqui\n');
+  assert.ok(said.includes(join(s.home, 'dev', kept)), 'o Jarvis conta onde ficou');
+  assert.ok(!existsSync(join(dir, 'trabalho.txt')), 'a pasta nova comeca limpa');
+  assert.equal((await exec('git', ['branch', '--show-current'], dir)).out.trim(), 'jarvis/previsao');
 });
 
 test('poll avisa quando termina (ate o aviso ser entregue) e quando a sessao para', async () => {

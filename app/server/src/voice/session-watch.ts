@@ -109,6 +109,55 @@ export function plainReport(r: WatchReport): string {
   return `Senhor, a sessão do ${r.label} terminou${last ? `. As últimas linhas dizem: ${last}` : ''}. Quer que eu conte mais?`;
 }
 
+const TRUST_PROMPT = /Yes, I trust this folder/;
+
+/** O Claude Code esta parado na tela de confiar na pasta. Olha so o fim: a sessao pode ter citado a frase antes. */
+export function waitingForTrust(screen: string): boolean {
+  return TRUST_PROMPT.test(screen.split('\n').slice(-30).join('\n'));
+}
+
+/**
+ * Sessoes paradas na tela de confiar na pasta ha algum tempo. A espera poupa o aviso
+ * de quem acabou de abrir o terminal e esta olhando para ela. Avisa uma vez por sessao.
+ */
+export class TrustWatcher {
+  private readonly since = new Map<string, number>();
+  private readonly warned = new Set<string>();
+  private readonly sessions: () => SessionInfo[];
+  private readonly output: (id: string) => string | null;
+  private readonly now: () => number;
+  private readonly graceMs: number;
+
+  constructor(opts: { sessions: () => SessionInfo[]; output: (id: string) => string | null; now?: () => number; graceMs?: number }) {
+    this.sessions = opts.sessions;
+    this.output = opts.output;
+    this.now = opts.now ?? Date.now;
+    this.graceMs = opts.graceMs ?? 30_000;
+  }
+
+  /** O que falar agora. Fica pendente ate `markWarned`, e some sozinho se o usuario responder na tela. */
+  pending(): { id: string; text: string }[] {
+    const out: { id: string; text: string }[] = [];
+    for (const s of this.sessions()) {
+      if (!s.alive || s.agent !== 'claude' || this.warned.has(s.id) || !waitingForTrust(this.output(s.id) ?? '')) {
+        this.since.delete(s.id);
+        continue;
+      }
+      const since = this.since.get(s.id) ?? this.now();
+      this.since.set(s.id, since);
+      if (this.now() - since >= this.graceMs) {
+        out.push({ id: s.id, text: `A sessão "${s.title}" ainda não começou: está parada esperando você confirmar, no terminal dela, que confia na pasta.` });
+      }
+    }
+    return out;
+  }
+
+  markWarned(id: string): void {
+    this.warned.add(id);
+    this.since.delete(id);
+  }
+}
+
 export class SessionWatcher {
   private readonly watched = new Map<string, Watched>();
   /** Sessoes ja acompanhadas (com o rotulo), mesmo depois do aviso. */

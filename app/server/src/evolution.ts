@@ -4,7 +4,7 @@
 // repositorio. Pronta, ela so e aplicada com o "sim" do usuario: verificacoes
 // no clone, merge no repositorio, reinicio verificado (app/restart.sh) e
 // volta automatica para a versao anterior se algo falhar.
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionInfo } from './types.ts';
 import { normalize } from './voice/text.ts';
@@ -84,6 +84,8 @@ export interface EvolutionDeps {
 }
 
 const SUMMARY_FILE = join('.jarvis', 'summary.txt');
+// Pasta fixa do clone: o Claude Code guarda a confianca por caminho, entao ela so e aceita uma vez.
+const WORK_DIR = 'atual';
 const tail = (text: string, lines = 12): string => text.trim().split('\n').slice(-lines).join('\n');
 
 export function slugify(title: string): string {
@@ -170,11 +172,11 @@ export class EvolutionManager {
     }
     const { repoDir, devRoot, run } = this.deps;
     const base = (await this.git(repoDir, ['rev-parse', 'HEAD'])).trim();
-    let slug = slugify(e.title);
-    for (let i = 2; existsSync(join(devRoot, slug)); i++) slug = `${slugify(e.title)}-${i}`;
-    const dir = join(devRoot, slug);
+    const slug = slugify(e.title);
+    const dir = join(devRoot, WORK_DIR);
     const branch = `jarvis/${slug}`;
     mkdirSync(devRoot, { recursive: true });
+    const kept = this.keepLeftover(dir);
     const cloned = await run('git', ['clone', '--quiet', '--local', repoDir, dir], { cwd: devRoot });
     if (cloned.code !== 0) throw new Error(`não consegui copiar o repositório: ${tail(cloned.out, 3)}`);
     await this.git(dir, ['checkout', '--quiet', '-b', branch, base]);
@@ -187,7 +189,8 @@ export class EvolutionManager {
     e.sessionId = session.id;
     e.state = 'desenvolvendo';
     this.save();
-    return `Comecei "${e.title}" em background, numa cópia separada do Jarvis. Diga ao usuário, em poucas palavras, que você avisa quando terminar e que ele pode continuar conversando.`;
+    const leftover = kept ? ` Havia uma cópia antiga na pasta de trabalho, com possível trabalho não aplicado: ela foi guardada em ${kept}. Avise o usuário disso.` : '';
+    return `Comecei "${e.title}" em background, numa cópia separada do Jarvis. Diga ao usuário, em poucas palavras, que você avisa quando terminar e que ele pode continuar conversando.${leftover}`;
   }
 
   async status(): Promise<string> {
@@ -345,6 +348,16 @@ export class EvolutionManager {
     this.current = undefined;
     this.save();
     return `Descartei "${e.title}".`;
+  }
+
+  /** Aplicar e descartar apagam a pasta: se ela ainda existe, pode ter commits que so estao ali. Nunca apaga. */
+  private keepLeftover(dir: string): string | null {
+    if (!existsSync(dir)) return null;
+    const stamp = this.now().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
+    let kept = `${dir}-${stamp}`;
+    for (let i = 2; existsSync(kept); i++) kept = `${dir}-${stamp}-${i}`;
+    renameSync(dir, kept);
+    return kept;
   }
 
   private async commits(e: Evolution): Promise<number> {

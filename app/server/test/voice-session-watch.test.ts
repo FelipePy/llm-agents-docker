@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SessionWatcher, countWorking, findError, looksBusy, plainReport, usefulLines } from '../src/voice/session-watch.ts';
+import { SessionWatcher, TrustWatcher, waitingForTrust, countWorking, findError, looksBusy, plainReport, usefulLines } from '../src/voice/session-watch.ts';
 import type { SessionInfo } from '../src/types.ts';
 
 function setup(opts: { quietMs?: number; summarize?: ConstructorParameters<typeof SessionWatcher>[0]['summarize'] } = {}) {
@@ -168,4 +168,59 @@ test('countWorking conta so os agentes vivos trabalhando', () => {
   assert.equal(count([session('shell', 'shell')]), 0);
   assert.equal(count([session('sumiu', 'claude')]), 0, 'sem tela: nao trabalha');
   assert.equal(count([session('claude', 'claude'), session('codex', 'codex'), session('parado', 'claude'), session('shell', 'shell')]), 2);
+});
+
+const TRUST_SCREEN = 'Quick safety check\n❯ 1. No, exit\n  2. Yes, I trust this folder\nEnter to confirm';
+
+test('waitingForTrust so olha o fim da tela: citar a frase antes nao conta', () => {
+  assert.equal(waitingForTrust(TRUST_SCREEN), true);
+  assert.equal(waitingForTrust('Rodando os testes...'), false);
+  assert.equal(waitingForTrust(`${TRUST_SCREEN}\n${'trabalhando\n'.repeat(40)}`), false);
+});
+
+function trustSetup() {
+  let now = 0;
+  const screens = new Map<string, string>();
+  const list: SessionInfo[] = [];
+  const add = (id: string, screen: string, extra: Partial<SessionInfo> = {}) => {
+    list.push({ id, projectPath: '/w/app', agent: 'claude', title: `sessao ${id}`, startedAt: '', alive: true, ...extra });
+    screens.set(id, screen);
+  };
+  const w = new TrustWatcher({ sessions: () => list, output: (id) => screens.get(id) ?? null, now: () => now, graceMs: 30_000 });
+  return { w, add, screens, advance: (ms: number) => (now += ms) };
+}
+
+test('TrustWatcher espera um tempo, insiste ate falar e depois avisa uma vez so', () => {
+  const t = trustSetup();
+  t.add('s1', TRUST_SCREEN);
+  assert.deepEqual(t.w.pending(), [], 'acabou de abrir: o usuario pode estar olhando');
+  t.advance(30_000);
+  const [first] = t.w.pending();
+  assert.equal(first.id, 's1');
+  assert.match(first.text, /sessao s1.*confia na pasta/);
+  assert.equal(t.w.pending().length, 1, 'nao conseguiu falar: continua pendente');
+  t.w.markWarned('s1');
+  t.advance(60_000);
+  assert.deepEqual(t.w.pending(), []);
+});
+
+test('TrustWatcher nao avisa quem ja respondeu e recomeca a espera', () => {
+  const t = trustSetup();
+  t.add('s1', TRUST_SCREEN);
+  t.w.pending();
+  t.advance(20_000);
+  t.screens.set('s1', 'Rodando os testes...');
+  assert.deepEqual(t.w.pending(), []);
+  t.screens.set('s1', TRUST_SCREEN);
+  t.advance(20_000);
+  assert.deepEqual(t.w.pending(), [], 'a espera recomecou');
+});
+
+test('TrustWatcher ignora sessoes encerradas e outros agentes', () => {
+  const t = trustSetup();
+  t.add('morta', TRUST_SCREEN, { alive: false });
+  t.add('shell', TRUST_SCREEN, { agent: 'shell' });
+  t.w.pending();
+  t.advance(30_000);
+  assert.deepEqual(t.w.pending(), []);
 });

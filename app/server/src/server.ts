@@ -18,7 +18,7 @@ import { COMMANDS } from './voice/commands.ts';
 import { EvolutionManager, markUpdateAnnounced, readUpdate, updateNotice, updateOutcome, type EvolutionDeps, type SelfCheck } from './evolution.ts';
 import { writeFile } from 'node:fs/promises';
 import { Announcer } from './voice/announcer.ts';
-import { SessionWatcher, countWorking, type WatchSummarizer } from './voice/session-watch.ts';
+import { SessionWatcher, TrustWatcher, countWorking, type WatchSummarizer } from './voice/session-watch.ts';
 import { shortTitle } from './conversations.ts';
 import { gitLines } from './catalog.ts';
 import { VoiceSession, type VoiceWorker, type WorkerEvent } from './voice/session.ts';
@@ -150,6 +150,7 @@ export function createApp(opts: AppOptions): App {
   const clients = new Set<WebSocket>();
   const memory = opts.memory ?? new JarvisMemory(join(workspace, '.jarvis-memory.json'));
   const newsHistory = opts.newsHistory ?? new NewsHistory(join(workspace, '.jarvis-news.json'));
+  const trustWatcher = new TrustWatcher({ sessions: () => terminals.list(), output: (id) => terminals.screen(id) });
   // Sessoes que o usuario pediu para acompanhar (aviso por voz ao terminar ou dar erro).
   const watcher = new SessionWatcher({
     sessions: () => terminals.list(),
@@ -405,6 +406,7 @@ export function createApp(opts: AppOptions): App {
       const say = (text: string) => voiceSession?.announce(text, { whileListening: true }) ?? false;
       notices.push(...(await watcher.check()));
       while (notices.length && say(notices[0])) notices.shift();
+      for (const { id, text } of trustWatcher.pending()) if (say(text)) trustWatcher.markWarned(id);
       const file = opts.evolution?.updateFile;
       const u = file ? readUpdate(file) : null;
       const outcome = updateOutcome(u);
