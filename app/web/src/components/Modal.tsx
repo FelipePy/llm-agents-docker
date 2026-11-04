@@ -19,7 +19,7 @@ interface Props {
   open: boolean;
   /** Nome do modal para leitores de tela. */
   label: string;
-  /** Mais largo, para conteudo em colunas. */
+  /** Mais largo, para conteudo com muitos campos. */
   wide?: boolean;
   onClose: () => void;
   children: ReactNode;

@@ -86,12 +86,16 @@ describe('SettingsPanel', () => {
     expect(html).not.toContain('aria-expanded="true"');
     expect(getItem).not.toHaveBeenCalled();
   });
-  it('voz fica em uma coluna so', () => {
-    const html = render();
-    const inicio = html.indexOf('<h2>Voz</h2>');
-    const voz = html.slice(inicio, html.indexOf('</section>', inicio));
-    expect(voz).not.toContain('settings-columns');
-    expect(voz.match(/class="settings-column"/g)).toHaveLength(1);
+  it('tudo fica em uma coluna so, com os grupos em sequencia', () => {
+    const html = render({ floating: { open: false, toggle: noop } });
+    expect(html).not.toContain('settings-columns');
+    const grupos = ['Voz', 'Aparência e som', 'Sistema'].map((g) => html.indexOf(`<h2>${g}</h2>`));
+    expect(grupos[0]).toBeGreaterThan(-1);
+    expect(grupos[1]).toBeGreaterThan(grupos[0]);
+    expect(grupos[2]).toBeGreaterThan(grupos[1]);
+    // Cada grupo e filho direto do painel, sem nada que os ponha lado a lado.
+    expect(html).toMatch(/<\/section><section><h2>Aparência e som<\/h2>/);
+    expect(html).toMatch(/<\/section><section><h2>Sistema<\/h2>/);
   });
 });
 
