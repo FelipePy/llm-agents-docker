@@ -68,9 +68,9 @@ code { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size: 12p
 
 /* Na mesma linha do conteudo, sem rolar com ele: fica no canto, logo acima do terminal. */
 .background-tasks { grid-column: 1 / -1; grid-row: 1; align-self: end; justify-self: end; position: relative; z-index: 6; margin: 0 16px 10px; color: var(--muted); font-size: 12px; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.9)); pointer-events: none; }
-/* Onda dourada: um gradiente recortado no texto, tres vezes mais largo que a frase, com a faixa fora de vista nas duas pontas. */
+/* Onda na cor do sistema: um gradiente recortado no texto, tres vezes mais largo que a frase, com a faixa fora de vista nas duas pontas. */
 @media (prefers-reduced-motion: no-preference) {
-  .background-tasks { color: transparent; background: linear-gradient(90deg, var(--muted) 38%, #e8c877 50%, var(--muted) 62%) 100% 0 / 300% 100%; -webkit-background-clip: text; background-clip: text; animation: background-wave 3s linear infinite; }
+  .background-tasks { color: transparent; background: linear-gradient(90deg, var(--muted) 38%, var(--sys-dim) 50%, var(--muted) 62%) 100% 0 / 300% 100%; -webkit-background-clip: text; background-clip: text; animation: background-wave 3s linear infinite; }
 }
 @keyframes background-wave { to { background-position: 0% 0; } }
 

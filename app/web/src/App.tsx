@@ -1,10 +1,11 @@
-import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Api, LiveSocket, backoff, takeToken, wsUrl, type Status } from './api.ts';
 import { bus } from './bus.ts';
 import { playSound } from './sound.ts';
 import { currentNode, initialNav, navReducer, projectIdOf } from './nav.ts';
 import { hasWebGL, systemReducedMotion, useChoice, useHotkey, usePref, useSavedHotkey } from './prefs.ts';
 import { isGlobeColor, isGlobeStyle, nextGlobeStyle, type GlobeColor, type GlobeStyle } from './scene/globe.ts';
+import { applySystemColor } from './theme.ts';
 import { crumbLabel, filterItems, itemsFor, type Panel, type RingItem } from './ring.ts';
 import { demoSignal, MODE_LABEL, type CoreSignal } from './scene/core.ts';
 import { addTab, applyAction, closeTab, emptyTabs, shortcut, syncTabs, type TabsState } from './tabs.ts';
@@ -73,6 +74,8 @@ function Connected({ token }: { token: string }) {
   // Janela flutuante do navegador (Picture-in-Picture): aberta por um clique nas configuracoes.
   const [floating, setFloating] = useState<FloatingOrb | null>(null);
   const [globeColor, setGlobeColor] = useChoice<GlobeColor>('llm-agent-globe-color', 'dourado', isGlobeColor);
+  // Antes de pintar: sem isto, quem escolheu outra cor veria a interface sem cor no primeiro quadro.
+  useLayoutEffect(() => applySystemColor(document.documentElement, globeColor), [globeColor]);
   const [globeStyle, setGlobeStyle] = useChoice<GlobeStyle>('llm-agent-globe-style', 'holografico', isGlobeStyle);
   const [globeHotkey, setGlobeHotkey] = useSavedHotkey('llm-agent-globe-hotkey', DEFAULT_GLOBE_HOTKEY);
   const [sounds, setSounds] = usePref('llm-agent-sounds', true);
@@ -380,16 +383,20 @@ function Connected({ token }: { token: string }) {
       return;
     }
     openFloatingOrb(
+      globeColor,
       () => window.focus(),
       () => setFloating(null),
     ).then(
       (orb) => setFloating(orb),
       (err: Error) => setError(`Não consegui abrir a janela flutuante: ${err.message}`),
     );
-  }, [floating]);
+  }, [floating, globeColor]);
   useEffect(() => {
     floating?.update(coreMode, voice.jarvis || voice.user);
   }, [floating, coreMode, voice.jarvis, voice.user]);
+  useEffect(() => {
+    floating?.setColor(globeColor);
+  }, [floating, globeColor]);
 
   onUiRef.current = (command: UiCommand) => {
     // O modal cobre a tela: o que o Jarvis abrir precisa ficar a vista.
