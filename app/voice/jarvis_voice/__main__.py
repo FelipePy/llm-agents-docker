@@ -18,6 +18,7 @@ from .protocol import JSON, encode_json, read_message
 from .hallucination import looks_like_vocabulary, vocab_tokens
 from .segmenter import Segmenter, end_ms_from
 from .groq import GroqError, GroqStt
+from .heard import HeardQueue
 from .speaker import Clips, SpeakerModel
 
 FRAME_SAMPLES = 1280  # 80 ms a 16 kHz
@@ -118,7 +119,6 @@ def main() -> None:
         return min(end_ms, SLEEP_END_MS)
 
     segmenter = Segmenter(end_ms=sleep_end())
-    stt_busy = threading.Event()
     # Verificacao da voz: o audio de cada ativacao fica guardado; o servidor pede o vetor dele.
     clips = Clips()
     speaker = SpeakerModel(SPEAKER_DIR, log)
@@ -203,16 +203,21 @@ def main() -> None:
             log(traceback.format_exc())
             send({"event": "error", "message": f"falha na transcrição: {err}"})
 
-    def transcribe_heard(segment: bytes, clip: int) -> None:
+    def transcribe_heard(segment: bytes, clip: int, hid: int) -> None:
+        sent = False
         try:
             started = time.monotonic()
             text = run_whisper(segment)
             if text:
-                send({"event": "heard", "text": text, "ms": int((time.monotonic() - started) * 1000), "clip": clip})
+                send({"event": "heard", "text": text, "ms": int((time.monotonic() - started) * 1000), "clip": clip, "id": hid})
+                sent = True
         except Exception:
             log(traceback.format_exc())
         finally:
-            stt_busy.clear()
+            heard.done(hid, sent)
+
+    # Falas ouvidas em espera (numeradas; com o whisper ocupado, a ultima fica na fila).
+    heard = HeardQueue(send, lambda job: stt_pool.submit(transcribe_heard, *job), HEARD_MAX_BYTES)
 
     def embed(eid: int, audio: list, clip) -> None:
         """Vetores da voz: de trechos enviados (cadastro) ou de um trecho guardado (ativacao)."""
@@ -309,9 +314,12 @@ def main() -> None:
                     vad.reset_states()
                 else:
                     segmenter.end_ms = end_ms
+                # A fala ouvida em espera que estava em andamento continua como fala da conversa.
+                heard.abandon()
             elif name == "sleep":
                 state["listen"] = False
                 segmenter = Segmenter(end_ms=sleep_end())
+                heard.abandon()
             elif name == "speak":
                 tts_pool.submit(speak, int(cmd["id"]), str(cmd["text"]), state["generation"])
             elif name == "cancel":
@@ -358,9 +366,11 @@ def main() -> None:
                 started, segment = segmenter.feed(frame, speech)
                 if not state["listen"]:
                     # Esperando ser chamado: transcreve falas curtas (sem legenda ao vivo).
-                    if segment is not None and len(segment) <= HEARD_MAX_BYTES and not stt_busy.is_set():
-                        stt_busy.set()
-                        stt_pool.submit(transcribe_heard, segment, save_clip(segmenter.last_frames))
+                    if started:
+                        heard.start()
+                    elif was_active and not segmenter.active:
+                        frames = segmenter.last_frames
+                        heard.end(segment, lambda: save_clip(frames))
                     continue
                 if started:
                     send({"event": "speech-start"})
