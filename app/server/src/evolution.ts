@@ -301,7 +301,8 @@ export class EvolutionManager {
     const to = (await this.git(repoDir, ['rev-parse', 'HEAD'])).trim();
     const changed = (await this.git(repoDir, ['diff', '--name-only', from, to])).split('\n');
     for (const pkg of ['app/server', 'app/web']) {
-      if (changed.includes(`${pkg}/package-lock.json`)) await this.must(repoDir, 'dependências', 'npm', ['--prefix', pkg, 'ci', '--silent']);
+      // Na instalacao do app desktop a interface vem sem node_modules (so o dist).
+      if (changed.includes(`${pkg}/package-lock.json`) || !existsSync(join(repoDir, pkg, 'node_modules'))) await this.must(repoDir, 'dependências', 'npm', ['--prefix', pkg, 'ci', '--silent']);
     }
     await this.must(repoDir, 'compilação da interface', 'npm', ['--prefix', 'app/web', 'run', 'build']);
     const update: UpdateRecord = {
