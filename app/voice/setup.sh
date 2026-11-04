@@ -5,11 +5,19 @@
 set -euo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-py="${LLM_AGENT_PYTHON:-python3}"
 venv="$dir/.venv"
 
-if ! "$py" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
-  echo "A voz precisa de Python 3.10 ou mais novo (encontrado: $("$py" --version 2>&1 || echo nenhum))." >&2
+# O primeiro Python >= 3.10 (LLM_AGENT_PYTHON, python3 ou um python3.X ao lado de um
+# python3 antigo, como o python3.12 que o instalador do Jarvis poe no Ubuntu 20.04).
+py=""
+for candidate in ${LLM_AGENT_PYTHON:-} python3 python3.13 python3.12 python3.11 python3.10; do
+  if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+    py="$candidate"
+    break
+  fi
+done
+if [ -z "$py" ]; then
+  echo "A voz precisa de Python 3.10 ou mais novo (encontrado: $(python3 --version 2>&1 || echo nenhum))." >&2
   exit 2
 fi
 

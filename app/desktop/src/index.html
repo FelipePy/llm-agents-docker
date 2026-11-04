@@ -15,6 +15,46 @@
       #error pre { white-space: pre-wrap; font-size: 12px; color: #d9b98a; max-height: 240px; overflow: auto; }
       code { color: #ffd98a; }
       button { margin-top: 12px; font: inherit; color: #05060a; background: #ffc94a; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; }
+      button:disabled { opacity: 0.45; cursor: default; }
+      button.ghost { color: #e8e2d0; background: transparent; border: 1px solid #5a4a26; }
+      /* Lista do que falta instalar (aprovacao do usuario). */
+      body.setup { place-items: start center; overflow: auto; }
+      body.setup .box { max-width: 760px; padding-top: 32px; }
+      body.setup .ring { width: 64px; height: 64px; margin-bottom: 16px; }
+      #setup { display: none; margin-top: 18px; text-align: left; }
+      #setup .intro { color: #b8b09a; margin: 0 0 14px; }
+      .item { display: grid; grid-template-columns: 26px 1fr; gap: 4px 10px; background: #120f0a; border: 1px solid #3a2c12; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+      .item.ok { border-color: #22301d; opacity: 0.75; }
+      .item input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: #ffc94a; }
+      .item .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+      .item .title { color: #ffd98a; font-weight: 600; }
+      .item .found { color: #7f7866; font-size: 12px; }
+      .badge { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; border-radius: 999px; padding: 1px 8px; background: #3a2a0a; color: #ffc94a; }
+      .badge.ok { background: #1c2c18; color: #9fd28a; }
+      .badge.warn { background: #3a1a12; color: #f0a07a; }
+      .item .why, .item .action { grid-column: 2; font-size: 13px; color: #b8b09a; }
+      .item .action { color: #d9cfb5; }
+      .item .action b { color: #9a937f; font-weight: 400; }
+      .item .progress { grid-column: 2; font-size: 13px; color: #ffc94a; display: none; }
+      .item .progress.ok { color: #9fd28a; }
+      .item .progress.fail { color: #f0a07a; white-space: pre-wrap; }
+      #setup .buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+      #setup-log { margin-top: 12px; font-size: 12px; color: #7f7866; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.2em; }
+      #setup-notice { display: none; margin-top: 14px; background: #1a1410; border: 1px solid #5a3b16; border-radius: 10px; padding: 12px 14px; color: #e8d6b0; white-space: pre-wrap; }
+      /* Progresso da instalacao: porcentagem, item atual e tempo restante. */
+      #setup-progress { display: none; margin: 4px 0 16px; padding: 12px 14px; background: #120f0a; border: 1px solid #3a2c12; border-radius: 10px; }
+      #setup-progress .top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+      #sp-pct { font-size: 22px; font-weight: 300; color: #ffc94a; font-variant-numeric: tabular-nums; }
+      #sp-eta { font-size: 13px; color: #9a937f; font-variant-numeric: tabular-nums; }
+      #sp-item { margin-top: 2px; font-size: 13px; color: #d9cfb5; }
+      .bar { margin-top: 10px; height: 8px; border-radius: 999px; background: #2a1f08; overflow: hidden; }
+      .bar .fill { height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, #c8901f, #ffc94a); transition: width 0.8s ease; }
+      .bar.busy .fill { background-size: 200% 100%; background-image: linear-gradient(90deg, #c8901f, #ffe08a, #c8901f); animation: shimmer 1.6s linear infinite; }
+      @keyframes shimmer { to { background-position: -200% 0; } }
+      #setup-progress.fail .fill { background: #b8563a; animation: none; }
+      #setup-progress.done .fill { background: #8cc276; animation: none; }
+      @media (prefers-reduced-motion: reduce) { .bar .fill { transition: none; } .bar.busy .fill { animation: none; } }
+      @media (max-width: 520px) { body.setup .box { padding: 16px; } }
     </style>
   </head>
   <body>
@@ -28,15 +68,229 @@
         <p>Para ver o erro completo, rode no terminal (no Windows, no do WSL): <code>llm-agent ui</code>. O registro do servidor fica em <code>~/.config/llm-agent/ui/server.log</code>.</p>
         <button id="retry">Tentar de novo</button>
       </div>
+      <div id="setup">
+        <p class="intro" id="setup-intro"></p>
+        <div id="setup-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="top"><span id="sp-pct">0%</span><span id="sp-eta"></span></div>
+          <div id="sp-item"></div>
+          <div class="bar busy"><div class="fill"></div></div>
+        </div>
+        <div id="setup-items"></div>
+        <div class="buttons">
+          <button id="setup-install">Instalar selecionados</button>
+          <button id="setup-skip" class="ghost">Agora não</button>
+          <button id="setup-retry" class="ghost" style="display: none">Conferir de novo</button>
+        </div>
+        <div id="setup-log"></div>
+        <div id="setup-notice"></div>
+      </div>
     </div>
     <script>
       // Chamadas pelo app (Rust) via eval.
       window.setStatus = (text) => (document.getElementById('status').textContent = text);
       window.showError = (text) => {
+        document.getElementById('setup').style.display = 'none';
         document.getElementById('status').textContent = '';
         document.getElementById('detail').textContent = text;
         document.getElementById('error').style.display = 'block';
       };
+
+      // Lista de dependencias: o app chama showSetup(itens, reparar) e, durante a
+      // instalacao, setupStep / setupLog / setupDone. Nada e instalado sem o clique.
+      const $ = (id) => document.getElementById(id);
+      const BADGES = {
+        ok: ['Instalado', 'ok'],
+        missing: ['Falta', ''],
+        outdated: ['Versão antiga', ''],
+        manual: ['Precisa de você', 'warn'],
+        relogin: ['Falta entrar de novo', 'warn'],
+      };
+      let rows = {};
+      let busy = false;
+      let lastItems = [];
+      const el = (tag, cls, text) => {
+        const e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text) e.textContent = text;
+        return e;
+      };
+      const selected = () => Object.entries(rows).filter(([, r]) => r.box && r.box.checked && !r.box.disabled).map(([id]) => id);
+      const refresh = () => {
+        const n = selected().length;
+        $('setup-install').disabled = busy || n === 0;
+        $('setup-install').textContent = n ? `Instalar selecionados (${n})` : 'Instalar selecionados';
+        $('setup-skip').disabled = busy;
+      };
+      window.showSetup = (items, repair) => {
+        busy = false;
+        rows = {};
+        lastItems = items;
+        clearInterval(progress.timer);
+        progress.timer = null;
+        $('setup-progress').style.display = 'none';
+        document.body.classList.add('setup');
+        $('error').style.display = 'none';
+        $('status').textContent = '';
+        $('setup-notice').style.display = 'none';
+        $('setup-log').textContent = '';
+        $('setup-retry').style.display = 'none';
+        const pending = items.filter((i) => i.state !== 'ok');
+        $('setup-intro').textContent = pending.length
+          ? 'Para o Jarvis funcionar falta o que está abaixo. Veja o motivo de cada item e o que será feito; só instalo o que você marcar.'
+          : 'Tudo o que o Jarvis precisa já está instalado. Marque um item para instalar de novo (reparar ou atualizar).';
+        $('setup-skip').textContent = repair || !pending.length ? 'Voltar ao Jarvis' : 'Agora não';
+        const list = $('setup-items');
+        list.replaceChildren();
+        for (const item of items) {
+          const row = el('div', `item ${item.state === 'ok' ? 'ok' : ''}`);
+          const installable = item.state !== 'manual' && item.state !== 'relogin';
+          let box = null;
+          if (installable) {
+            box = el('input');
+            box.type = 'checkbox';
+            box.checked = item.state !== 'ok';
+            box.title = item.state === 'ok' ? 'Instalar de novo' : 'Instalar';
+            box.addEventListener('change', refresh);
+            row.append(box);
+          } else {
+            row.append(el('span'));
+          }
+          const head = el('div', 'head');
+          const [label, cls] = BADGES[item.state] || [item.state, ''];
+          head.append(el('span', 'title', item.title), el('span', `badge ${cls}`, label));
+          if (item.found) head.append(el('span', 'found', item.found));
+          row.append(head, el('div', 'why', item.why));
+          if (item.action) {
+            const action = el('div', 'action', item.action);
+            if (item.size) action.append(el('b', '', ` (${item.size})`));
+            row.append(action);
+          }
+          const progress = el('div', 'progress');
+          row.append(progress);
+          list.append(row);
+          rows[item.id] = { box, progress };
+        }
+        $('setup').style.display = 'block';
+        refresh();
+      };
+      // Progresso: cada item pesa o tempo tipico dele (secs, do setup.sh). A estimativa
+      // se corrige pelo ritmo real dos itens ja instalados.
+      const progress = { plan: [], done: {}, current: null, started: 0, timer: null };
+      const fmtLeft = (s) => (s < 50 ? 'menos de 1 min restante' : `cerca de ${Math.round(s / 60)} min restante${Math.round(s / 60) > 1 ? 's' : ''}`);
+      const drawProgress = (final) => {
+        const p = progress;
+        const total = p.plan.reduce((n, i) => n + i.secs, 0) || 1;
+        const doneIds = Object.keys(p.done);
+        const doneEst = p.plan.filter((i) => p.done[i.id] !== undefined).reduce((n, i) => n + i.secs, 0);
+        const doneReal = doneIds.reduce((n, id) => n + p.done[id], 0);
+        const pace = doneEst ? Math.min(3, Math.max(0.4, doneReal / doneEst)) : 1;
+        const cur = p.plan.find((i) => i.id === p.current);
+        const elapsed = cur ? (Date.now() - p.started) / 1000 : 0;
+        const curFrac = cur ? Math.min(0.95, elapsed / (cur.secs * pace)) : 0;
+        let pct = ((doneEst + (cur ? cur.secs * curFrac : 0)) / total) * 100;
+        if (final === 'done') pct = 100;
+        pct = Math.max(0, Math.min(100, Math.round(pct)));
+        const left = p.plan.filter((i) => p.done[i.id] === undefined && i.id !== p.current).reduce((n, i) => n + i.secs * pace, 0)
+          + (cur ? Math.max(cur.secs * pace * 0.05, cur.secs * pace - elapsed) : 0);
+        $('sp-pct').textContent = `${pct}%`;
+        $('setup-progress').setAttribute('aria-valuenow', String(pct));
+        $('setup-progress').querySelector('.fill').style.width = `${pct}%`;
+        const idx = cur ? p.plan.indexOf(cur) + 1 : doneIds.length;
+        if (final === 'done') {
+          $('sp-item').textContent = 'Instalação concluída.';
+          $('sp-eta').textContent = '';
+        } else if (final === 'fail') {
+          $('sp-item').textContent = cur ? `Parou em: ${cur.title} (${idx} de ${p.plan.length})` : 'A instalação parou.';
+          $('sp-eta').textContent = '';
+        } else if (cur) {
+          $('sp-item').textContent = `Instalando: ${cur.title} (${idx} de ${p.plan.length})`;
+          $('sp-eta').textContent = fmtLeft(left);
+        } else {
+          $('sp-item').textContent = doneIds.length >= p.plan.length ? 'Conferindo a instalação…' : 'Preparando…';
+          $('sp-eta').textContent = doneIds.length >= p.plan.length ? '' : fmtLeft(left);
+        }
+      };
+      const startProgress = (plan) => {
+        Object.assign(progress, { plan, done: {}, current: null, started: Date.now() });
+        const box = $('setup-progress');
+        box.className = '';
+        box.querySelector('.bar').classList.add('busy');
+        box.style.display = 'block';
+        clearInterval(progress.timer);
+        progress.timer = setInterval(() => drawProgress(), 1000);
+        drawProgress();
+      };
+      const stopProgress = (final) => {
+        clearInterval(progress.timer);
+        const box = $('setup-progress');
+        if (box.style.display !== 'block') return;
+        box.querySelector('.bar').classList.remove('busy');
+        box.className = final;
+        drawProgress(final);
+      };
+
+      window.setupStep = (step) => {
+        if (step.state === 'start') {
+          progress.current = step.id;
+          progress.started = Date.now();
+        } else if (step.state === 'ok') {
+          progress.done[step.id] = (Date.now() - progress.started) / 1000;
+          if (progress.current === step.id) progress.current = null;
+        }
+        if (progress.timer) drawProgress(step.state === 'fail' ? 'fail' : undefined);
+        if (step.state === 'fail') stopProgress('fail');
+        const r = rows[step.id];
+        if (!r) return;
+        r.progress.style.display = 'block';
+        r.progress.className = `progress ${step.state === 'start' ? '' : step.state}`;
+        r.progress.textContent = step.state === 'start' ? 'Instalando…' : step.state === 'ok' ? 'Pronto.' : `Falhou: ${step.message || 'veja o registro abaixo.'}`;
+      };
+      window.setupLog = (text) => ($('setup-log').textContent = text);
+      window.setupDone = (done) => {
+        stopProgress(done.error ? 'fail' : 'done');
+        busy = false;
+        refresh();
+        const notice = $('setup-notice');
+        const say = (text) => {
+          notice.textContent = text;
+          notice.style.display = 'block';
+        };
+        if (done.error) {
+          say(`A instalação parou neste erro:\n${done.error}\n\nO que já foi instalado continua; corrija o problema e confira de novo para continuar de onde parou. A saída completa fica em setup.log, na pasta de logs do Jarvis (no Windows, %LOCALAPPDATA%\\dev.llmagent.jarvis\\logs).`);
+          $('setup-retry').style.display = '';
+        } else if (done.restart === 'windows') {
+          say('O WSL foi ligado: reinicie o computador e abra o Jarvis de novo para continuar a instalação.');
+        } else if (done.restart === 'logout') {
+          say('Seu usuário entrou no grupo docker, mas isso só vale numa sessão nova: saia e entre de novo (ou reinicie o computador) e abra o Jarvis.');
+          $('setup-skip').textContent = 'Abrir o Jarvis mesmo assim';
+        } else {
+          say('Tudo pronto. Iniciando o Jarvis…');
+        }
+      };
+      $('setup-install').addEventListener('click', () => {
+        const ids = selected();
+        if (!ids.length) return;
+        busy = true;
+        refresh();
+        $('setup-notice').style.display = 'none';
+        $('setup-retry').style.display = 'none';
+        for (const r of Object.values(rows)) if (r.box) r.box.disabled = true;
+        startProgress(lastItems.filter((i) => ids.includes(i.id)).map((i) => ({ id: i.id, title: i.title, secs: Math.max(5, Number(i.secs) || 30) })));
+        window.__TAURI__.core.invoke('setup_install', { ids });
+      });
+      $('setup-skip').addEventListener('click', () => {
+        document.body.classList.remove('setup');
+        $('setup').style.display = 'none';
+        window.setStatus('Iniciando o servidor…');
+        window.__TAURI__.core.invoke('setup_skip');
+      });
+      $('setup-retry').addEventListener('click', () => {
+        $('setup').style.display = 'none';
+        document.body.classList.remove('setup');
+        window.setStatus('Conferindo de novo…');
+        window.__TAURI__.core.invoke('retry');
+      });
+
       document.getElementById('retry').addEventListener('click', () => {
         document.getElementById('error').style.display = 'none';
         window.setStatus('Tentando de novo…');

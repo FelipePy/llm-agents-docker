@@ -1,4 +1,5 @@
 import type { ClientMessage, DayInfo, Overview, ProjectDetail, ServerMessage } from './types.ts';
+import type { AccessMode } from './pin.ts';
 
 export type SttProvider = 'local' | 'groq';
 export type GroqModel = 'whisper-large-v3-turbo' | 'whisper-large-v3';
@@ -35,6 +36,16 @@ export interface VoiceProfile {
   emailRecovery: boolean;
   /** O perfil tem as chamadas curtas ("Jarvis")? Perfis antigos nao: vale refazer. */
   calls: boolean;
+  /** Como o acesso e liberado: chamando "Jarvis", falando a senha ou dos dois jeitos. */
+  access: AccessMode;
+  /** Senha antiga, com letras ou simbolos: o proximo pedido da senha exige uma so com numeros. */
+  legacyPassword: boolean;
+}
+/** Escolha do acesso: pede a senha atual (e a nova, so numeros, se a atual for antiga). */
+export interface VoiceAccessInput {
+  access: AccessMode;
+  password: string;
+  newPassword?: string;
 }
 /** Cadastro: 4 frases e 3 chamadas (PCM 16 kHz em base64); senha na 1a vez, senha atual para refazer. */
 export interface VoiceEnrollInput {
@@ -111,6 +122,10 @@ export class Api {
 
   enrollVoice(input: VoiceEnrollInput): Promise<VoiceProfile> {
     return this.post('/api/voice/profile', input);
+  }
+
+  setVoiceAccess(input: VoiceAccessInput): Promise<VoiceProfile> {
+    return this.post('/api/voice/profile/access', input);
   }
 
   /** Esqueceu a senha: pela voz, pedindo o codigo por e-mail ou com o codigo recebido. */

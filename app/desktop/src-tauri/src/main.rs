@@ -7,7 +7,7 @@
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -17,6 +17,7 @@ use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Manager, PhysicalPosition, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent, Wry};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use serde_json::Value;
 
 /// URL da interface (com o token), depois que o servidor sobe (a bolinha usa).
 struct ServerUrl(Mutex<Option<String>>);
@@ -69,17 +70,19 @@ fn dev_repo() -> Option<String> {
     std::env::var("JARVIS_REPO").ok().map(|r| r.trim().to_string()).filter(|r| !r.is_empty())
 }
 
-/// bash de login (no Windows, dentro do WSL) rodando `script` com os argumentos.
-/// No WSL, argumentos que sao caminhos do Windows sao convertidos pelo setup.sh.
-fn bash_command(script: &str, args: &[String]) -> Command {
+/// bash de login (no Windows, dentro do WSL; `root`: como root, sem senha) rodando
+/// `script` com os argumentos. No WSL, argumentos que sao caminhos do Windows sao
+/// convertidos pelo setup.sh.
+fn bash_command(script: &str, args: &[String], root: bool) -> Command {
     #[cfg(windows)]
     {
         let mut cmd = Command::new("wsl.exe");
         // JARVIS_WSL_DISTRO escolhe a distribuicao (padrao: a do WSL).
-        if let Ok(distro) = std::env::var("JARVIS_WSL_DISTRO") {
-            if !distro.trim().is_empty() {
-                cmd.args(["-d", distro.trim()]);
-            }
+        if let Some(distro) = env_distro() {
+            cmd.args(["-d", &distro]);
+        }
+        if root {
+            cmd.args(["-u", "root"]);
         }
         cmd.args(["-e", "bash", "-lc", script, "jarvis"]).args(args);
         cmd.creation_flags(CREATE_NO_WINDOW);
@@ -87,40 +90,62 @@ fn bash_command(script: &str, args: &[String]) -> Command {
     }
     #[cfg(not(windows))]
     {
+        let _ = root;
         let mut cmd = Command::new("bash");
         cmd.args(["-lc", script, "jarvis"]).args(args);
         cmd
     }
 }
 
-/// Roda o comando, mostra as linhas "@status ..." na tela de abertura e devolve
-/// (codigo, stdout, stderr).
-fn run_streaming(app: &AppHandle, mut cmd: Command) -> Result<(Option<i32>, String, String), String> {
+/// Distribuicao do WSL escolhida em JARVIS_WSL_DISTRO.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn env_distro() -> Option<String> {
+    std::env::var("JARVIS_WSL_DISTRO").ok().map(|d| d.trim().to_string()).filter(|d| !d.is_empty())
+}
+
+/// Cada linha do stdout (false) e do stderr (true), assim que sai.
+type LineFn = Arc<dyn Fn(&str, bool) + Send + Sync>;
+
+/// Le as linhas de um pipe (texto invalido em UTF-8 nao interrompe a leitura).
+fn read_lines(pipe: impl Read, is_err: bool, on_line: &LineFn) -> String {
+    let mut text = String::new();
+    for chunk in BufReader::new(pipe).split(b'\n').map_while(Result::ok) {
+        let line = String::from_utf8_lossy(&chunk).replace(['\0', '\r'], "");
+        on_line(&line, is_err);
+        text.push_str(&line);
+        text.push('\n');
+    }
+    text
+}
+
+/// Roda o comando passando cada linha para `on_line` e devolve (codigo, stdout, stderr).
+fn run_lines(mut cmd: Command, on_line: LineFn) -> Result<(Option<i32>, String, String), String> {
     let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| {
         if cfg!(windows) { format!("Não consegui executar o wsl.exe ({e}). O WSL está instalado?") } else { format!("Não consegui executar o bash ({e}).") }
     })?;
     let stderr = child.stderr.take().map(|err| {
-        thread::spawn(move || {
-            let mut text = String::new();
-            let _ = BufReader::new(err).read_to_string(&mut text);
-            text
-        })
+        let on_line = on_line.clone();
+        thread::spawn(move || read_lines(err, true, &on_line))
     });
-    let mut stdout = String::new();
-    if let Some(out) = child.stdout.take() {
-        for line in BufReader::new(out).lines().map_while(Result::ok) {
-            if let Some(text) = line.strip_prefix("@status ") {
-                let text = serde_json::to_string(text).unwrap_or_default();
-                eval(app, &format!("window.setStatus && window.setStatus({text})"));
-            }
-            stdout.push_str(&line);
-            stdout.push('\n');
-        }
-    }
+    let stdout = child.stdout.take().map(|out| read_lines(out, false, &on_line)).unwrap_or_default();
     let status = child.wait().map_err(|e| e.to_string())?;
     let stderr = stderr.and_then(|h| h.join().ok()).unwrap_or_default();
     Ok((status.code(), stdout, stderr))
 }
+
+/// Linhas "@status ..." vao para a tela de abertura.
+fn status_lines(app: &AppHandle) -> LineFn {
+    let app = app.clone();
+    Arc::new(move |line, _| {
+        if let Some(text) = line.strip_prefix("@status ") {
+            let text = serde_json::to_string(text).unwrap_or_default();
+            eval(&app, &format!("window.setStatus && window.setStatus({text})"));
+        }
+    })
+}
+
+/// Roda o setup.sh do pacote com o bash (no Windows, no WSL).
+const RUN_SETUP: &str = if cfg!(windows) { "f=\"$(wslpath -u \"$1\")\"; shift; exec bash \"$f\" \"$@\"" } else { "exec bash \"$@\"" };
 
 /// Sobe o servidor e devolve a URL. Com o pacote embutido, o setup.sh instala ou
 /// atualiza o codigo dele antes (no Windows, dentro do WSL); com JARVIS_REPO, usa
@@ -137,12 +162,11 @@ fn start_server(app: &AppHandle, restart: bool) -> Result<String, String> {
             if restart {
                 args.push("--restart".into());
             }
-            let script = if cfg!(windows) { "f=\"$(wslpath -u \"$1\")\"; shift; exec bash \"$f\" \"$@\"" } else { "exec bash \"$@\"" };
-            (script.to_string(), args)
+            (RUN_SETUP.to_string(), args)
         }
         (None, None) => (format!("{LEGACY}{}llm-agent ui", if restart { "llm-agent ui --stop >/dev/null 2>&1; " } else { "" }), vec![]),
     };
-    let (code, stdout, stderr) = run_streaming(app, bash_command(&script, &args))?;
+    let (code, stdout, stderr) = run_lines(bash_command(&script, &args, false), status_lines(app))?;
     stdout
         .lines()
         .rev()
@@ -155,16 +179,21 @@ fn start_server(app: &AppHandle, restart: bool) -> Result<String, String> {
         })
 }
 
-/// Erro que nao impede o app de abrir: vai para jarvis.log, na pasta de logs do app
-/// (no Windows, %LOCALAPPDATA%\dev.llmagent.jarvis\logs).
-fn log_error(app: &AppHandle, what: &str, err: impl std::fmt::Display) {
+/// Linha num arquivo da pasta de logs do app (no Windows,
+/// %LOCALAPPDATA%\dev.llmagent.jarvis\logs; no Linux, ~/.local/share/dev.llmagent.jarvis/logs).
+fn append_log(app: &AppHandle, file: &str, line: &str) {
     use std::io::Write;
     let Ok(dir) = app.path().app_log_dir() else { return };
     let _ = std::fs::create_dir_all(&dir);
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("jarvis.log")) {
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join(file)) {
         let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let _ = writeln!(f, "[{secs}] {what}: {err}");
+        let _ = writeln!(f, "[{secs}] {line}");
     }
+}
+
+/// Erro que nao impede o app de abrir: vai para jarvis.log.
+fn log_error(app: &AppHandle, what: &str, err: impl std::fmt::Display) {
+    append_log(app, "jarvis.log", &format!("{what}: {err}"));
 }
 
 fn eval(app: &AppHandle, js: &str) {
@@ -174,8 +203,14 @@ fn eval(app: &AppHandle, js: &str) {
 }
 
 fn show_error(app: &AppHandle, message: &str) {
+    to_splash(app);
+    let text = serde_json::to_string(message).unwrap_or_else(|_| "\"erro\"".into());
+    eval(app, &format!("window.showError && window.showError({text})"));
+}
+
+/// Volta para a tela de abertura (a janela pode estar na interface).
+fn to_splash(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
-        // Volta para a tela de abertura (pode estar na interface) e mostra o erro.
         if !w.url().map(|u| u.as_str().starts_with(SPLASH)).unwrap_or(false) {
             if let Ok(splash) = SPLASH.parse::<Url>() {
                 let _ = w.navigate(splash);
@@ -183,14 +218,12 @@ fn show_error(app: &AppHandle, message: &str) {
             }
         }
     }
-    let text = serde_json::to_string(message).unwrap_or_else(|_| "\"erro\"".into());
-    eval(app, &format!("window.showError && window.showError({text})"));
 }
 
-/// Sobe (ou reinicia) o servidor numa thread e carrega a interface.
-fn boot(app: AppHandle, restart: bool) {
-    eval(&app, "window.setStatus && window.setStatus('Iniciando o servidor… (na primeira vez ele instala o que falta e demora mais)')");
-    thread::spawn(move || match start_server(&app, restart) {
+/// Sobe (ou reinicia) o servidor e carrega a interface (bloqueia: chame numa thread).
+fn start(app: &AppHandle, restart: bool) {
+    eval(app, "window.setStatus && window.setStatus('Iniciando o servidor…')");
+    match start_server(app, restart) {
         Ok(url) => match url.parse::<Url>() {
             Ok(u) => {
                 if let Ok(mut current) = app.state::<ServerUrl>().0.lock() {
@@ -200,15 +233,348 @@ fn boot(app: AppHandle, restart: bool) {
                     let _ = w.navigate(u);
                 }
             }
-            Err(e) => show_error(&app, &format!("URL inválida do llm-agent ui: {url} ({e})")),
+            Err(e) => show_error(app, &format!("URL inválida do llm-agent ui: {url} ({e})")),
         },
-        Err(message) => show_error(&app, &message),
+        Err(message) => show_error(app, &message),
+    }
+}
+
+/// Ao abrir: confere as dependencias (com o pacote embutido) e, se faltar algo,
+/// mostra a lista para o usuario aprovar; senao, sobe o servidor. Reiniciar o
+/// servidor (bandeja) nao confere de novo.
+fn boot(app: AppHandle, restart: bool) {
+    thread::spawn(move || {
+        if !restart && payload(&app).is_some() {
+            eval(&app, "window.setStatus && window.setStatus('Conferindo o que o Jarvis precisa…')");
+            match check(&app) {
+                Ok(items) if needs_attention(&items) => return show_setup(&app, &items, false),
+                Ok(_) => {}
+                Err(e) => return show_error(&app, &e),
+            }
+        }
+        start(&app, restart);
     });
+}
+
+// --- Dependencias (setup.sh check / install / install-root) -------------------
+
+/// Ultima verificacao: os itens e o usuario/distribuicao do Linux (linha @env).
+#[derive(Default)]
+struct SetupInfo {
+    items: Vec<Value>,
+    user: String,
+    distro: String,
+}
+struct SetupState(Mutex<SetupInfo>);
+
+/// Argumentos do pacote (e do clone, em desenvolvimento) para o setup.sh.
+fn payload_args(app: &AppHandle) -> Result<(String, Vec<String>), String> {
+    let (setup, archive) = payload(app).ok_or("Este build do Jarvis não traz o pacote de instalação.")?;
+    let mut args = vec!["--payload".to_string(), shell_path(&archive)];
+    if let Some(repo) = dev_repo() {
+        args.extend(["--repo".to_string(), repo]);
+    }
+    Ok((shell_path(&setup), args))
+}
+
+/// setup.sh com os argumentos. Como root: no Windows, `wsl -u root` (sem senha);
+/// no Linux, pkexec (pede a senha numa janela do sistema).
+fn setup_command(app: &AppHandle, args: Vec<String>, root: bool) -> Result<Command, String> {
+    let (setup, _) = payload_args(app)?;
+    if root && !cfg!(windows) {
+        // O AppImage fica montado so para o usuario: o root le uma copia.
+        let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let copy = dir.join("setup.sh");
+        std::fs::copy(&setup, &copy).map_err(|e| format!("Não consegui copiar o setup.sh ({e})."))?;
+        let copy = shell_path(&copy);
+        if Command::new("pkexec").arg("--version").output().is_err() {
+            return Err(format!("Sem o pkexec para pedir a senha de administrador. Rode no terminal:\nsudo bash {copy} {}", args.join(" ")));
+        }
+        let mut cmd = Command::new("pkexec");
+        cmd.arg("bash").arg(copy).args(args);
+        return Ok(cmd);
+    }
+    let mut full = vec![setup];
+    full.extend(args);
+    Ok(bash_command(RUN_SETUP, &full, root))
+}
+
+/// Confere as dependencias e guarda o resultado. No Windows sem WSL (ou sem a
+/// distribuicao), so o item do WSL: o resto e conferido dentro dele, depois.
+fn check(app: &AppHandle) -> Result<Vec<Value>, String> {
+    #[cfg(windows)]
+    if let Some(items) = wsl_missing() {
+        if let Ok(mut info) = app.state::<SetupState>().0.lock() {
+            info.items = items.clone();
+        }
+        return Ok(items);
+    }
+    let (_, payload) = payload_args(app)?;
+    let mut args = vec!["check".to_string()];
+    args.extend(payload);
+    let (code, stdout, stderr) = run_lines(setup_command(app, args, false)?, Arc::new(|_, _| {}))?;
+    if code != Some(0) {
+        return Err(format!("Não consegui conferir a instalação.\n{}", tail(&format!("{stderr}\n{stdout}"), 15)));
+    }
+    let mut info = SetupInfo::default();
+    for line in stdout.lines() {
+        if let Some(item) = line.strip_prefix("@item ").and_then(|j| serde_json::from_str::<Value>(j).ok()) {
+            info.items.push(item);
+        } else if let Some(env) = line.strip_prefix("@env ").and_then(|j| serde_json::from_str::<Value>(j).ok()) {
+            info.user = env["user"].as_str().unwrap_or_default().to_string();
+            info.distro = env["distro"].as_str().unwrap_or_default().to_string();
+        }
+    }
+    let items = info.items.clone();
+    if let Ok(mut state) = app.state::<SetupState>().0.lock() {
+        *state = info;
+    }
+    Ok(items)
+}
+
+/// Algo a instalar ou resolver. A atualizacao do proprio codigo nao entra: ela
+/// vem com o app novo (o setup.sh start atualiza, com reinicio verificado).
+fn needs_attention(items: &[Value]) -> bool {
+    items.iter().any(|i| {
+        let state = i["state"].as_str().unwrap_or("ok");
+        state != "ok" && !(i["id"] == "app" && state == "outdated")
+    })
+}
+
+fn show_setup(app: &AppHandle, items: &[Value], repair: bool) {
+    to_splash(app);
+    let items = serde_json::to_string(items).unwrap_or_else(|_| "[]".into());
+    eval(app, &format!("window.showSetup && window.showSetup({items}, {repair})"));
+}
+
+/// Nome do usuario do Linux a criar no WSL: o do Windows, no formato do Linux.
+fn linux_user_name() -> String {
+    let raw = std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_default().to_lowercase();
+    let name: String = raw.chars().filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_' || *c == '-').take(32).collect();
+    if name.starts_with(|c: char| c.is_ascii_lowercase()) && name != "root" { name } else { "jarvis".into() }
+}
+
+/// Repassa a saida do setup.sh para a tela: @step (progresso de cada item),
+/// @restart (guardado em `restarts`) e o resto como registro.
+fn setup_lines(app: &AppHandle, restarts: Arc<Mutex<Vec<String>>>) -> LineFn {
+    let app = app.clone();
+    Arc::new(move |line, is_err| {
+        // Toda a saida da instalacao fica em setup.log (para entender um erro depois).
+        if !line.trim().is_empty() {
+            append_log(&app, "setup.log", &format!("{}{line}", if is_err { "! " } else { "" }));
+        }
+        if let Some(step) = line.strip_prefix("@step ").and_then(|j| serde_json::from_str::<Value>(j).ok()) {
+            eval(&app, &format!("window.setupStep && window.setupStep({step})"));
+        } else if let Some(kind) = line.strip_prefix("@restart ") {
+            if let Ok(mut r) = restarts.lock() {
+                r.push(kind.trim().to_string());
+            }
+        } else {
+            let text = line.strip_prefix("@status ").unwrap_or(line).trim();
+            if !text.is_empty() && !text.starts_with('@') {
+                let text = serde_json::to_string(text).unwrap_or_default();
+                eval(&app, &format!("window.setupLog && window.setupLog({text})"));
+            }
+        }
+    })
+}
+
+fn setup_step(app: &AppHandle, id: &str, state: &str, message: &str) {
+    let step = serde_json::json!({ "id": id, "state": state, "message": message });
+    eval(app, &format!("window.setupStep && window.setupStep({step})"));
+}
+
+fn setup_done(app: &AppHandle, restart: Option<&str>, error: Option<&str>) {
+    if let Some(e) = error {
+        append_log(app, "setup.log", &format!("a instalação parou: {e}"));
+        log_error(app, "instalação", e);
+    }
+    let done = serde_json::json!({ "restart": restart, "error": error });
+    eval(app, &format!("window.setupDone && window.setupDone({done})"));
+}
+
+/// Instala os itens aprovados, na ordem da lista: WSL (Windows), passos de root
+/// (uma unica permissao de administrador) e passos do usuario. Para no primeiro
+/// erro; no fim confere de novo e, com tudo pronto, sobe o servidor.
+fn install(app: &AppHandle, ids: &[String]) {
+    let (items, user, distro) = match app.state::<SetupState>().0.lock() {
+        Ok(info) => (info.items.clone(), info.user.clone(), info.distro.clone()),
+        Err(_) => return,
+    };
+    let is_root = |id: &str| items.iter().any(|i| i["id"] == id && i["root"] == true);
+    append_log(app, "setup.log", &format!("instalando (aprovado pelo usuário): {}", ids.join(" ")));
+    let restarts = Arc::new(Mutex::new(Vec::<String>::new()));
+
+    #[cfg(windows)]
+    if ids.iter().any(|id| id == "wsl") {
+        setup_step(app, "wsl", "start", "");
+        match install_wsl(setup_lines(app, restarts.clone())) {
+            Ok(restart) => {
+                setup_step(app, "wsl", "ok", "");
+                if restart {
+                    return setup_done(app, Some("windows"), None);
+                }
+            }
+            Err(e) => {
+                setup_step(app, "wsl", "fail", &e);
+                return setup_done(app, None, Some(&e));
+            }
+        }
+    }
+
+    let root_ids: Vec<String> = ids.iter().filter(|id| id.as_str() != "wsl" && is_root(id)).cloned().collect();
+    let user_ids: Vec<String> = ids.iter().filter(|id| id.as_str() != "wsl" && !is_root(id)).cloned().collect();
+    if !root_ids.is_empty() {
+        let name = if root_ids.iter().any(|id| id == "wsl-user") { linux_user_name() } else { user.clone() };
+        let mut args = vec!["install-root".to_string(), "--user".into(), name];
+        args.extend(root_ids);
+        if let Err(e) = setup_command(app, args, true).and_then(|cmd| run_step(cmd, setup_lines(app, restarts.clone()))) {
+            return setup_done(app, None, Some(&e));
+        }
+    }
+    // Distribuicao do WSL reiniciada: vale o usuario padrao, o systemd e o grupo docker.
+    #[cfg(windows)]
+    if restarts.lock().map(|r| r.iter().any(|k| k == "wsl")).unwrap_or(false) {
+        let mut cmd = Command::new("wsl.exe");
+        if distro.is_empty() { cmd.arg("--shutdown") } else { cmd.args(["--terminate", &distro]) };
+        let _ = cmd.creation_flags(CREATE_NO_WINDOW).output();
+    }
+    #[cfg(not(windows))]
+    let _ = distro;
+    if !user_ids.is_empty() {
+        let (_, payload) = match payload_args(app) {
+            Ok(p) => p,
+            Err(e) => return setup_done(app, None, Some(&e)),
+        };
+        let mut args = vec!["install".to_string()];
+        args.extend(payload);
+        args.extend(user_ids);
+        if let Err(e) = setup_command(app, args, false).and_then(|cmd| run_step(cmd, setup_lines(app, restarts.clone()))) {
+            return setup_done(app, None, Some(&e));
+        }
+    }
+
+    if restarts.lock().map(|r| r.iter().any(|k| k == "logout")).unwrap_or(false) {
+        return setup_done(app, Some("logout"), None);
+    }
+    match check(app) {
+        Ok(items) if needs_attention(&items) => show_setup(app, &items, false),
+        Ok(_) => {
+            setup_done(app, None, None);
+            start(app, false);
+        }
+        Err(e) => setup_done(app, None, Some(&e)),
+    }
+}
+
+/// Um setup.sh install / install-root: erro com o fim da saida se falhar.
+fn run_step(cmd: Command, on_line: LineFn) -> Result<(), String> {
+    let (code, stdout, stderr) = run_lines(cmd, on_line)?;
+    if code == Some(0) {
+        return Ok(());
+    }
+    let failed = stdout
+        .lines()
+        .filter_map(|l| l.strip_prefix("@step ").and_then(|j| serde_json::from_str::<Value>(j).ok()))
+        .find(|s| s["state"] == "fail")
+        .and_then(|s| s["message"].as_str().map(str::to_string));
+    Err(failed.filter(|m| !m.trim().is_empty()).unwrap_or_else(|| tail(&stderr, 6)))
+}
+
+/// Distribuicoes do WSL instaladas (None: o WSL nao responde).
+#[cfg(windows)]
+fn wsl_distros() -> Option<Vec<String>> {
+    let out = Command::new("wsl.exe").args(["-l", "-q"]).creation_flags(CREATE_NO_WINDOW).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    // O wsl.exe escreve em UTF-16.
+    let units: Vec<u16> = out.stdout.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+    let text = String::from_utf16_lossy(&units);
+    Some(text.lines().map(|l| l.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}' || c == '\0').to_string()).filter(|l| !l.is_empty()).collect())
+}
+
+/// Item do WSL, se faltar o WSL ou a distribuicao (JARVIS_WSL_DISTRO ou qualquer uma).
+#[cfg(windows)]
+fn wsl_missing() -> Option<Vec<Value>> {
+    let wanted = env_distro();
+    let ready = match wsl_distros() {
+        Some(list) => match &wanted {
+            Some(d) => list.iter().any(|x| x.eq_ignore_ascii_case(d)),
+            None => !list.is_empty(),
+        },
+        None => false,
+    };
+    if ready {
+        return None;
+    }
+    let distro = wanted.unwrap_or_else(|| "Ubuntu".into());
+    Some(vec![serde_json::json!({
+        "id": "wsl", "state": "missing", "root": false, "found": "",
+        "title": format!("WSL2 e {distro}"),
+        "why": "No Windows, os agentes, os containers e o servidor do Jarvis rodam num Linux dentro do WSL. Depois dele, o Jarvis confere o resto (Docker, Node, Python e a voz).",
+        "action": format!("Instala o WSL2 e o {distro} (wsl --install -d {distro}). O Windows pede permissão de administrador e pode pedir para reiniciar o computador."),
+        "size": "~1 GB",
+        "secs": 300,
+    })])
+}
+
+/// wsl --install da distribuicao. Ok(true): falta reiniciar o Windows.
+#[cfg(windows)]
+fn install_wsl(on_line: LineFn) -> Result<bool, String> {
+    let distro = env_distro().unwrap_or_else(|| "Ubuntu".into());
+    let mut cmd = Command::new("wsl.exe");
+    cmd.args(["--install", "-d", &distro, "--no-launch"]).env("WSL_UTF8", "1").creation_flags(CREATE_NO_WINDOW);
+    let (code, stdout, stderr) = run_lines(cmd, on_line)?;
+    if wsl_missing().is_none() {
+        return Ok(false);
+    }
+    // Instalada pela Store sem abrir: registra pelo lancador da distribuicao (ubuntu.exe, ubuntu2404.exe...).
+    let launcher = format!("{}.exe", distro.to_lowercase().replace(['-', '.'], ""));
+    let _ = Command::new(&launcher).args(["install", "--root"]).creation_flags(CREATE_NO_WINDOW).output();
+    if wsl_missing().is_none() {
+        return Ok(false);
+    }
+    if code == Some(0) {
+        // O WSL acabou de ser ligado: a distribuicao so aparece depois de reiniciar.
+        return Ok(true);
+    }
+    Err(format!("O wsl --install falhou.\n{}", tail(&format!("{stderr}\n{stdout}"), 10)))
 }
 
 #[tauri::command]
 fn retry(app: AppHandle) {
     boot(app, false);
+}
+
+/// Instala os itens aprovados na tela de abertura.
+#[tauri::command]
+fn setup_install(app: AppHandle, ids: Vec<String>) {
+    thread::spawn(move || install(&app, &ids));
+}
+
+/// "Agora não": sobe o servidor sem instalar nada.
+#[tauri::command]
+fn setup_skip(app: AppHandle) {
+    thread::spawn(move || start(&app, false));
+}
+
+/// Bandeja: mostra a lista (tambem o que ja esta ok), para reparar ou reinstalar.
+fn review_setup(app: &AppHandle) {
+    show(app);
+    let app = app.clone();
+    thread::spawn(move || {
+        if payload(&app).is_none() {
+            return show_error(&app, "Este build do Jarvis não traz o pacote de instalação (use o instalador do release).");
+        }
+        to_splash(&app);
+        eval(&app, "window.setStatus && window.setStatus('Conferindo o que o Jarvis precisa…')");
+        match check(&app) {
+            Ok(items) => show_setup(&app, &items, true),
+            Err(e) => show_error(&app, &e),
+        }
+    });
 }
 
 /// Para a bolinha: URL do servidor (ou None enquanto ele sobe).
@@ -383,7 +749,8 @@ fn main() {
         // Inicio com o sistema: abre escondido (--minimized), so com a bolinha.
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
         .manage(ServerUrl(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![retry, server_url, show_main])
+        .manage(SetupState(Mutex::new(SetupInfo::default())))
+        .invoke_handler(tauri::generate_handler![retry, server_url, show_main, setup_install, setup_skip])
         .setup(|app| {
             let handle = app.handle().clone();
             create_main(&handle)?;
@@ -399,8 +766,9 @@ fn main() {
             let autostart_item =
                 CheckMenuItem::with_id(app, "autostart", "Iniciar com o sistema", true, autostart_enabled(&handle), None::<&str>)?;
             let restart_item = MenuItem::with_id(app, "restart", "Reiniciar o servidor", true, None::<&str>)?;
+            let setup_item = MenuItem::with_id(app, "setup", "Verificar a instalação", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &autostart_item, &restart_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&show_item, &autostart_item, &restart_item, &setup_item, &quit_item])?;
             app.manage(AutostartItem(autostart_item));
             let mut tray = TrayIconBuilder::new()
                 .tooltip("Jarvis")
@@ -410,6 +778,7 @@ fn main() {
                     "show" => show(app),
                     "autostart" => set_autostart(app, !autostart_enabled(app)),
                     "restart" => boot(app.clone(), true),
+                    "setup" => review_setup(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })

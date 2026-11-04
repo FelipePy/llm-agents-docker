@@ -1,6 +1,7 @@
 // Voz do usuario: o perfil cadastrado (4 frases e 3 chamadas), a senha que protege o perfil
 // e a recuperacao da senha (pela propria voz ou por um codigo enviado por e-mail).
-// A voz so e conferida quando o Jarvis e chamado (VoiceSession.activate).
+// A voz so e conferida quando o Jarvis e chamado (VoiceSession.activate). A senha e numerica
+// (de 4 a 6 digitos) e tambem libera o acesso falada no lugar do "Jarvis" (`access`).
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomBytes, randomInt, scryptSync, timingSafeEqual } from 'node:crypto';
@@ -13,7 +14,15 @@ export const ENROLL_PHRASES = 4;
  * voz certa; comparada com chamadas da mesma pessoa, fica bem acima.
  */
 export const ENROLL_CALLS = 3;
-export const MIN_PASSWORD = 8;
+/** Senha so com numeros: de 4 a 6 digitos (menos de 4 seria facil demais de acertar falando). */
+export const MIN_PASSWORD = 4;
+export const MAX_PASSWORD = 6;
+/**
+ * Como o acesso por voz e liberado: chamando "Jarvis" (a voz e conferida), falando a senha
+ * ou dos dois jeitos.
+ */
+export type AccessMode = 'voice' | 'pin' | 'both';
+export const ACCESS_MODES: readonly AccessMode[] = ['voice', 'pin', 'both'];
 /** Semelhanca minima (cosseno) com o perfil para aceitar a voz. */
 export const DEFAULT_THRESHOLD = 0.5;
 /** Cada frase gravada: de 1 a 15 s de PCM 16 kHz, 16 bits. */
@@ -33,6 +42,12 @@ interface Profile {
   calls: number[] | null;
   /** "scrypt:<sal>:<hash>" (base64). */
   password: string;
+  /**
+   * A senha e so de numeros? Senhas antigas (com letras ou simbolos) continuam valendo ate
+   * o proximo pedido da senha atual, que entao exige uma senha nova so com numeros.
+   */
+  numeric: boolean;
+  access: AccessMode;
   email: string;
   enrolledAt: string;
 }
@@ -46,6 +61,10 @@ export interface SpeakerView {
   emailRecovery: boolean;
   /** O perfil tem as chamadas curtas? (perfis antigos nao: vale refazer a voz) */
   calls: boolean;
+  /** Como o acesso por voz e liberado. */
+  access: AccessMode;
+  /** Senha antiga, com letras ou simbolos: o proximo pedido da senha exige redefinir. */
+  legacyPassword: boolean;
 }
 
 export interface SpeakerDeps {
@@ -128,6 +147,8 @@ function parse(raw: unknown): Profile | null {
     vector: o.vector,
     calls: isVector(o.calls) && o.calls.length === o.vector.length ? o.calls : null,
     password: o.password,
+    numeric: o.numeric === true,
+    access: ACCESS_MODES.includes(o.access as AccessMode) ? (o.access as AccessMode) : 'both',
     email: typeof o.email === 'string' ? o.email : '',
     enrolledAt: typeof o.enrolledAt === 'string' ? o.enrolledAt : '',
   };
@@ -179,7 +200,52 @@ export class SpeakerProfileStore implements SpeakerCheck {
       emailHint: p ? emailHint(p.email) : null,
       emailRecovery: Boolean(p?.email && this.deps.mailer),
       calls: Boolean(p?.calls),
+      access: p?.access ?? 'both',
+      legacyPassword: Boolean(p && !p.numeric),
     };
+  }
+
+  /** Como o acesso e liberado; com senha antiga (nao da para falar), so pela voz. */
+  access(): AccessMode {
+    const p = this.profile;
+    if (!p) return 'voice';
+    return p.numeric ? p.access : 'voice';
+  }
+
+  /**
+   * Senha falada para liberar o acesso. Errar conta como tentativa errada (5 seguidas
+   * bloqueiam por 5 minutos, como na tela). 'locked': bloqueada, nem confere.
+   */
+  verifyPin(digits: string): boolean | 'locked' {
+    const p = this.profile;
+    if (!p || !p.numeric) return false;
+    if (this.lockProblem()) return 'locked';
+    if (passwordMatches(digits, p.password)) {
+      this.failures = 0;
+      this.log('senha falada: aceita');
+      return true;
+    }
+    this.failed('');
+    this.log('senha falada: recusada');
+    return false;
+  }
+
+  /** Escolhe como o acesso e liberado; pede a senha atual (e a nova, se a atual e antiga). */
+  setAccess(input: { access?: unknown; password?: unknown; newPassword?: unknown }): Result {
+    const p = this.profile;
+    if (!p) return { error: 'Cadastre a sua voz e a senha primeiro.' };
+    const locked = this.lockProblem();
+    if (locked) return { error: locked };
+    if (!ACCESS_MODES.includes(input.access as AccessMode)) return { error: 'Escolha voz, senha ou os dois.' };
+    if (typeof input.password !== 'string' || !passwordMatches(input.password, p.password)) return { error: this.failed('Senha incorreta.') };
+    let password = p.password;
+    if (!p.numeric) {
+      const problem = input.newPassword === undefined || input.newPassword === '' ? LEGACY_RESET : passwordProblem(input.newPassword);
+      if (problem) return { error: problem };
+      password = hashPassword(input.newPassword as string);
+    }
+    this.save({ ...p, password, numeric: true, access: input.access as AccessMode });
+    return { view: this.view() };
   }
 
   /**
@@ -196,7 +262,9 @@ export class SpeakerProfileStore implements SpeakerCheck {
       }
     }
     const newPassword = input.password === undefined || input.password === '' ? undefined : input.password;
-    if (!current && newPassword === undefined) return { error: `Defina uma senha de no mínimo ${MIN_PASSWORD} caracteres.` };
+    if (!current && newPassword === undefined) return { error: `Defina uma senha só com números, de ${MIN_PASSWORD} a ${MAX_PASSWORD} dígitos.` };
+    // Senha antiga, com letras ou simbolos: valeu agora, mas precisa ser trocada por uma so com numeros.
+    if (current && !current.numeric && newPassword === undefined) return { error: LEGACY_RESET };
     if (newPassword !== undefined) {
       const problem = passwordProblem(newPassword);
       if (problem) return { error: problem };
@@ -246,6 +314,8 @@ export class SpeakerProfileStore implements SpeakerCheck {
       vector: vector.map((x) => Math.round(x * 1e6) / 1e6),
       calls: callVector.map((x) => Math.round(x * 1e6) / 1e6),
       password: newPassword !== undefined ? hashPassword(newPassword as string) : current!.password,
+      numeric: newPassword !== undefined ? true : current!.numeric,
+      access: current?.access ?? 'both',
       email,
       enrolledAt: new Date(this.now()).toISOString(),
     });
@@ -262,7 +332,7 @@ export class SpeakerProfileStore implements SpeakerCheck {
     if (problem) return { error: problem };
     const [vector] = await this.deps.embed([input.audio as string]);
     if (!this.matches(vector, p, 'recuperação da senha')) return { error: this.failed('Não reconheci a sua voz. Tente de novo, num lugar silencioso.') };
-    this.save({ ...p, password: hashPassword(input.password as string) });
+    this.save({ ...p, password: hashPassword(input.password as string), numeric: true });
     return { view: this.view() };
   }
 
@@ -301,7 +371,7 @@ export class SpeakerProfileStore implements SpeakerCheck {
     if (!code || this.now() > code.expires) return { error: 'Peça um código novo por e-mail.' };
     if (typeof input.code !== 'string' || !passwordMatches(input.code.trim(), code.hash)) return { error: this.failed('Código incorreto.') };
     this.code = null;
-    this.save({ ...p, password: hashPassword(input.password as string) });
+    this.save({ ...p, password: hashPassword(input.password as string), numeric: true });
     return { view: this.view() };
   }
 
@@ -343,8 +413,11 @@ export class SpeakerProfileStore implements SpeakerCheck {
   }
 }
 
+const LEGACY_RESET = `A sua senha tem letras ou símbolos: defina uma senha nova só com números, de ${MIN_PASSWORD} a ${MAX_PASSWORD} dígitos.`;
+
+/** Senha nova: so numeros, de 4 a 6 digitos (nada de letras, simbolos ou espacos). */
 function passwordProblem(password: unknown): string | null {
-  if (typeof password !== 'string' || password.length < MIN_PASSWORD) return `A senha precisa ter no mínimo ${MIN_PASSWORD} caracteres.`;
-  if (password.length > 200) return 'Senha longa demais.';
+  if (typeof password !== 'string' || !/^[0-9]*$/.test(password)) return 'A senha aceita só números (sem letras, símbolos ou espaços).';
+  if (password.length < MIN_PASSWORD || password.length > MAX_PASSWORD) return `A senha precisa ter de ${MIN_PASSWORD} a ${MAX_PASSWORD} dígitos.`;
   return null;
 }

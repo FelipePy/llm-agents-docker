@@ -1,7 +1,7 @@
 import type { VoiceClientMessage, VoiceServerMessage, VoiceState } from '../types.ts';
 import type { Brain, InterruptJudge } from './brain.ts';
 import {
-  DEFAULT_CONTINUATION_WORDS, SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isShortStop, isStopRequest, isSubmit, isUnintelligible, looksIncomplete, looksLikeRequest, matchWake, mergeUtterances, normalize, stripMarkdown,
+  DEFAULT_CONTINUATION_WORDS, SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isShortStop, isStopRequest, isSubmit, isUnintelligible, looksIncomplete, looksLikeRequest, matchWake, mergeUtterances, normalize, spokenPin, stripMarkdown,
 } from './text.ts';
 
 export type WorkerCommand =
@@ -57,9 +57,19 @@ export interface SpeakerCheck {
   enrolled(): boolean;
   /** O audio da ativacao (trecho guardado no worker) e a voz cadastrada? Erro: nao deu para conferir. */
   verify(clip: number | undefined): Promise<boolean>;
+  /**
+   * Como o acesso e liberado: chamando "Jarvis" (voz conferida), falando a senha numerica
+   * ou dos dois jeitos. Sem isto, so pela voz.
+   */
+  access?(): 'voice' | 'pin' | 'both';
+  /** A senha falada confere? 'locked': tentativas demais, nem confere. */
+  verifyPin?(digits: string): boolean | 'locked';
 }
 
 export const VOICE_REFUSED = 'Acesso negado.';
+/** So a senha libera o acesso e o usuario chamou "Jarvis". */
+export const PIN_REQUIRED = 'Fale a senha para liberar o acesso.';
+export const PIN_LOCKED = 'Muitas tentativas erradas: espere alguns minutos.';
 export const VOICE_CHECK_FAILED = 'Não consegui conferir a sua voz agora; tente de novo em instantes.';
 
 /** Terminal da sessao na conversa direta. Cada funcao devolve falso se a sessao acabou. */
@@ -406,6 +416,11 @@ export class VoiceSession {
    */
   private activate(clip: number | undefined, rest: string, after: number, ms?: number, heard?: string): void {
     if (this.checkingVoice) return;
+    if (this.speaker?.enrolled() && this.speaker.access?.() === 'pin') {
+      // So a senha libera: o chamado nao abre a conversa (nem o pedido que veio junto).
+      this.call = null;
+      return this.deny(heard, PIN_REQUIRED);
+    }
     this.call = { rest, parts: [], ms, after, until: this.now() + FOLLOW_UP_MS, awake: false };
     if (!this.speaker?.enrolled()) return this.answerCall();
     this.checkingVoice = true;
@@ -494,15 +509,39 @@ export class VoiceSession {
    * Chamado por outra voz: "acesso negado" e nada e executado. A legenda mostra a
    * fala ignorada; outro chamado recusado logo depois nao repete o aviso em voz.
    */
-  private deny(heard: string | undefined): void {
+  private deny(heard: string | undefined, text = VOICE_REFUSED): void {
     if (this.now() - this.lastRefusal < REFUSE_REPEAT_MS) {
       this.log('ativação recusada de novo: só na legenda');
       if (heard) this.send({ type: 'caption', who: 'user', text: heard, ignored: true });
-      this.send({ type: 'caption', who: 'jarvis', text: VOICE_REFUSED });
+      this.send({ type: 'caption', who: 'jarvis', text });
       return;
     }
     this.lastRefusal = this.now();
-    this.refuse(VOICE_REFUSED, heard);
+    this.refuse(text, heard);
+  }
+
+  /**
+   * Fala em espera que e so uma senha numerica ("123456", ou "Jarvis, 123456"), com o
+   * acesso por senha ligado: se conferir, acorda e cumprimenta; se nao, "acesso negado".
+   * A senha nunca aparece na legenda nem no log. Devolve se a fala era uma senha.
+   */
+  private unlockByPin(text: string): boolean {
+    const speaker = this.speaker;
+    if (!speaker?.enrolled() || !speaker.verifyPin) return false;
+    const access = speaker.access?.() ?? 'voice';
+    if (access === 'voice') return false;
+    const called = matchWake(text);
+    const digits = spokenPin(called ? called.rest : text);
+    if (!digits) return false;
+    this.call = null;
+    const ok = speaker.verifyPin(digits);
+    if (ok === true) {
+      this.log('acesso liberado pela senha');
+      // Falada logo depois do aviso ("fale a senha"): o aviso para e a conversa abre.
+      if (this.refusing) this.endRefusal();
+      this.wakeUp(true);
+    } else this.deny(undefined, ok === 'locked' ? PIN_LOCKED : VOICE_REFUSED);
+    return true;
   }
 
   /** Voz nao reconhecida: avisa e volta a esperar, sem abrir conversa nem ouvir pedidos. */
@@ -590,6 +629,8 @@ export class VoiceSession {
         return;
       case 'heard': {
         if (e.id !== undefined) this.hearing.delete(e.id);
+        // Senha numerica falada no lugar do "Jarvis" (antes de tudo: nunca vira pedido).
+        if ((this.state === 'sleeping' || this.refusing) && this.unlockByPin(e.text)) return;
         const called = matchWake(e.text);
         // Continuacao de um chamado: "Jarvis" ... pausa ... "abre o meu-app".
         if (this.followUp(called ? called.rest : e.text.trim(), e.ms)) return;

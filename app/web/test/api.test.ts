@@ -143,20 +143,23 @@ it('jarvisMemory lista e forgetFact apaga com DELETE', async () => {
   expect(calls).toEqual([{ url: '/api/jarvis/memory', method: undefined }, { url: '/api/jarvis/memory/a1b2c3', method: 'DELETE' }]);
 });
 
-it('enrollVoice e recoverVoice enviam POST e mostram o erro do servidor', async () => {
+it('enrollVoice, setVoiceAccess e recoverVoice enviam POST e mostram o erro do servidor', async () => {
   const calls: { url: string; init?: RequestInit }[] = [];
   const fetchImpl = (async (url: string, init?: RequestInit) => {
     calls.push({ url, init });
     return url.endsWith('/recover')
       ? new Response('{"error":"Não reconheci a sua voz."}', { status: 400 })
-      : new Response('{"enrolled":true,"enrolledAt":"2026-11-03T10:00:00Z","emailHint":null,"emailRecovery":false,"calls":true}');
+      : new Response('{"enrolled":true,"enrolledAt":"2026-11-03T10:00:00Z","emailHint":null,"emailRecovery":false,"calls":true,"access":"pin","legacyPassword":false}');
   }) as unknown as typeof fetch;
   const api = new Api('tok', fetchImpl);
-  expect((await api.enrollVoice({ audio: ['AAAA'], calls: ['BBBB'], password: 'senha-boa' })).enrolled).toBe(true);
+  expect((await api.enrollVoice({ audio: ['AAAA'], calls: ['BBBB'], password: '482193' })).enrolled).toBe(true);
   expect(calls[0].url).toBe('/api/voice/profile');
   expect(JSON.parse(String(calls[0].init?.body)).calls).toEqual(['BBBB']);
   expect(calls[0].init?.method).toBe('POST');
   expect((calls[0].init?.headers as Record<string, string>).authorization).toBe('Bearer tok');
-  await expect(api.recoverVoice({ method: 'voice', audio: 'AAAA', password: 'nova-senha' })).rejects.toThrow('Não reconheci a sua voz.');
-  expect(JSON.parse(String(calls[1].init?.body))).toEqual({ method: 'voice', audio: 'AAAA', password: 'nova-senha' });
+  await expect(api.recoverVoice({ method: 'voice', audio: 'AAAA', password: '5550' })).rejects.toThrow('Não reconheci a sua voz.');
+  expect(JSON.parse(String(calls[1].init?.body))).toEqual({ method: 'voice', audio: 'AAAA', password: '5550' });
+  expect((await api.setVoiceAccess({ access: 'pin', password: '482193' })).access).toBe('pin');
+  expect(calls[2].url).toBe('/api/voice/profile/access');
+  expect(JSON.parse(String(calls[2].init?.body))).toEqual({ access: 'pin', password: '482193' });
 });

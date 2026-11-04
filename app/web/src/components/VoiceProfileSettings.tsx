@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Api, VoiceProfile } from '../api.ts';
 import { MIN_RECORD_S, recordPhrase } from '../voice/record.ts';
+import { ACCESS_OPTIONS, MAX_PIN, MIN_PIN, pinInput, pinProblem, type AccessMode } from '../pin.ts';
 
 /** Frases do cadastro (sem "Jarvis", para a escuta ligada nao acordar enquanto voce grava). */
 export const PHRASES = [
@@ -16,10 +17,11 @@ export const PHRASES = [
 export const CALLS = ['Jarvis', 'Hey Jarvis', 'Ei, Jarvis'];
 /** Cada chamada grava um tempo fixo e para sozinha (o nome e curto demais para "Parar"). */
 export const CALL_RECORD_S = 2.5;
-const MIN_PASSWORD = 8;
-
 type Notice = { kind: 'ok' | 'error' | 'busy'; text: string } | null;
-type Mode = 'view' | 'enroll' | 'recover';
+type Mode = 'view' | 'enroll' | 'recover' | 'access';
+
+const LEGACY_NOTE = `A sua senha atual tem letras ou símbolos. Ela ainda vale agora, mas defina uma senha nova só com números, de ${MIN_PIN} a ${MAX_PIN} dígitos.`;
+const accessLabel = (a: AccessMode) => ACCESS_OPTIONS.find((o) => o.value === a)?.label ?? '';
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '');
@@ -82,7 +84,7 @@ function Recorder({ phrase, audio, onAudio, onError, disabled, fixedS }: {
   );
 }
 
-/** Voz do usuario: cadastrar, refazer (com a senha) e recuperar a senha. */
+/** Voz do usuario: cadastrar, refazer (com a senha), escolher o acesso (voz/senha) e recuperar a senha. */
 export function VoiceProfileSettings({ api }: { api: Api }) {
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
   const [mode, setMode] = useState<Mode>('view');
@@ -95,6 +97,7 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
+  const [access, setAccess] = useState<AccessMode>('both');
 
   useEffect(() => {
     api.voiceProfile().then(setProfile, () => setNotice({ kind: 'error', text: 'Não consegui ler a voz cadastrada (servidor antigo? reinicie o llm-agent ui).' }));
@@ -111,6 +114,7 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
     setEmail('');
     setCode('');
     setCodeSent(false);
+    if (profile) setAccess(profile.access);
   };
   const run = async (busy: string, fn: () => Promise<VoiceProfile>, done: string) => {
     setNotice({ kind: 'busy', text: busy });
@@ -128,27 +132,29 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
   const fail = (text: string) => setNotice({ kind: 'error', text });
   const setPhrase = (i: number) => (b64: string | null) => setAudio((a) => a.map((v, j) => (j === i ? b64 : v)));
   const setCall = (i: number) => (b64: string | null) => setCalls((a) => a.map((v, j) => (j === i ? b64 : v)));
-  const newPasswordOk = password.length >= MIN_PASSWORD && password === confirm;
+  const newPasswordOk = !pinProblem(password) && password === confirm;
+  const legacy = profile.legacyPassword;
 
   const notes = notice && <p className={`stt-notice ${notice.kind}`}>{notice.text}</p>;
   const passwordFields = (label: string) => (
     <>
       <label className="field">
         <span>{label}</span>
-        <input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <input type="password" inputMode="numeric" pattern="[0-9]*" maxLength={MAX_PIN} autoComplete="new-password" value={password} onChange={(e) => setPassword(pinInput(e.target.value))} />
       </label>
       <label className="field">
         <span>Repita a senha</span>
-        <input type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+        <input type="password" inputMode="numeric" pattern="[0-9]*" maxLength={MAX_PIN} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(pinInput(e.target.value))} />
       </label>
-      {password && password.length < MIN_PASSWORD && <p className="muted">A senha precisa ter no mínimo {MIN_PASSWORD} caracteres.</p>}
+      {password && pinProblem(password) && <p className="muted">{pinProblem(password)}</p>}
       {confirm && password !== confirm && <p className="muted">As senhas não são iguais.</p>}
     </>
   );
 
   if (mode === 'enroll') {
     const redo = profile.enrolled;
-    const passwordOk = redo ? current.length > 0 && (!password || newPasswordOk) : newPasswordOk;
+    // Senha antiga (com letras): vale como senha atual, mas a nova e obrigatoria.
+    const passwordOk = redo ? current.length > 0 && (legacy ? newPasswordOk : !password || newPasswordOk) : newPasswordOk;
     const ready = audio.every(Boolean) && calls.every(Boolean) && passwordOk && !busy;
     const submit = () =>
       void run(
@@ -161,7 +167,7 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
             ...(redo ? { currentPassword: current } : {}),
             ...(email.trim() || !redo ? { email: email.trim() } : {}),
           }),
-        'Pronto: agora só a sua voz ativa o Jarvis.',
+        'Pronto: agora só a sua voz (ou a sua senha) ativa o Jarvis.',
       );
     return (
       <div className="stt-settings">
@@ -183,7 +189,10 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
             <input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
           </label>
         )}
-        {passwordFields(redo ? 'Senha nova (opcional)' : `Senha para alterar a voz (mínimo ${MIN_PASSWORD})`)}
+        {redo && legacy && <p className="stt-notice error">{LEGACY_NOTE}</p>}
+        {passwordFields(
+          redo ? (legacy ? 'Senha nova (só números)' : 'Senha nova (opcional)') : `Senha só com números, de ${MIN_PIN} a ${MAX_PIN} dígitos (também libera o acesso falada)`,
+        )}
         <label className="field">
           <span>E-mail para recuperar a senha{redo ? '' : ' (opcional)'}</span>
           <input
@@ -197,6 +206,53 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
         <div className="stt-actions">
           <button disabled={!ready} onClick={submit}>
             Salvar voz
+          </button>
+          <button className="link" disabled={busy} onClick={() => open('view')}>
+            Cancelar
+          </button>
+        </div>
+        {notes}
+      </div>
+    );
+  }
+
+  if (mode === 'access') {
+    const ready = current.length > 0 && (!legacy || newPasswordOk) && !busy;
+    return (
+      <div className="stt-settings">
+        <div className="stt-title">Como liberar o acesso</div>
+        <p className="muted">
+          A senha é a mesma da voz: fale os {MIN_PIN} a {MAX_PIN} dígitos no lugar do “Jarvis”, por exemplo na primeira vez do dia.
+        </p>
+        {ACCESS_OPTIONS.map((o) => (
+          <label key={o.value} title={o.hint}>
+            <input type="radio" name="voice-access" checked={access === o.value} onChange={() => setAccess(o.value)} disabled={busy} />
+            {o.label}
+          </label>
+        ))}
+        <p className="muted">{ACCESS_OPTIONS.find((o) => o.value === access)?.hint}</p>
+        <label className="field">
+          <span>Senha atual</span>
+          <input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+        </label>
+        {legacy && (
+          <>
+            <p className="stt-notice error">{LEGACY_NOTE}</p>
+            {passwordFields('Senha nova (só números)')}
+          </>
+        )}
+        <div className="stt-actions">
+          <button
+            disabled={!ready}
+            onClick={() =>
+              void run(
+                'Salvando…',
+                () => api.setVoiceAccess({ access, password: current, ...(legacy ? { newPassword: password } : {}) }),
+                `Pronto: acesso por ${accessLabel(access).toLowerCase()}.`,
+              )
+            }
+          >
+            Salvar
           </button>
           <button className="link" disabled={busy} onClick={() => open('view')}>
             Cancelar
@@ -273,14 +329,21 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
       <div className="stt-title">Sua voz</div>
       <p className={profile.enrolled ? 'voice-enrolled' : 'muted'}>
         {profile.enrolled
-          ? `✓ Voz cadastrada${profile.enrolledAt ? ` em ${date(profile.enrolledAt)}` : ''}: só ela ativa o Jarvis.`
+          ? `✓ Voz cadastrada${profile.enrolledAt ? ` em ${date(profile.enrolledAt)}` : ''}. Acesso: ${legacy ? 'só a voz' : accessLabel(profile.access).toLowerCase()}.`
           : 'Nenhuma voz cadastrada: qualquer voz ativa o Jarvis.'}
       </p>
+      {profile.enrolled && legacy && (
+        <p className="muted">
+          A sua senha tem letras ou símbolos: ela vale até a próxima vez em que for pedida, e aí você define uma senha nova só com números
+          (que também libera o acesso falada).
+        </p>
+      )}
       {profile.enrolled && !profile.calls && (
         <p className="muted">Cadastro antigo, sem as chamadas ("Jarvis"): refaça a voz para ele reconhecer você melhor quando chamar.</p>
       )}
       <div className="stt-actions">
         <button onClick={() => open('enroll')}>{profile.enrolled ? 'Refazer voz' : 'Cadastrar voz'}</button>
+        {profile.enrolled && <button onClick={() => open('access')}>Mudar o acesso</button>}
         {profile.enrolled && (
           <button className="link" onClick={() => open('recover')}>
             Esqueci a senha

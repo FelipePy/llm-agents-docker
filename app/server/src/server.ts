@@ -203,7 +203,7 @@ export function createApp(opts: AppOptions): App {
       })
     : undefined;
 
-  /** Rotas da voz do usuario: ver, cadastrar/refazer e recuperar a senha. */
+  /** Rotas da voz do usuario: ver, cadastrar/refazer, escolher o acesso (voz/senha) e recuperar a senha. */
   async function profileApi(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
     if (!speaker) return send(res, 404, { error: 'voz desligada neste servidor' });
     if (path === '/api/voice/profile' && req.method === 'GET') return send(res, 200, speaker.view());
@@ -220,6 +220,7 @@ export function createApp(opts: AppOptions): App {
     const reply = (r: object) => send(res, 'error' in r ? 400 : 200, 'view' in r ? r.view : r);
     try {
       if (path === '/api/voice/profile') return reply(await speaker.enroll(input));
+      if (path === '/api/voice/profile/access') return reply(speaker.setAccess(input));
       if (path === '/api/voice/profile/recover') {
         if (input.method === 'voice') return reply(await speaker.recoverByVoice(input));
         if (input.method === 'email') return reply(await speaker.sendRecoveryEmail());
@@ -233,7 +234,7 @@ export function createApp(opts: AppOptions): App {
   }
 
   async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
-    if (url.pathname === '/api/voice/profile' || url.pathname === '/api/voice/profile/recover') return profileApi(req, res, url.pathname);
+    if (url.pathname === '/api/voice/profile' || url.pathname === '/api/voice/profile/recover' || url.pathname === '/api/voice/profile/access') return profileApi(req, res, url.pathname);
     if (url.pathname === '/api/voice/settings') {
       const store = opts.voice?.settings;
       if (!store) return send(res, 404, { error: 'voz desligada neste servidor' });
