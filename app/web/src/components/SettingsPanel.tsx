@@ -1,5 +1,8 @@
+import type { ReactNode } from 'react';
 import type { Api } from '../api.ts';
 import type { DesktopInfo } from '../desktop.ts';
+import { usePref } from '../prefs.ts';
+import { Chevron } from './Chevron.tsx';
 import { HotkeyField } from './HotkeyField.tsx';
 import { PauseSettings } from './PauseSettings.tsx';
 import { SttSettings } from './SttSettings.tsx';
@@ -19,6 +22,26 @@ interface Props {
   floating: { open: boolean; toggle: () => void } | null;
 }
 
+/** Grupo que recolhe pelo titulo. O painel e desmontado ao fechar o modal: a escolha fica guardada. */
+function SettingsSection({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  const [open, setOpen] = usePref(`llm-agent-settings-${id}-open`, true);
+  const bodyId = `settings-section-${id}`;
+  return (
+    <section>
+      <h2>
+        <button className="settings-toggle" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(!open)}>
+          <Chevron direction={open ? 'down' : 'right'} />
+          {title}
+        </button>
+      </h2>
+      {/* Recolher so esconde: desmontar perderia o que esta sendo digitado ou gravado. */}
+      <div id={bodyId} hidden={!open}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
 /** Configuracoes, no modal aberto pelo botao de engrenagem. */
 export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, onAutostart, floating }: Props) {
   const use3d = settings.webgl && settings.mode3d;
@@ -26,8 +49,7 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
     <aside className="day settings-panel">
       <div className="brand">Configurações</div>
 
-      <section>
-        <h2>Voz</h2>
+      <SettingsSection id="voice" title="Voz">
         <div className="settings-columns">
           <div className="settings-column">
             <div className="settings-card">
@@ -53,11 +75,10 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
             <PauseSettings api={api} />
           </div>
         </div>
-      </section>
+      </SettingsSection>
 
       <div className="settings-columns">
-        <section>
-          <h2>Aparência e som</h2>
+        <SettingsSection id="appearance" title="Aparência e som">
           <div className="settings-card">
             <label title={settings.webgl ? '' : 'Este navegador não tem WebGL 2'}>
               <input type="checkbox" checked={use3d} disabled={!settings.webgl} onChange={toggles.on3d} />
@@ -90,11 +111,10 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
               Sons de clique
             </label>
           </div>
-        </section>
+        </SettingsSection>
 
         {(desktop || floating) && (
-          <section>
-            <h2>Sistema</h2>
+          <SettingsSection id="system" title="Sistema">
             <div className="settings-card">
               {desktop && (
                 <label title="Abre o Jarvis minimizado na bandeja quando você entra no sistema">
@@ -110,7 +130,7 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
                 </>
               )}
             </div>
-          </section>
+          </SettingsSection>
         )}
       </div>
     </aside>
