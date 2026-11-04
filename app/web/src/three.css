@@ -82,7 +82,10 @@
 .weather { display: flex; align-items: center; gap: 14px; }
 .weather .temp { font-size: 38px; font-weight: 300; color: #ffd36b; }
 .weather .desc { text-transform: capitalize; }
-.news h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+.news-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.news h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+.news-auto { flex: none; padding: 2px 8px; font-size: 11px; }
+.news-off { margin: 0 0 8px; font-size: 12px; }
 .news ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .news li { display: flex; flex-direction: column; gap: 2px; font-size: 13px; line-height: 1.35; }
 .news a { color: var(--text); text-decoration: none; }

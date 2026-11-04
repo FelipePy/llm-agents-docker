@@ -102,6 +102,24 @@ it('Api.day manda as coordenadas arredondadas, quando existem', async () => {
   expect(urls).toEqual(['/api/day?lat=-23.551&lon=-46.633', '/api/day']);
 });
 
+it('Api.autoNews le e salva a escolha das noticias automaticas', async () => {
+  const calls: { url: string; init?: RequestInit }[] = [];
+  let status = 200;
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    calls.push({ url, init });
+    return new Response(init?.body ?? '{"enabled":true}', { status });
+  }) as unknown as typeof fetch;
+  const api = new Api('tok', fetchImpl);
+  expect(await api.autoNews()).toBe(true);
+  expect(await api.saveAutoNews(false)).toBe(false);
+  expect(calls[1].url).toBe('/api/news/auto');
+  expect(calls[1].init?.method).toBe('PUT');
+  expect(calls[1].init?.body).toBe('{"enabled":false}');
+  expect(new Headers(calls[1].init?.headers).get('authorization')).toBe('Bearer tok');
+  status = 500;
+  await expect(api.saveAutoNews(true)).rejects.toThrow(/HTTP 500/);
+});
+
 it('timingText resume os tempos da ultima resposta', async () => {
   const { timingText } = await import('../src/voice/client.ts');
   expect(timingText({ state: 'sleeping', user: '', jarvis: '', timing: { stt: 1240, firstToken: 2100, firstAudio: 2950 } })).toBe(
