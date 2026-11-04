@@ -9,18 +9,15 @@ texto abaixo foi recuperado do histórico das conversas. A situação foi confer
 
 ## Pendentes
 
-### 1. Estética das gavetas e da trilha de navegação
-A gaveta de configurações, a gaveta do painel do dia e a trilha de navegação do topo (início, projetos e caminho atual) estão
-simples demais e não combinam com o visual do projeto.
-
-- Visual de vidro discreto: transparente e sem borda.
-- Trilha com setas que mostram onde você está e para onde pode voltar.
-- O texto precisa continuar legível sobre o fundo do globo.
-
-**Situação:** a conferir na interface.
-
 ### 3. Nome e voz do assistente
 - Definir outro nome para o assistente nas configurações, com a palavra de ativação acompanhando o nome novo.
 - Mais opções de voz para selecionar, com prévia.
 
 **Situação:** pendente; nenhum sinal no código da interface.
+
+### 4. Remover margem arredondada do menu de navegação
+O menu de navegação no canto superior esquerdo da página, que mostra o início e as rotas acessadas, possui uma margem fina com
+cantos arredondados. Remover essa margem, deixando os nomes da navegação (início e pastas/rotas) flutuando diretamente na
+página.
+
+**Situação:** pendente.
