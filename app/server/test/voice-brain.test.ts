@@ -178,14 +178,14 @@ test('claudeJudge: IGNORAR descarta, NOVO aceita, demora conta como NOVO', async
   assert.equal(slow.interrupts(), 1);
 });
 
-test('claudeWatchSummary: o aviso vem do Claude; falha ou vazio usa o texto simples', async () => {
+test('claudeWatchSummary: o aviso vem do Claude; falha ou vazio devolve vazio, para quem chamou usar o texto simples', async () => {
   const report = { id: 's1', label: 'Claude de meu-app', outcome: 'done' as const, tail: 'Todos os 12 testes passaram.\nCommit feito.' };
   const q = fakeQuery([[delta('Senhor, o Claude de meu-app terminou: testes passando. Quer que eu conte mais?'), ok]]);
   assert.equal(await claudeWatchSummary({ model: 'haiku', cwd: '/w', query: q.fn })(report), 'Senhor, o Claude de meu-app terminou: testes passando. Quer que eu conte mais?');
   assert.equal(q.calls[0].options.systemPrompt, WATCH_PROMPT);
   const empty = fakeQuery([[ok]]);
-  assert.match(await claudeWatchSummary({ model: 'haiku', cwd: '/w', query: empty.fn })(report), /Claude de meu-app terminou.*Commit feito.*conte mais/);
+  assert.equal(await claudeWatchSummary({ model: 'haiku', cwd: '/w', query: empty.fn })(report), '');
   const slow = fakeQuery([Array.from({ length: 20000 }, () => delta('.'))]);
   const error = { ...report, outcome: 'error' as const, error: 'API Error: 500' };
-  assert.equal(await claudeWatchSummary({ model: 'haiku', cwd: '/w', query: slow.fn, timeoutMs: 5 })(error), 'Senhor, a sessão do Claude de meu-app deu erro: API Error: 500.');
+  assert.equal(await claudeWatchSummary({ model: 'haiku', cwd: '/w', query: slow.fn, timeoutMs: 5 })(error), '');
 });
