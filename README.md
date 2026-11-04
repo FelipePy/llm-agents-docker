@@ -181,10 +181,11 @@ Tudo é gratuito: a palavra de ativação ([openWakeWord](https://github.com/dsc
 
 **Transcrição no Groq (opcional):** em ⚙ → Voz → **Transcrição da fala**, escolha **Groq (nuvem)**, cole a chave de API (crie em [console.groq.com/keys](https://console.groq.com/keys)) e salve. O app confere a chave com o Groq antes de salvar; ela fica só no seu PC, em `~/.config/llm-agent/ui/voice.json` (permissão 600), e a tela mostra apenas o começo e o fim. A transcrição fica bem mais rápida (cerca de 0,3 a 0,5 s, contra ~1,2 s do whisper local na CPU) e mais precisa. Vai para o Groq só o áudio do que você fala depois de chamar o Jarvis; a espera pelo nome continua local. Custa US$ 0,04 por hora de áudio no Whisper Large v3 Turbo (cada fala conta como no mínimo 10 s: umas 100 falas por dia dão cerca de US$ 0,35 por mês), e o plano gratuito do Groq costuma bastar para uso pessoal. Se o Groq falhar (sem internet, limite atingido), o Jarvis avisa e usa o whisper local.
 
-Na primeira vez, o servidor cria um ambiente Python em `app/voice/.venv` e baixa os modelos (algumas centenas de MB); isso exige Python 3.10 ou mais novo com `venv` (no Ubuntu/Debian: `sudo apt install python3-venv`). Configurações:
+Na primeira vez, o servidor cria um ambiente Python em `app/voice/.venv` e baixa os modelos (algumas centenas de MB); isso exige Python 3.10 ou mais novo com `venv` (no Ubuntu/Debian: `sudo apt install python3-venv`). Se o `python3` do sistema for antigo, o app usa sozinho uma versão mais nova instalada ao lado dele, como `python3.12` (nesse caso, o pacote é `python3.12-venv`). Configurações:
 
 | Variável | Padrão | Para quê |
 | --- | --- | --- |
+| `LLM_AGENT_PYTHON` | detectado | Python usado para criar o ambiente da voz (caminho ou comando); definido, é usado sem procurar outro |
 | `LLM_AGENT_VOICE_MODEL` | `haiku` | modelo do Claude que responde |
 | `LLM_AGENT_VOICE` | `pt-BR-AntonioNeural` | voz do edge-tts (`pt-BR-FranciscaNeural`, `pt-BR-ThalitaMultilingualNeural`…) |
 | `LLM_AGENT_VOICE_STT_MODEL` | `auto` | modelo do whisper: `auto` usa o `small` na GPU NVIDIA e o `base` na CPU (mais rápido); `small` ou `medium` transcrevem melhor e demoram mais na CPU |
