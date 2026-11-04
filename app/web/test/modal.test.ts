@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { Modal, wrapFocus } from '../src/components/Modal.tsx';
+import { Modal, focusableIn, wrapFocus } from '../src/components/Modal.tsx';
 
 const render = (props: { open: boolean; wide?: boolean }) =>
   renderToStaticMarkup(createElement(Modal, { label: 'Notícias', onClose: () => {}, children: createElement('p', null, 'conteudo'), ...props }));
@@ -22,6 +22,15 @@ describe('Modal', () => {
   it('so fica largo quando pedido', () => {
     expect(render({ open: true })).toContain('class="modal"');
     expect(render({ open: true, wide: true })).toContain('class="modal wide"');
+  });
+});
+
+describe('focusableIn', () => {
+  it('deixa de fora o que esta num grupo recolhido', () => {
+    const visible = { getClientRects: () => [{}] };
+    const hidden = { getClientRects: () => [] };
+    const root = { querySelectorAll: () => [visible, hidden] } as unknown as ParentNode;
+    expect(focusableIn(root)).toEqual([visible]);
   });
 });
 
