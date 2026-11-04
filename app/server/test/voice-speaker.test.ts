@@ -19,6 +19,7 @@ const whoIs = (audio: string) => Buffer.from(audio, 'base64').toString('latin1',
 function setup(opts: { mailer?: Mailer; now?: () => number } = {}) {
   const file = join(tempHome(), 'ui', 'voice-profile.json');
   const clips = new Map<number, number[] | null>();
+  const logs: string[] = [];
   const make = () =>
     new SpeakerProfileStore({
       file,
@@ -26,8 +27,9 @@ function setup(opts: { mailer?: Mailer; now?: () => number } = {}) {
       embedClip: async (c) => clips.get(c) ?? null,
       mailer: opts.mailer,
       now: opts.now,
+      log: (line) => logs.push(line),
     });
-  return { file, clips, store: make(), make };
+  return { file, clips, logs, store: make(), make };
 }
 
 const four = (who: 'me' | 'other' = 'me') => [clip(who), clip(who), clip(who), clip(who)];
@@ -71,6 +73,10 @@ test('verify compara o audio da ativacao com o perfil', async () => {
   assert.equal(await s.store.verify(2), false);
   assert.equal(await s.store.verify(3), false, 'trecho perdido ou curto demais nao passa');
   await assert.rejects(s.store.verify(undefined));
+  // Cada verificacao fica no log com a semelhanca, para calibrar o limiar.
+  assert.match(s.logs[0], /^voz \(ativação \(\d+ ms\)\): semelhança 0\.99, mínimo 0\.50 → aceita$/);
+  assert.match(s.logs[1], /semelhança 0\.00, mínimo 0\.50 → recusada/);
+  assert.match(s.logs[2], /pouca fala no áudio para conferir → recusada/);
 });
 
 test('refazer a voz exige a senha atual; 5 erros bloqueiam', async () => {

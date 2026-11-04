@@ -199,6 +199,7 @@ export function createApp(opts: AppOptions): App {
         threshold: profileOpts.threshold,
         embed: (audio) => workerEmbed({ audio }),
         embedClip: async (clip) => (await workerEmbed({ clip }))[0] ?? null,
+        log: (line) => console.error(`[voz] ${line}`),
       })
     : undefined;
 

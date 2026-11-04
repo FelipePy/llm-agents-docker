@@ -46,6 +46,8 @@ export interface SpeakerDeps {
   mailer?: Mailer;
   threshold?: number;
   now?: () => number;
+  /** Linha de log de cada verificacao (semelhanca e limiar), para calibrar o limiar. */
+  log?: (line: string) => void;
 }
 
 type Result = { view: SpeakerView } | { error: string };
@@ -120,6 +122,7 @@ export class SpeakerProfileStore implements SpeakerCheck {
   private readonly deps: SpeakerDeps;
   private readonly threshold: number;
   private readonly now: () => number;
+  private readonly log: (line: string) => void;
   private failures = 0;
   private lockedUntil = 0;
   private code: { hash: string; expires: number } | null = null;
@@ -129,6 +132,7 @@ export class SpeakerProfileStore implements SpeakerCheck {
     this.deps = deps;
     this.threshold = deps.threshold ?? DEFAULT_THRESHOLD;
     this.now = deps.now ?? Date.now;
+    this.log = deps.log ?? (() => {});
     let raw: unknown;
     try {
       raw = JSON.parse(readFileSync(deps.file, 'utf8'));
@@ -146,8 +150,9 @@ export class SpeakerProfileStore implements SpeakerCheck {
     const profile = this.profile;
     if (!profile) return true;
     if (clip === undefined) throw new Error('o worker não mandou o áudio da ativação');
+    const started = this.now();
     const vector = await this.deps.embedClip(clip);
-    return vector !== null && this.matches(vector, profile);
+    return this.matches(vector, profile, `ativação (${this.now() - started} ms)`);
   }
 
   view(): SpeakerView {
@@ -221,7 +226,7 @@ export class SpeakerProfileStore implements SpeakerCheck {
     const problem = passwordProblem(input.password) ?? clipProblem(input.audio, 'A frase');
     if (problem) return { error: problem };
     const [vector] = await this.deps.embed([input.audio as string]);
-    if (!vector || !this.matches(vector, p)) return { error: this.failed('Não reconheci a sua voz. Tente de novo, num lugar silencioso.') };
+    if (!this.matches(vector, p, 'recuperação da senha')) return { error: this.failed('Não reconheci a sua voz. Tente de novo, num lugar silencioso.') };
     this.save({ ...p, password: hashPassword(input.password as string) });
     return { view: this.view() };
   }
@@ -265,8 +270,16 @@ export class SpeakerProfileStore implements SpeakerCheck {
     return { view: this.view() };
   }
 
-  private matches(vector: number[], profile: Profile): boolean {
-    return cosine(vector, profile.vector) >= this.threshold;
+  /** Compara com o perfil e registra a semelhanca (sem ela, nao da para saber onde por o limiar). */
+  private matches(vector: number[] | null, profile: Profile, what: string): boolean {
+    if (!vector) {
+      this.log(`voz (${what}): pouca fala no áudio para conferir → recusada`);
+      return false;
+    }
+    const score = cosine(vector, profile.vector);
+    const ok = score >= this.threshold;
+    this.log(`voz (${what}): semelhança ${score.toFixed(2)}, mínimo ${this.threshold.toFixed(2)} → ${ok ? 'aceita' : 'recusada'}`);
+    return ok;
   }
 
   /** Tentativa errada: depois de 5 seguidas, bloqueia por 5 minutos. */
