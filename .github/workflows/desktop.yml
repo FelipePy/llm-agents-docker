@@ -20,6 +20,7 @@ on:
 
 permissions:
   contents: write
+  actions: read # achar o ultimo build desktop que deu certo (job version)
 
 # Dois pushes seguidos na main nao podem calcular a mesma versao.
 concurrency:
@@ -133,20 +134,40 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      # O build desktop so roda se o push mexeu no que vai no instalador, no
-      # VERSION ou neste workflow. Sem um "antes" confiavel (branch nova, force push),
-      # compara com a main; sem base nenhuma, constroi.
+      # O build desktop so roda se mudou o que vai no instalador, o VERSION ou
+      # este workflow desde o ultimo build desktop que deu certo nesta branch
+      # (assim, depois de um build que falhou ou foi pulado, o push seguinte
+      # ainda gera os instaladores). Sem esse build (branch nova, API fora do
+      # ar), compara com o push anterior ou com a main; sem base nenhuma, constroi.
       - id: changes
         env:
           EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
+          BRANCH: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ "$EVENT" != "push" ]; then
             echo "desktop=true" >>"$GITHUB_OUTPUT"
             exit 0
           fi
           base=""
-          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
+          # Execucoes que deram certo, da mais nova para a mais antiga; vale a primeira
+          # em que um job de build rodou (nas outras ele foi pulado).
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/desktop.yml/runs?branch=$BRANCH&status=success&per_page=10" \
+            --jq '.workflow_runs[] | "\(.id) \(.head_sha)"' 2>/dev/null || true)"
+          while read -r run sha; do
+            [ -n "$run" ] || continue
+            built="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=50" \
+              --jq '[.jobs[] | select((.name | startswith("build")) and .conclusion == "success")] | length' 2>/dev/null || echo 0)"
+            if [ "${built:-0}" -gt 0 ] && git cat-file -e "$sha^{commit}" 2>/dev/null; then
+              base="$sha"
+              echo "Comparando com o último build desktop que deu certo: ${sha:0:7} (execução $run)." >>"$GITHUB_STEP_SUMMARY"
+              break
+            fi
+          done <<<"$runs"
+          if [ -n "$base" ]; then
+            :
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
              && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             base="$BEFORE"
           elif [ "$GITHUB_REF" != "refs/heads/main" ]; then
