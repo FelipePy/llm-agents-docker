@@ -3,6 +3,8 @@ import { tabName } from '../tabs.ts';
 
 interface Props {
   session: SessionInfo;
+  /** Nome curto mostrado na aba; o completo fica na dica. */
+  label: string;
   projectName?: string;
   index: number;
   active: boolean;
@@ -10,13 +12,13 @@ interface Props {
   onClose: () => void;
 }
 
-export function TerminalTab({ session, projectName, index, active, onActivate, onClose }: Props) {
+export function TerminalTab({ session, label, projectName, index, active, onActivate, onClose }: Props) {
   const name = tabName(session, projectName);
   return (
-    <div className={active ? 'tab active' : 'tab'} title={name} onClick={onActivate}>
+    <div className={`tab${active ? ' active' : ''}${session.alive ? '' : ' ended'}`} title={name} onClick={onActivate}>
       {index < 9 && <kbd>{index + 1}</kbd>}
       {active && <span className={`dot ${session.agent}`} />}
-      <span className="tab-name">{name}</span>
+      <span className="tab-name">{label}</span>
       <button
         className="x"
         aria-label="Fechar"

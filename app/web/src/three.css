@@ -104,7 +104,7 @@
 .weather .geo { margin-top: 6px; font-size: 12px; }
 
 /* Modo 3D: sem coluna fixa; o painel do dia vira uma gaveta a esquerda. */
-.app.full { grid-template-columns: 1fr; }
+.app.full { grid-template-columns: minmax(0, 1fr); }
 .app.full .content { grid-column: 1; }
 .day-drawer {
   position: fixed; top: 0; bottom: 0; left: 0; z-index: 8; width: 320px;

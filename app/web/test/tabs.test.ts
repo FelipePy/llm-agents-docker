@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addTab, applyAction, closeTab, cycle, emptyTabs, goto, shortcut, syncTabs, tabName } from '../src/tabs.ts';
+import { addTab, applyAction, closeTab, cycle, emptyTabs, goto, revealScroll, shortcut, syncTabs, tabLabels, tabName } from '../src/tabs.ts';
 
 const three = { order: ['a', 'b', 'c'], active: 'b' };
 
@@ -38,6 +38,32 @@ describe('nome da aba', () => {
   });
   it('avisa quando a sessao terminou', () => {
     expect(tabName({ ...session, alive: false }, 'jarvis')).toBe('jarvis · Claude · Sessão 1 (encerrada)');
+  });
+});
+
+describe('nome curto da aba', () => {
+  const s = (id: string, agent: 'claude' | 'codex' | 'shell', title: string, projectPath = '/p/a') => ({ id, agent, title, projectPath });
+  const names = new Map([['/p/a', 'alfa'], ['/p/b', 'beta']]);
+  const labels = (...list: ReturnType<typeof s>[]) => [...tabLabels(list, names).values()];
+
+  it('troca titulos genericos pelo agente e numera os repetidos', () => {
+    expect(labels(s('1', 'shell', 'shell'), s('2', 'shell', 'shell'), s('3', 'claude', 'nova conversa'))).toEqual(['Shell 1', 'Shell 2', 'Claude']);
+  });
+  it('mantem o titulo de uma conversa de verdade', () => {
+    expect(labels(s('1', 'claude', 'corrigir o login'), s('2', 'shell', 'shell'))).toEqual(['corrigir o login', 'Shell']);
+  });
+  it('so mostra o projeto com mais de um aberto', () => {
+    expect(labels(s('1', 'shell', 'shell'), s('2', 'shell', 'shell', '/p/b'))).toEqual(['alfa · Shell', 'beta · Shell']);
+  });
+});
+
+describe('rolagem ate a aba', () => {
+  it('nao mexe se a aba ja esta inteira na tela', () => {
+    expect(revealScroll(100, 500, 200, 120)).toBe(100);
+  });
+  it('rola o minimo para mostrar a aba cortada de qualquer lado', () => {
+    expect(revealScroll(100, 500, 40, 120)).toBe(40);
+    expect(revealScroll(100, 500, 550, 120)).toBe(170);
   });
 });
 

@@ -6,7 +6,7 @@ import { bus } from '../bus.ts';
 import { shortcut } from '../tabs.ts';
 
 /** Um xterm por sessao, criado uma vez e mantido enquanto a aba existir. */
-export function TerminalView({ id, active, socket }: { id: string; active: boolean; socket: LiveSocket }) {
+export function TerminalView({ id, active, focusKey, socket }: { id: string; active: boolean; focusKey?: number; socket: LiveSocket }) {
   const ref = useRef<HTMLDivElement>(null);
   const fitRef = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
 
@@ -47,7 +47,7 @@ export function TerminalView({ id, active, socket }: { id: string; active: boole
     if (!active || !fitRef.current) return;
     fitRef.current.fit.fit();
     fitRef.current.term.focus();
-  }, [active]);
+  }, [active, focusKey]);
 
   return <div className="terminal" ref={ref} />;
 }
