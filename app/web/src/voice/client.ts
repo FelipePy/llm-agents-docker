@@ -1,6 +1,7 @@
 import type { CoreMode, CoreSignal } from '../scene/core.ts';
 import type { UiCommand, VoiceClientMessage, VoiceServerMessage, VoiceState } from '../types.ts';
 import { startCapture } from './capture.ts';
+import { micHeld } from './record.ts';
 import { Player } from './player.ts';
 import { EchoGate } from './echo.ts';
 
@@ -121,7 +122,8 @@ export class VoiceClient {
         this.outPeak = Math.max(this.outPeak, this.player?.outputRms() ?? 0);
       }, 20);
       this.stopCapture = await startCapture((pcm) => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(pcm.buffer as ArrayBuffer);
+        // Gravando o cadastro da voz: o Jarvis nao ouve (ver record.ts).
+        if (ws.readyState === WebSocket.OPEN && !micHeld()) ws.send(pcm.buffer as ArrayBuffer);
         this.checkEcho(pcm);
       });
     } catch (err) {

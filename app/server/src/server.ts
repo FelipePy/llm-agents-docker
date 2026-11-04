@@ -169,7 +169,7 @@ export function createApp(opts: AppOptions): App {
 
   // Voz do usuario: o worker calcula os vetores (cadastro, recuperacao e ativacao).
   let embedSeq = 0;
-  function workerEmbed(input: { audio: string[] } | { clip: number }): Promise<(number[] | null)[]> {
+  function workerEmbed(input: { audio: string[]; trim?: boolean } | { clip: number }): Promise<(number[] | null)[]> {
     const worker = opts.voice!.worker;
     const id = ++embedSeq;
     return worker.ensureReady().then(
@@ -197,7 +197,7 @@ export function createApp(opts: AppOptions): App {
         file: profileOpts.file,
         mailer: profileOpts.mailer,
         threshold: profileOpts.threshold,
-        embed: (audio) => workerEmbed({ audio }),
+        embed: (audio, o) => workerEmbed({ audio, ...(o?.trim ? { trim: true } : {}) }),
         embedClip: async (clip) => (await workerEmbed({ clip }))[0] ?? null,
         log: (line) => console.error(`[voz] ${line}`),
       })

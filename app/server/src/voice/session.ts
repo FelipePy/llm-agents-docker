@@ -18,7 +18,7 @@ export type WorkerCommand =
   /** Silencio (ms) que encerra a fala do usuario. */
   | { cmd: 'pauses'; end_ms: number }
   /** Vetores da voz (reconhecer o usuario): de trechos PCM em base64 ou de um trecho guardado pelo worker. */
-  | { cmd: 'embed'; id: number; audio?: string[]; clip?: number };
+  | { cmd: 'embed'; id: number; audio?: string[]; trim?: boolean; clip?: number };
 
 export type WorkerEvent =
   | { event: 'ready' }

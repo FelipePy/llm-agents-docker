@@ -4,7 +4,7 @@ import { createServer } from 'node:net';
 import { EventEmitter } from 'node:events';
 import { startApp } from './app.ts';
 import type { VoiceWorker, WorkerCommand } from '../src/voice/session.ts';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tempHome } from './helpers.ts';
 import { SpeakerProfileStore, average, cosine, emailHint, hashPassword, passwordMatches, type Mailer } from '../src/voice/speaker.ts';
@@ -12,6 +12,8 @@ import { buildMessage, parseSmtpUrl, plainAllowed, sendMail } from '../src/mail.
 
 const ME = [1, 0, 0];
 const OTHER = [0, 1, 0];
+/** As chamadas curtas do usuario: a mesma voz, mas um vetor um pouco diferente do das frases. */
+const ME_CALL = [0.6, 0, 0.8];
 /** Audio falso: o "conteudo" diz de quem e a voz (o embed falso le isso). */
 const clip = (who: 'me' | 'other' | 'short') => Buffer.alloc(who === 'short' ? 1000 : 40_000, who).toString('base64');
 const whoIs = (audio: string) => Buffer.from(audio, 'base64').toString('latin1', 0, 2);
@@ -20,19 +22,21 @@ function setup(opts: { mailer?: Mailer; now?: () => number } = {}) {
   const file = join(tempHome(), 'ui', 'voice-profile.json');
   const clips = new Map<number, number[] | null>();
   const logs: string[] = [];
+  const trims: boolean[] = [];
   const make = () =>
     new SpeakerProfileStore({
       file,
-      embed: async (audio) => audio.map((a) => (whoIs(a) === 'me' ? ME : whoIs(a) === 'ot' ? OTHER : null)),
+      embed: async (audio, o) => (trims.push(Boolean(o?.trim)), audio.map((a) => (whoIs(a) === 'me' ? (o?.trim ? ME_CALL : ME) : whoIs(a) === 'ot' ? OTHER : null))),
       embedClip: async (c) => clips.get(c) ?? null,
       mailer: opts.mailer,
       now: opts.now,
       log: (line) => logs.push(line),
     });
-  return { file, clips, logs, store: make(), make };
+  return { file, clips, logs, trims, store: make(), make };
 }
 
 const four = (who: 'me' | 'other' = 'me') => [clip(who), clip(who), clip(who), clip(who)];
+const three = (who: 'me' | 'other' = 'me') => [clip(who), clip(who), clip(who)];
 
 test('cosseno, media e senha', () => {
   assert.equal(cosine([1, 0], [2, 0]), 1);
@@ -47,17 +51,17 @@ test('cosseno, media e senha', () => {
 
 test('primeiro cadastro: 4 frases e senha de no minimo 8; arquivo 0600 sem a senha', async () => {
   const s = setup();
-  assert.deepEqual(s.store.view(), { enrolled: false, enrolledAt: null, emailHint: null, emailRecovery: false });
+  assert.deepEqual(s.store.view(), { enrolled: false, enrolledAt: null, emailHint: null, emailRecovery: false, calls: false });
   assert.equal(await s.store.verify(1), true, 'sem perfil, qualquer voz vale');
-  assert.match(JSON.stringify(await s.store.enroll({ audio: four() })), /Defina uma senha/);
-  assert.match(JSON.stringify(await s.store.enroll({ audio: four(), password: 'curta' })), /mínimo 8/);
+  assert.match(JSON.stringify(await s.store.enroll({ audio: four(), calls: three() })), /Defina uma senha/);
+  assert.match(JSON.stringify(await s.store.enroll({ audio: four(), calls: three(), password: 'curta' })), /mínimo 8/);
   assert.match(JSON.stringify(await s.store.enroll({ audio: four().slice(1), password: 'senha-boa' })), /Grave as 4 frases/);
   assert.match(JSON.stringify(await s.store.enroll({ audio: [clip('me'), clip('short'), clip('me'), clip('me')], password: 'senha-boa' })), /frase 2 ficou curta/);
-  assert.match(JSON.stringify(await s.store.enroll({ audio: [clip('me'), clip('me'), clip('other'), clip('me')], password: 'senha-boa' })), /frase 3 não parece da mesma voz/);
-  assert.match(JSON.stringify(await s.store.enroll({ audio: four(), password: 'senha-boa', email: 'nada' })), /não parece válido/);
+  assert.match(JSON.stringify(await s.store.enroll({ audio: [clip('me'), clip('me'), clip('other'), clip('me')], calls: three(), password: 'senha-boa' })), /frase 3 não parece da mesma voz/);
+  assert.match(JSON.stringify(await s.store.enroll({ audio: four(), calls: three(), password: 'senha-boa', email: 'nada' })), /não parece válido/);
   assert.equal(s.store.enrolled(), false);
 
-  const ok = await s.store.enroll({ audio: four(), password: 'senha-boa', email: 'felipe@example.com' });
+  const ok = await s.store.enroll({ audio: four(), calls: three(), password: 'senha-boa', email: 'felipe@example.com' });
   assert.ok('view' in ok && ok.view.enrolled && ok.view.emailHint === 'f…@example.com');
   assert.equal(statSync(s.file).mode & 0o777, 0o600);
   assert.ok(!readFileSync(s.file, 'utf8').includes('senha-boa'));
@@ -66,7 +70,7 @@ test('primeiro cadastro: 4 frases e senha de no minimo 8; arquivo 0600 sem a sen
 
 test('verify compara o audio da ativacao com o perfil', async () => {
   const s = setup();
-  await s.store.enroll({ audio: four(), password: 'senha-boa' });
+  await s.store.enroll({ audio: four(), calls: three(), password: 'senha-boa' });
   s.clips.set(1, [0.9, 0.1, 0]);
   s.clips.set(2, OTHER);
   assert.equal(await s.store.verify(1), true);
@@ -74,41 +78,77 @@ test('verify compara o audio da ativacao com o perfil', async () => {
   assert.equal(await s.store.verify(3), false, 'trecho perdido ou curto demais nao passa');
   await assert.rejects(s.store.verify(undefined));
   // Cada verificacao fica no log com a semelhanca, para calibrar o limiar.
-  assert.match(s.logs[0], /^voz \(ativação \(\d+ ms\)\): semelhança 0\.99, mínimo 0\.50 → aceita$/);
-  assert.match(s.logs[1], /semelhança 0\.00, mínimo 0\.50 → recusada/);
+  assert.match(s.logs[0], /^voz \(ativação \(\d+ ms\)\): semelhança 0\.99 \(chamadas 0\.60, frases 0\.99\), mínimo 0\.50 → aceita$/);
+  assert.match(s.logs[1], /semelhança 0\.00 \(chamadas 0\.00, frases 0\.00\), mínimo 0\.50 → recusada/);
   assert.match(s.logs[2], /pouca fala no áudio para conferir → recusada/);
+});
+
+test('cadastro exige as 3 chamadas, sem o silencio, da mesma voz', async () => {
+  const s = setup();
+  const base = { audio: four(), password: 'senha-boa' };
+  assert.match(JSON.stringify(await s.store.enroll(base)), /Grave as 3 chamadas/);
+  assert.match(JSON.stringify(await s.store.enroll({ ...base, calls: three().slice(1) })), /Grave as 3 chamadas/);
+  assert.match(JSON.stringify(await s.store.enroll({ ...base, calls: [clip('me'), clip('short'), clip('me')] })), /chamada 2 ficou curta/);
+  assert.match(JSON.stringify(await s.store.enroll({ ...base, calls: [clip('me'), clip('me'), clip('other')] })), /chamada 3 não parece da mesma voz/);
+  assert.equal(s.store.enrolled(), false);
+  const ok = await s.store.enroll({ ...base, calls: three() });
+  assert.ok('view' in ok && ok.view.calls);
+  assert.deepEqual(s.trims.slice(-2), [false, true], 'frases inteiras; chamadas cortadas');
+  assert.equal(s.make().view().calls, true, 'as chamadas ficam salvas no perfil');
+});
+
+test('ativacao parecida com as chamadas passa mesmo longe das frases', async () => {
+  const s = setup();
+  await s.store.enroll({ audio: four(), calls: three(), password: 'senha-boa' });
+  // Perto das chamadas (0,6 / 0 / 0,8) e longe das frases (1 / 0 / 0): passa pelas chamadas.
+  s.clips.set(1, [0.5, 0.1, 0.85]);
+  assert.equal(await s.store.verify(1), true);
+  assert.match(s.logs[0], /semelhança 0\.99 \(chamadas 0\.99, frases 0\.50\)/);
+});
+
+test('perfil antigo, sem chamadas: continua valendo so pelas frases', async () => {
+  const s = setup();
+  await s.store.enroll({ audio: four(), calls: three(), password: 'senha-boa' });
+  const old = JSON.parse(readFileSync(s.file, 'utf8'));
+  delete old.calls;
+  writeFileSync(s.file, JSON.stringify(old));
+  const store = s.make();
+  assert.equal(store.view().calls, false, 'a tela sugere refazer a voz');
+  s.clips.set(1, ME);
+  assert.equal(await store.verify(1), true);
+  assert.match(s.logs.at(-1)!, /semelhança 1\.00 \(perfil sem chamadas\)/);
 });
 
 test('refazer a voz exige a senha atual; 5 erros bloqueiam', async () => {
   let now = 0;
   const s = setup({ now: () => now });
-  await s.store.enroll({ audio: four(), password: 'senha-boa' });
-  assert.match(JSON.stringify(await s.store.enroll({ audio: four() })), /Senha incorreta/);
-  const ok = await s.store.enroll({ audio: four(), currentPassword: 'senha-boa', password: 'outra-senha' });
+  await s.store.enroll({ audio: four(), calls: three(), password: 'senha-boa' });
+  assert.match(JSON.stringify(await s.store.enroll({ audio: four(), calls: three() })), /Senha incorreta/);
+  const ok = await s.store.enroll({ audio: four(), calls: three(), currentPassword: 'senha-boa', password: 'outra-senha' });
   assert.ok('view' in ok);
-  for (let i = 0; i < 4; i++) await s.store.enroll({ audio: four(), currentPassword: 'errada!!' });
-  assert.match(JSON.stringify(await s.store.enroll({ audio: four(), currentPassword: 'errada!!' })), /espere 5 minutos/);
-  assert.match(JSON.stringify(await s.store.enroll({ audio: four(), currentPassword: 'outra-senha' })), /Muitas tentativas/);
+  for (let i = 0; i < 4; i++) await s.store.enroll({ audio: four(), calls: three(), currentPassword: 'errada!!' });
+  assert.match(JSON.stringify(await s.store.enroll({ audio: four(), calls: three(), currentPassword: 'errada!!' })), /espere 5 minutos/);
+  assert.match(JSON.stringify(await s.store.enroll({ audio: four(), calls: three(), currentPassword: 'outra-senha' })), /Muitas tentativas/);
   now += 5 * 60_000;
-  assert.ok('view' in (await s.store.enroll({ audio: four(), currentPassword: 'outra-senha' })));
+  assert.ok('view' in (await s.store.enroll({ audio: four(), calls: three(), currentPassword: 'outra-senha' })));
 });
 
 test('recuperar a senha pela voz cadastrada', async () => {
   const s = setup();
-  await s.store.enroll({ audio: four(), password: 'senha-boa' });
+  await s.store.enroll({ audio: four(), calls: three(), password: 'senha-boa' });
   assert.match(JSON.stringify(await s.store.recoverByVoice({ audio: clip('other'), password: 'nova-senha' })), /Não reconheci/);
   assert.match(JSON.stringify(await s.store.recoverByVoice({ audio: clip('me'), password: 'curta' })), /mínimo 8/);
   assert.ok('view' in (await s.store.recoverByVoice({ audio: clip('me'), password: 'nova-senha' })));
-  assert.ok('view' in (await s.store.enroll({ audio: four(), currentPassword: 'nova-senha' })));
+  assert.ok('view' in (await s.store.enroll({ audio: four(), calls: three(), currentPassword: 'nova-senha' })));
 });
 
 test('recuperar a senha por codigo enviado ao e-mail', async () => {
   let now = 0;
   const mails: { to: string; text: string }[] = [];
   const s = setup({ now: () => now, mailer: async (to, _subject, text) => void mails.push({ to, text }) });
-  await s.store.enroll({ audio: four(), password: 'senha-boa' });
+  await s.store.enroll({ audio: four(), calls: three(), password: 'senha-boa' });
   assert.match(JSON.stringify(await s.store.sendRecoveryEmail()), /Nenhum e-mail cadastrado/);
-  await s.store.enroll({ audio: four(), currentPassword: 'senha-boa', email: 'felipe@example.com' });
+  await s.store.enroll({ audio: four(), calls: three(), currentPassword: 'senha-boa', email: 'felipe@example.com' });
   assert.equal(s.store.view().emailRecovery, true);
   assert.match(JSON.stringify(s.store.recoverByCode({ code: '000000', password: 'nova-senha' })), /Peça um código/);
   assert.deepEqual(await s.store.sendRecoveryEmail(), { sentTo: 'f…@example.com' });
@@ -128,7 +168,7 @@ test('recuperar a senha por codigo enviado ao e-mail', async () => {
 
 test('sem envio de e-mail configurado, a recuperacao e pela voz', async () => {
   const s = setup();
-  await s.store.enroll({ audio: four(), password: 'senha-boa', email: 'felipe@example.com' });
+  await s.store.enroll({ audio: four(), calls: three(), password: 'senha-boa', email: 'felipe@example.com' });
   assert.equal(s.store.view().emailRecovery, false);
   assert.match(JSON.stringify(await s.store.sendRecoveryEmail()), /não está configurado/);
 });
@@ -216,13 +256,14 @@ test('/api/voice/profile: cadastro pelo worker, verificacao e recuperacao', asyn
     assert.equal((await fetch(`${base}/api/voice/profile`)).status, 401);
     const view = await (await fetch(`${base}/api/voice/profile`, { headers: auth })).json();
     assert.equal(view.enrolled, false);
-    const bad = await post('/api/voice/profile', { audio: four(), password: 'curta' });
+    const bad = await post('/api/voice/profile', { audio: four(), calls: three(), password: 'curta' });
     assert.equal(bad.status, 400);
-    const ok = await post('/api/voice/profile', { audio: four(), password: 'senha-boa' });
+    const ok = await post('/api/voice/profile', { audio: four(), calls: three(), password: 'senha-boa' });
     assert.equal(ok.status, 200);
     assert.equal(ok.body.enrolled, true);
-    assert.ok(commands.some((c) => c.cmd === 'embed' && c.audio?.length === 4));
-    const again = await post('/api/voice/profile', { audio: four(), currentPassword: 'errada!!' });
+    assert.ok(commands.some((c) => c.cmd === 'embed' && c.audio?.length === 4 && !c.trim));
+    assert.ok(commands.some((c) => c.cmd === 'embed' && c.audio?.length === 3 && c.trim), 'chamadas sem o silencio');
+    const again = await post('/api/voice/profile', { audio: four(), calls: three(), currentPassword: 'errada!!' });
     assert.match(String(again.body.error), /Senha incorreta/);
     const rec = await post('/api/voice/profile/recover', { method: 'voice', audio: clip('me'), password: 'nova-senha' });
     assert.equal(rec.status, 200);

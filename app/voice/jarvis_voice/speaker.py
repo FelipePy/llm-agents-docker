@@ -8,7 +8,7 @@ compara com o perfil salvo e o servidor; aqui so se calcula o vetor.
 import os
 import urllib.request
 from collections import deque
-from typing import List, Optional, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -143,6 +143,12 @@ def voiced(frames: Sequence[Frame], threshold: float = VOICED_THRESHOLD, pad: in
         if lo > 0 and sum(len(pcm) for pcm, _ in frames[lo:hi]) < min_bytes:
             lo -= 1
     return b"".join(pcm for pcm, _ in frames[lo:hi])
+
+
+def vad_frames(pcm: bytes, predict: Callable[[bytes], float], frame_bytes: int = 2560) -> List[Frame]:
+    """Quadros de 80 ms de um trecho gravado, com o score do VAD de cada um (o resto do fim sai)."""
+    return [(pcm[i:i + frame_bytes], float(predict(pcm[i:i + frame_bytes])))
+            for i in range(0, len(pcm) - frame_bytes + 1, frame_bytes)]
 
 
 class Clips:

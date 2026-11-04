@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from jarvis_voice.speaker import MIN_SAMPLES, Clips, SpeakerModel, fbank, pcm_samples, voiced
+from jarvis_voice.speaker import MIN_SAMPLES, Clips, SpeakerModel, fbank, pcm_samples, vad_frames, voiced
 
 
 class FbankTest(unittest.TestCase):
@@ -77,6 +77,20 @@ class VoicedTest(unittest.TestCase):
 
     def test_no_speech_keeps_everything(self):
         self.assertEqual(len(voiced(frames([QUIET] * 6))), 6 * FRAME)
+
+
+class VadFramesTest(unittest.TestCase):
+    def test_splits_recording_into_frames_with_vad_scores(self):
+        pcm = b"".join(bytes([i]) * FRAME for i in range(5)) + b"resto"
+        got = vad_frames(pcm, lambda f: LOUD if f[0] in (2, 3) else QUIET)
+        self.assertEqual([s for _, s in got], [QUIET, QUIET, LOUD, LOUD, QUIET])
+        self.assertEqual(numbers(b"".join(p for p, _ in got)), [0, 1, 2, 3, 4])
+
+    def test_recording_trimmed_like_the_activation(self):
+        scores = [QUIET] * 12 + [LOUD] * 8 + [QUIET] * 15
+        pcm = b"".join(p for p, _ in frames(scores))
+        by_number = dict(enumerate(scores))
+        self.assertEqual(numbers(voiced(vad_frames(pcm, lambda f: by_number[f[0]]))), list(range(10, 22)))
 
 
 class ClipsTest(unittest.TestCase):

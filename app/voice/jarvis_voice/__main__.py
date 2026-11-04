@@ -19,7 +19,7 @@ from .hallucination import looks_like_vocabulary, vocab_tokens
 from .segmenter import Segmenter, end_ms_from
 from .groq import GroqError, GroqStt
 from .heard import HeardQueue
-from .speaker import Clips, SpeakerModel
+from .speaker import Clips, SpeakerModel, vad_frames, voiced
 
 FRAME_SAMPLES = 1280  # 80 ms a 16 kHz
 FRAME_BYTES = FRAME_SAMPLES * 2
@@ -219,7 +219,19 @@ def main() -> None:
     # Falas ouvidas em espera (numeradas; com o whisper ocupado, a ultima fica na fila).
     heard = HeardQueue(send, lambda job: stt_pool.submit(transcribe_heard, *job), HEARD_MAX_BYTES)
 
-    def embed(eid: int, audio: list, clip) -> None:
+    # VAD so da fila da voz (o principal e do laco do microfone, em outra thread).
+    trim_vad = {"vad": None}
+
+    def trim(pcm: bytes) -> bytes:
+        """Corta o silencio de um trecho gravado (chamadas do cadastro), como no audio da ativacao."""
+        if trim_vad["vad"] is None:
+            trim_vad["vad"] = VAD()
+        v = trim_vad["vad"]
+        v.reset_states()
+        frames = vad_frames(pcm, lambda f: v.predict(np.frombuffer(f, dtype=np.int16), frame_size=640))
+        return voiced(frames) if frames else pcm
+
+    def embed(eid: int, audio: list, clip, trimmed: bool = False) -> None:
         """Vetores da voz: de trechos enviados (cadastro) ou de um trecho guardado (ativacao)."""
         try:
             started = time.monotonic()
@@ -232,6 +244,8 @@ def main() -> None:
                     return
                 pcm = clips.get(int(clip))
                 audio = [] if pcm is None else [pcm]
+            elif trimmed:
+                audio = [trim(pcm) for pcm in audio]
             vectors = [speaker.embed(pcm) for pcm in audio]
             speech = sum(len(pcm) for pcm in audio) / 32000
             log(f"voz do usuario: {len(vectors)} vetor(es) em {int((time.monotonic() - started) * 1000)} ms ({speech:.1f} s de audio)")
@@ -340,7 +354,7 @@ def main() -> None:
                 log(f"fim da fala: {end_ms} ms de silencio (esperando ser chamado: {sleep_end()} ms)")
             elif name == "embed":
                 audio = [base64.b64decode(str(a)) for a in cmd.get("audio", [])][:MAX_EMBED_CLIPS]
-                speaker_pool.submit(embed, int(cmd["id"]), audio, cmd.get("clip"))
+                speaker_pool.submit(embed, int(cmd["id"]), audio, cmd.get("clip"), bool(cmd.get("trim")))
             elif name == "vocab":
                 words = [str(w) for w in cmd.get("words", [])][:150]
                 state["prompt"] = " ".join(words)
