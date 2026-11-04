@@ -1,10 +1,11 @@
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { startApp } from './app.ts';
+import { fakeFetch } from './fakes.ts';
 import { tempHome, waitFor } from './helpers.ts';
 import type { VoiceWorker, WorkerCommand } from '../src/voice/session.ts';
 import type { Brain } from '../src/voice/brain.ts';
@@ -151,5 +152,43 @@ test('/ws/voice no modo atalho: o audio so passa entre apertar e soltar', async 
     a.ws.close();
   } finally {
     await app.close();
+  }
+});
+
+// Com o Date falso o waitFor nao estoura: quem limita o teste e o timeout.
+test('o botao das noticias automaticas para e retoma o anuncio, sem depender de reconectar', { timeout: 10_000 }, async () => {
+  mock.timers.enable({ apis: ['setInterval', 'Date'], now: new Date(2026, 10, 2, 9).getTime() });
+  const worker = new FakeWorker();
+  const { app, port, base } = await startApp(tempHome(), {
+    fetch: fakeFetch().impl,
+    newsUrl: 'https://news.example/rss',
+    voice: { worker, brain, announce: { newsEveryMin: 90 } },
+  });
+  const said = () => worker.commands.flatMap((c) => (c.cmd === 'speak' ? [c] : []));
+  const put = (enabled: boolean) =>
+    fetch(`${base}/api/news/auto`, { method: 'PUT', headers: { authorization: 'Bearer tok' }, body: JSON.stringify({ enabled }) });
+  const c = open(port);
+  try {
+    await put(false);
+    await c.ready;
+    c.ws.send(JSON.stringify({ type: 'start' }));
+    const hello = await waitFor(() => said()[0]);
+    assert.match(hello.text, /senhor/);
+    // A saudacao termina de tocar: o Jarvis fica livre, e so o botao pode segurar a noticia.
+    c.ws.send(JSON.stringify({ type: 'played', id: hello.id }));
+    await waitFor(() => c.messages.filter((m) => m.type === 'state').at(-1)?.state === 'sleeping');
+
+    mock.timers.tick(60e3);
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(said().length, 1, 'desligadas: nada de noticia');
+
+    await put(true);
+    mock.timers.tick(60e3);
+    const news = await waitFor(() => said()[1]);
+    assert.match(news.text, /Chuva forte em SP/);
+  } finally {
+    c.ws.close();
+    await app.close();
+    mock.timers.reset();
   }
 });

@@ -27,6 +27,7 @@ import { SpeakerProfileStore, type Mailer } from './voice/speaker.ts';
 import { IssueLog, type IssueDeps } from './voice/issues.ts';
 import { JarvisMemory } from './voice/memory.ts';
 import { NewsHistory } from './voice/news-history.ts';
+import { AutoNewsSetting } from './voice/news-auto.ts';
 import type { SessionInfo, VoiceClientMessage, VoiceServerMessage } from './types.ts';
 
 export interface AppOptions {
@@ -84,6 +85,8 @@ export interface AppOptions {
   memory?: JarvisMemory;
   /** Manchetes ja apresentadas por voz (sem ele, um arquivo na pasta de trabalho). */
   newsHistory?: NewsHistory;
+  /** Escolha sobre as noticias automaticas (sem ela, um arquivo na pasta de trabalho). */
+  autoNews?: AutoNewsSetting;
   /** Manual do app consultado pelo Jarvis (o README do projeto). */
   manualPath?: string;
 }
@@ -153,6 +156,7 @@ export function createApp(opts: AppOptions): App {
   const clients = new Set<WebSocket>();
   const memory = opts.memory ?? new JarvisMemory(join(workspace, '.jarvis-memory.json'));
   const newsHistory = opts.newsHistory ?? new NewsHistory(join(workspace, '.jarvis-news.json'));
+  const autoNews = opts.autoNews ?? new AutoNewsSetting(join(workspace, '.jarvis-news-auto.json'));
   const trustWatcher = new TrustWatcher({ sessions: () => terminals.list(), output: (id) => terminals.screen(id) });
   // Sessoes que o usuario pediu para acompanhar (aviso por voz ao terminar ou dar erro).
   const watcher = new SessionWatcher({
@@ -263,6 +267,19 @@ export function createApp(opts: AppOptions): App {
       if (!input || typeof input !== 'object') return send(res, 400, { error: 'JSON inválido' });
       const result = await store.update(input);
       return 'error' in result ? send(res, 400, result) : send(res, 200, result.view);
+    }
+    if (url.pathname === '/api/news/auto') {
+      if (req.method === 'GET') return send(res, 200, { enabled: autoNews.enabled() });
+      if (req.method !== 'PUT') return send(res, 405, { error: 'use GET ou PUT' });
+      let input: { enabled?: unknown } | null;
+      try {
+        input = (await readJson(req)) as { enabled?: unknown } | null;
+      } catch {
+        return send(res, 400, { error: 'JSON inválido' });
+      }
+      if (typeof input?.enabled !== 'boolean') return send(res, 400, { error: 'enabled deve ser verdadeiro ou falso' });
+      autoNews.set(input.enabled);
+      return send(res, 200, { enabled: autoNews.enabled() });
     }
     if (url.pathname === '/api/self-check' && req.method === 'GET') {
       return send(res, 200, await selfCheck(url.searchParams.get('record') === '1'));
@@ -590,6 +607,7 @@ export function createApp(opts: AppOptions): App {
             say: (text) => session.announce(text),
             newsEveryMs: voice.announce.newsEveryMin * 60e3,
             history: newsHistory,
+            newsEnabled: () => autoNews.enabled(),
           });
           void announcer.start();
         },
