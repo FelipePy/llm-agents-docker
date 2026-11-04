@@ -162,8 +162,22 @@ json() { # texto -> string JSON
 }
 # item id estado titulo porque acao tamanho root encontrado
 item() {
-  printf '@item {"id":"%s","state":"%s","title":%s,"why":%s,"action":%s,"size":%s,"root":%s,"found":%s}\n' \
-    "$1" "$2" "$(json "$3")" "$(json "$4")" "$(json "$5")" "$(json "$6")" "$7" "$(json "${8:-}")"
+  printf '@item {"id":"%s","state":"%s","title":%s,"why":%s,"action":%s,"size":%s,"root":%s,"found":%s,"secs":%s}\n' \
+    "$1" "$2" "$(json "$3")" "$(json "$4")" "$(json "$5")" "$(json "$6")" "$7" "$(json "${8:-}")" "$(item_secs "$1")"
+}
+# Tempo tipico de cada passo, em segundos (a barra de progresso do app estima o restante com ele).
+item_secs() {
+  case "$1" in
+    wsl-user) echo 10 ;;
+    base) echo 30 ;;
+    docker) echo 90 ;;
+    node) echo 40 ;;
+    python) echo 60 ;;
+    app) echo 15 ;;
+    image) echo 420 ;;
+    voice) if gpu; then echo 600; else echo 150; fi ;;
+    *) echo 30 ;;
+  esac
 }
 step() { printf '@step {"id":"%s","state":"%s","message":%s}\n' "$1" "$2" "$(json "${3:-}")"; }
 
@@ -181,6 +195,19 @@ find_python() {
 }
 
 docker_ok() { docker compose version >/dev/null 2>&1 && docker info >/dev/null 2>&1; }
+# Docker instalado, mas o servico ainda subindo (distribuicao do WSL recem-iniciada):
+# espera ate ~15 s antes de dizer que ele nao responde.
+docker_ok_wait() {
+  docker_ok && return 0
+  command -v dockerd >/dev/null && systemd_running || return 1
+  local _
+  for _ in $(seq 1 "${LLM_AGENT_DOCKER_WAIT:-15}"); do
+    case "$(systemctl is-active docker 2>/dev/null)" in active | activating) ;; *) return 1 ;; esac
+    sleep 1
+    docker_ok && return 0
+  done
+  return 1
+}
 # O usuario ja esta no grupo docker, mas esta sessao ainda nao (falta um login novo).
 docker_needs_relogin() {
   getent group docker 2>/dev/null | cut -d: -f4 | tr ',' '\n' | grep -qx "$(id -un)" && ! id -nG | tr ' ' '\n' | grep -qx docker
@@ -213,7 +240,7 @@ check() {
   fi
 
   found="$(docker --version 2>/dev/null | sed 's/,.*//' || true)"
-  if docker_ok; then
+  if docker_ok_wait; then
     item docker ok "Docker e docker compose" "Os agentes rodam em containers isolados, um por projeto." "" "" true "$found"
   elif docker_needs_relogin; then
     item docker relogin "Docker e docker compose" "Os agentes rodam em containers isolados, um por projeto." \
@@ -222,8 +249,15 @@ check() {
     item docker manual "Docker e docker compose" "Os agentes rodam em containers isolados, um por projeto." \
       "O Docker daqui é o do Docker Desktop: abra o Docker Desktop no Windows e ligue a integração com esta distribuição (Settings > Resources > WSL integration)." "" false "$found"
   else
-    item docker missing "Docker e docker compose" "Os agentes rodam em containers isolados, um por projeto." \
-      "Instala o Docker Engine e o docker compose pelo apt, liga o serviço e põe seu usuário no grupo docker$(in_wsl && ! systemd_running && echo ' (liga o systemd no WSL, que reinicia a distribuição)')." "~100 MB" true "$found"
+    local wsl_note=""
+    in_wsl && ! systemd_running && wsl_note=" (liga o systemd no WSL, que reinicia a distribuição)"
+    if command -v dockerd >/dev/null; then
+      item docker missing "Docker e docker compose" "Os agentes rodam em containers isolados, um por projeto." \
+        "O Docker já está instalado, mas não responde: liga o serviço, põe seu usuário no grupo docker e instala o docker compose se faltar$wsl_note." "" true "$found"
+    else
+      item docker missing "Docker e docker compose" "Os agentes rodam em containers isolados, um por projeto." \
+        "Instala o Docker Engine e o docker compose pelo apt, liga o serviço e põe seu usuário no grupo docker$wsl_note." "~100 MB" true "$found"
+    fi
   fi
 
   v="$(node -v 2>/dev/null | sed 's/^v//' || true)"
@@ -276,6 +310,7 @@ check() {
 }
 
 apt_install() { DEBIAN_FRONTEND=noninteractive apt-get install -y -q "$@"; }
+dpkg_has() { dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q 'install ok installed'; }
 
 root_step() { # id usuario
   case "$1" in
@@ -287,8 +322,16 @@ root_step() { # id usuario
       ;;
     base) apt_install git curl ca-certificates tar gzip ;;
     docker)
-      apt_install docker.io
-      apt_install docker-compose-v2 || apt_install docker-compose-plugin
+      if command -v dockerd >/dev/null; then
+        # Docker ja instalado (so parado ou sem acesso): nao instala outro por cima. O
+        # docker.io do Ubuntu conflita com o Docker oficial (containerd x containerd.io).
+        if ! docker compose version >/dev/null 2>&1; then
+          if dpkg_has docker-ce || dpkg_has docker-ce-cli; then apt_install docker-compose-plugin; else apt_install docker-compose-v2; fi
+        fi
+      else
+        apt_install docker.io
+        apt_install docker-compose-v2 || apt_install docker-compose-plugin
+      fi
       local was_member=""
       getent group docker | cut -d: -f4 | tr ',' '\n' | grep -qx "$2" && was_member=1
       usermod -aG docker "$2"

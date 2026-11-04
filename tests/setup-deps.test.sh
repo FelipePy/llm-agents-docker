@@ -55,6 +55,7 @@ check "voz ausente" missing "$(echo "$out" | item_state voice)"
 check "sem pacote: nao lista o codigo" "" "$(echo "$out" | item_state app)"
 check "cada item diz o motivo" "6" "$(echo "$out" | grep -c '"why":"[^"]\+"')"
 check "itens que faltam dizem o que sera feito" "" "$(echo "$out" | grep '"state":"missing"' | grep '"action":""')"
+check "cada item traz o tempo tipico (barra de progresso)" "6" "$(echo "$out" | grep -c '"secs":[1-9][0-9]*}')"
 check "o JSON e valido" "ok" "$(echo "$out" | sed -n 's/^@item //p' | "$real_node" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{s.trim().split("\n").forEach(l=>JSON.parse(l));console.log("ok")})' 2>&1)"
 
 echo 18.19.0 >"$FAKE/node"
@@ -106,6 +107,32 @@ mkdir -p "$LLM_AGENT_SYSTEMD_DIR"
 out="$(run install-root --user maria base docker)"
 check "base e docker pelo apt" "apt-get update -q|apt-get install -y -q git curl ca-certificates tar gzip|apt-get install -y -q docker.io|apt-get install -y -q docker-compose-v2|usermod -aG docker maria|systemctl enable --now docker" "$(grep -v '^docker ' "$log" | paste -sd'|')"
 check "docker no Linux: novo no grupo pede login novo" "@restart logout" "$(echo "$out" | grep '^@restart')"
+
+# Docker oficial (docker-ce) ja instalado, so parado: nao instala o docker.io por cima.
+fake dockerd 'exit 0'
+fake dpkg-query '[ "$3" = docker-ce ] && printf "install ok installed"'
+check "docker instalado mas parado: a acao diz que so liga" "sim" "$(echo 1000 >"$FAKE/uid"; run check | grep '"id":"docker"' | grep -q 'já está instalado' && echo sim)"
+echo 0 >"$FAKE/uid"
+: >"$log"
+echo broken >"$FAKE/docker"
+run install-root --user maria docker >/dev/null
+check "docker-ce instalado: so o plugin do compose, sem docker.io" "apt-get install -y -q docker-compose-plugin" "$(grep 'apt-get install' "$log" | paste -sd'|')"
+echo ok >"$FAKE/docker"
+: >"$log"
+run install-root --user maria docker >/dev/null
+check "docker e compose ja instalados: nenhum pacote" "" "$(grep 'apt-get install' "$log")"
+# Servico do Docker ainda subindo: a verificacao espera ele responder.
+echo 1000 >"$FAKE/uid"
+mkdir -p "$LLM_AGENT_SYSTEMD_DIR"
+echo broken >"$FAKE/docker"
+fake systemctl 'echo "systemctl $*" >>'"$log"'; [ "$1" = is-active ] && { echo ok >"$FAKE/docker"; echo activating; }; exit 0'
+check "docker subindo: espera e da ok" ok "$(run check | item_state docker)"
+echo broken >"$FAKE/docker"
+fake systemctl 'echo "systemctl $*" >>'"$log"'; [ "$1" = is-active ] && echo inactive; exit 0'
+check "docker parado: nao espera, diz que falta" missing "$(run check | item_state docker)"
+fake systemctl "echo \"systemctl \$*\" >>$log"
+echo 0 >"$FAKE/uid"
+rm -f "$work/bin/dockerd" "$work/bin/dpkg-query"
 
 rm -rf "$LLM_AGENT_SYSTEMD_DIR"
 out="$(WSL_DISTRO_NAME=Ubuntu run install-root --user maria docker)"
