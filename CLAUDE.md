@@ -21,6 +21,7 @@ funcionalidade nova nele mesmo (`aplicar_evolucao`). Textos para o usuário são
 - `voice/session.ts`: a conversa por voz (estados, interrupção, continuação, ditado). `voice/brain.ts`: o cérebro (Claude
   Haiku pelo Agent SDK) e o `JARVIS_PROMPT`. `voice/tools.ts`: as ferramentas do Jarvis (servidor MCP em processo).
   `voice/commands.ts`: a lista de comandos de voz mostrada na interface. `voice/memory.ts`: memória entre sessões.
+  `voice/issues.ts`: issues pedidas por voz (grava no `ISSUES.md`, com commit).
 - `evolution.ts`: funcionalidades novas para o próprio Jarvis (definição, dois OKs, clone, aplicação).
 - O Jarvis **não tem shell nem escrita livre**: ele só age pelas ferramentas de `voice/tools.ts`.
 

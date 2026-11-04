@@ -135,6 +135,18 @@ test('sessoes_abertas e estado_da_sessao', async () => {
   assert.match(await h.estado_da_sessao({ projeto: 'nowcasting-api' }), /Não há sessão/);
 });
 
+test('criar_issue confirma com o numero so depois de gravar; se falhar, diz que nao gravou', async () => {
+  const created: string[][] = [];
+  const ok = ctx({ createIssue: async (title, description) => (created.push([title, description]), 7) });
+  assert.match(await ok.h.criar_issue({ titulo: 'Modo escuro', descricao: 'Tema escuro.' }), /número 7 gravada/);
+  assert.deepEqual(created, [['Modo escuro', 'Tema escuro.']]);
+  const failing = ctx({ createIssue: async () => { throw new Error('o commit falhou (sem identidade)'); } });
+  const out = await failing.h.criar_issue({ titulo: 'x', descricao: 'y' });
+  assert.match(out, /NÃO foi gravada: o commit falhou \(sem identidade\)/);
+  assert.doesNotMatch(out, /número/);
+  assert.match(await ctx().h.criar_issue({ titulo: 'x', descricao: 'y' }), /NÃO foi gravada/);
+});
+
 test('criar_skill, registrar_sobre_mim e criar_projeto usam as tarefas do "+"', async () => {
   const { h, ui } = ctx();
   assert.match(await h.criar_skill({}), /skill/);

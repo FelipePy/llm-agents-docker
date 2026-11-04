@@ -35,14 +35,3 @@ Criar pelo menos mais dois estilos para o globo, trocáveis direto nas configura
 organizado para aceitar estilos diferentes.
 
 **Situação:** pendente; nenhum sinal no código da interface.
-
-### 6. Comando de voz para criar issue pelo Jarvis
-Ao pedir uma issue por voz, o Jarvis precisa gravá-la de verdade no `ISSUES.md`. Hoje nenhuma das ferramentas dele escreve
-nesse arquivo, e foi assim que as issues 1 a 5 ficaram só em "anotado".
-
-- Ferramenta nova do Jarvis, seguindo a receita de comando de voz do `CLAUDE.md`.
-- Grava na seção Pendentes, com o próximo número, título e descrição do pedido.
-- O Jarvis só confirma depois de gravar; se falhar, ele avisa.
-- Ao gravar, faz o commit do arquivo: alterações não salvas no repositório impedem o Jarvis de aplicar uma evolução.
-
-**Situação:** pendente.

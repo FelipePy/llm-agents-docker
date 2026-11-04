@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { startApp } from './app.ts';
 import { tempHome, waitFor } from './helpers.ts';
@@ -85,6 +87,28 @@ test('as ferramentas do Jarvis chegam a interface pelo /ws/voice e abrem sessoes
     assert.equal(s.title, 'corrigir os testes');
     assert.ok(ctx!.sessions().some((x) => x.id === s.id));
     await assert.rejects(ctx!.createProject('../fora'), /inválido/);
+    a.ws.close();
+  } finally {
+    await app.close();
+  }
+});
+
+test('com issues configurado, o Jarvis grava no ISSUES.md daquele repositorio', async () => {
+  const repoDir = tempHome();
+  writeFileSync(join(repoDir, 'ISSUES.md'), '# Issues\n\n## Pendentes\n');
+  const worker = new FakeWorker();
+  let ctx: import('../src/voice/tools.ts').JarvisContext | undefined;
+  const commits: string[][] = [];
+  const { app, port } = await startApp(tempHome(), {
+    issues: { repoDir, run: async (_cmd, args) => (commits.push(args), { code: 0, out: '' }) },
+    voice: { worker, brain: (c) => ((ctx = c), brain) },
+  });
+  try {
+    const a = open(port);
+    await a.ready;
+    assert.equal(await ctx!.createIssue!('Nova', 'Texto.'), 1);
+    assert.match(readFileSync(join(repoDir, 'ISSUES.md'), 'utf8'), /### 1\. Nova/);
+    assert.equal(commits.length, 1);
     a.ws.close();
   } finally {
     await app.close();
