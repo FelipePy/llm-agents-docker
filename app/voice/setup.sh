@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Prepara o ambiente Python da voz em app/voice/.venv. Idempotente: so
-# reinstala quando os requisitos mudam. Codigos de saida: 2 = Python antigo,
-# 3 = sem venv, 1 = falha na instalacao.
+# reinstala quando os requisitos mudam e recria o ambiente quando a versao do
+# Python muda. Codigos de saida: 2 = Python antigo, 3 = sem venv, 1 = falha na
+# instalacao.
 set -euo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -38,14 +39,29 @@ if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
   gpu="cuda12"
 fi
 
+version_of() { "$1" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null; }
+
+# O bin/python do ambiente aponta para o Python do sistema, mas os pacotes ficam em
+# lib/python3.X: uma atualizacao que troca a versao deixa o ambiente sem os pacotes,
+# mesmo com o carimbo em dia. So vale o ambiente da versao escolhida acima.
+py_version="$(version_of "$py")"
+venv_ok() {
+  [ "$(version_of "$venv/bin/python")" = "$py_version" ] && [ -d "$venv/lib/python$py_version/site-packages" ]
+}
+
 want="$(cat "$dir/requirements.txt" "$dir/requirements-nodeps.txt" | sha256sum | cut -d' ' -f1)-$gpu"
-if [ -f "$venv/.installed" ] && [ "$(cat "$venv/.installed")" = "$want" ]; then
+if venv_ok && [ -f "$venv/.installed" ] && [ "$(cat "$venv/.installed")" = "$want" ]; then
   exit 0
 fi
 
-if [ ! -x "$venv/bin/python" ] && ! "$py" -m venv "$venv"; then
-  echo "Nao consegui criar o ambiente virtual. No Ubuntu/Debian: sudo apt install ${py##*/}-venv" >&2
-  exit 3
+if ! venv_ok; then
+  if [ -e "$venv/pyvenv.cfg" ]; then
+    echo "O ambiente da voz nao serve para o Python $py_version: recriando..." >&2
+  fi
+  if ! "$py" -m venv --clear "$venv"; then
+    echo "Nao consegui criar o ambiente virtual. No Ubuntu/Debian: sudo apt install ${py##*/}-venv" >&2
+    exit 3
+  fi
 fi
 
 "$venv/bin/python" -m pip install -q --upgrade pip
