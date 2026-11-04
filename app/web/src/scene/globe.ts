@@ -8,6 +8,9 @@ export const GLOBE_COLORS = {
   dourado: { label: 'Dourado', base: '#ffa733', hot: '#fff0c2' },
   ciano: { label: 'Ciano', base: '#33cfff', hot: '#e3fbff' },
   branco: { label: 'Branco', base: '#c9d4e6', hot: '#ffffff' },
+  vermelho: { label: 'Vermelho', base: '#ff4d4d', hot: '#ffe3e0' },
+  verde: { label: 'Verde', base: '#3ddc7a', hot: '#e2ffec' },
+  roxo: { label: 'Roxo', base: '#a06bff', hot: '#f0e6ff' },
 } as const;
 export type GlobeColor = keyof typeof GLOBE_COLORS;
 

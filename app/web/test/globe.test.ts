@@ -56,10 +56,10 @@ it('globeDynamics: parado e calmo; falando alto cresce, agita e brilha mais', ()
   expect(listening.spin).toBeGreaterThan(idle.spin);
 });
 
-it('cores: dourado, ciano e branco; valida o que vem do localStorage', () => {
-  expect(Object.keys(GLOBE_COLORS)).toEqual(['dourado', 'ciano', 'branco']);
-  expect(isGlobeColor('ciano')).toBe(true);
-  expect(isGlobeColor('roxo')).toBe(false);
+it('cores: as seis opcoes, com dourado primeiro; valida o que vem do localStorage', () => {
+  expect(Object.keys(GLOBE_COLORS)).toEqual(['dourado', 'ciano', 'branco', 'vermelho', 'verde', 'roxo']);
+  expect(isGlobeColor('roxo')).toBe(true);
+  expect(isGlobeColor('rosa')).toBe(false);
   expect(isGlobeColor(null)).toBe(false);
 });
 

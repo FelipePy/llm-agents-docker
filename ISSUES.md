@@ -19,11 +19,6 @@ simples demais e não combinam com o visual do projeto.
 
 **Situação:** a conferir na interface.
 
-### 2. Mais cores para o Jarvis
-Oferecer mais opções além de dourado, ciano e branco, como vermelho, verde e roxo.
-
-**Situação:** pendente; o código só traz as três cores atuais.
-
 ### 3. Nome e voz do assistente
 - Definir outro nome para o assistente nas configurações, com a palavra de ativação acompanhando o nome novo.
 - Mais opções de voz para selecionar, com prévia.
