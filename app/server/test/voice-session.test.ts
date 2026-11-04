@@ -974,3 +974,104 @@ test('sem voz cadastrada: "Jarvis" ... pausa ... pedido tambem nao se perde', as
   await waitFor(() => s.brain.calls.length === 1);
   assert.deepEqual(s.brain.calls, ['que horas são']);
 });
+
+/** Sessao com voz cadastrada e acesso por senha (`access`); a senha certa e 123456. */
+async function withPin(access: 'voice' | 'pin' | 'both', voiceOk = true, clock: { t: number } = { t: 0 }) {
+  const worker = new FakeWorker();
+  const brain = new FakeBrain([['Abrindo.']]);
+  const sent: VoiceServerMessage[] = [];
+  const logs: string[] = [];
+  const pins: string[] = [];
+  let locked = false;
+  const conversations: string[] = [];
+  const session = new VoiceSession(worker, brain, (m) => sent.push(m), () => clock.t, (l) => logs.push(l), {
+    greetings: ['Oi, pode falar.'],
+    speaker: {
+      enrolled: () => true,
+      verify: async () => voiceOk,
+      access: () => access,
+      verifyPin: (d) => (pins.push(d), locked ? 'locked' : d === '123456'),
+    },
+    conversation: { start: () => conversations.push('start'), request: () => {}, end: () => {} },
+  });
+  await session.start();
+  const greeted = () => worker.speaks().some((c) => c.text === 'Oi, pode falar.');
+  const captions = () => sent.filter((m) => m.type === 'caption').map((m) => (m as { text: string }).text);
+  return { worker, brain, sent, logs, pins, session, greeted, captions, conversations, lock: () => (locked = true) };
+}
+
+test('senha falada no lugar do "Jarvis" libera o acesso e cumprimenta', async () => {
+  for (const text of ['1 2 3 4 5 6.', 'um dois três quatro cinco seis', 'A senha é 123456', 'Jarvis, 123456']) {
+    const s = await withPin('both', false);
+    s.worker.fire({ event: 'heard', text, clip: 1 });
+    await waitFor(() => s.greeted());
+    assert.deepEqual(s.pins, ['123456'], text);
+    assert.deepEqual(s.conversations, ['start']);
+    assert.ok(!s.captions().some((c) => /123|um dois/.test(c)), 'a senha nao aparece na legenda');
+    assert.ok(!s.logs.some((l) => l.includes('123456')), 'nem no log');
+    assert.deepEqual(s.brain.calls, [], 'a senha nunca vira pedido');
+    s.session.stop();
+  }
+});
+
+test('senha errada: acesso negado e nada e executado', async () => {
+  const s = await withPin('both');
+  s.worker.fire({ event: 'heard', text: '654321', clip: 1 });
+  await waitFor(() => s.worker.speaks().length === 1);
+  assert.equal(s.worker.speaks()[0].text, 'Acesso negado.');
+  assert.deepEqual(s.brain.calls, []);
+  assert.deepEqual(s.conversations, []);
+  assert.ok(!s.captions().includes('654321'));
+});
+
+test('senha bloqueada por tentativas: avisa para esperar', async () => {
+  const s = await withPin('pin');
+  s.lock();
+  s.worker.fire({ event: 'heard', text: '123456', clip: 1 });
+  await waitFor(() => s.worker.speaks().length === 1);
+  assert.match(s.worker.speaks()[0].text, /Muitas tentativas/);
+  assert.equal(s.greeted(), false);
+});
+
+test('so a senha: "Jarvis" pede a senha e a senha falada logo depois abre a conversa', async () => {
+  const s = await withPin('pin');
+  s.worker.fire({ event: 'heard', text: 'Jarvis, abre o meu-app', clip: 1 });
+  await waitFor(() => s.worker.speaks().length === 1);
+  assert.equal(s.worker.speaks()[0].text, 'Fale a senha para liberar o acesso.');
+  assert.deepEqual(s.brain.calls, [], 'o pedido junto do chamado nao e executado');
+  // Ainda avisando: a senha corta o aviso e acorda.
+  s.worker.fire({ event: 'heard', text: '123456', clip: 2 });
+  await waitFor(() => s.greeted());
+  assert.ok(s.sent.some((m) => m.type === 'stop-audio'));
+  const greeting = s.worker.speaks().find((c) => c.text === 'Oi, pode falar.')!;
+  s.session.client({ type: 'played', id: greeting.id });
+  assert.equal(s.session.state, 'listening');
+});
+
+test('so a voz: numeros falados em espera sao conversa de fundo', async () => {
+  const s = await withPin('voice');
+  s.worker.fire({ event: 'heard', text: '123456', clip: 1 });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(s.pins, []);
+  assert.deepEqual(s.worker.speaks(), []);
+  assert.equal(s.session.state, 'sleeping');
+});
+
+test('voz e senha: numeros no meio de uma frase nao sao tentativa de senha', async () => {
+  const s = await withPin('both');
+  s.worker.fire({ event: 'heard', text: 'o voo sai as 1430 do portao 12', clip: 1 });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(s.pins, []);
+  assert.deepEqual(s.worker.speaks(), []);
+});
+
+test('acordado, falar numeros e um pedido normal (nao confere senha)', async () => {
+  const s = await withPin('both');
+  s.worker.fire({ event: 'wake', score: 0.9, clip: 1 });
+  await waitFor(() => s.greeted());
+  s.session.client({ type: 'played', id: s.worker.speaks()[0].id });
+  assert.equal(s.session.state, 'listening');
+  s.worker.fire({ event: 'transcript', id: 1, text: '123456' });
+  await waitFor(() => s.brain.calls.length === 1);
+  assert.deepEqual(s.pins, []);
+});

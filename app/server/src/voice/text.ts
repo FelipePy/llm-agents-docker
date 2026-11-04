@@ -281,3 +281,25 @@ export function looksIncomplete(text: string, words: readonly string[] = DEFAULT
     return entry !== '' && tail.endsWith(` ${entry}`);
   });
 }
+
+/** Digitos falados por extenso ("meia" e o seis falado em telefones e senhas). */
+const DIGIT_WORDS: Record<string, string> = {
+  zero: '0', um: '1', uma: '1', dois: '2', duas: '2', tres: '3', quatro: '4', cinco: '5', seis: '6', meia: '6', sete: '7', oito: '8', nove: '9',
+};
+
+/**
+ * Fala que e so uma senha numerica ("123456", "1 2 3 4 5 6", "um dois tres quatro",
+ * "a senha e 4321"): devolve os digitos, ou null. Qualquer outra palavra no meio faz
+ * nao ser senha (uma conversa com numeros nao vira tentativa). Numeros compostos por
+ * extenso ("doze") nao contam: a senha se fala digito por digito.
+ */
+export function spokenPin(text: string, min = 4, max = 6): string | null {
+  const words = normalize(text).replace(/^(a |minha )?(senha|codigo)( e)?\b/, '').split(' ').filter(Boolean);
+  let digits = '';
+  for (const w of words) {
+    if (/^[0-9]+$/.test(w)) digits += w;
+    else if (DIGIT_WORDS[w]) digits += DIGIT_WORDS[w];
+    else return null;
+  }
+  return digits.length >= min && digits.length <= max ? digits : null;
+}

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isShortStop, looksIncomplete, continuationWord, looksLikeRequest,
-  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isStopRequest, isSubmit, isJarvisWord, isUnintelligible, matchWake, normalize, stripMarkdown,
+  SentenceSplitter, isClear, isErase, isGoodbye, isReturn, isStopRequest, isSubmit, isJarvisWord, isUnintelligible, matchWake, normalize, spokenPin, stripMarkdown,
 } from '../src/voice/text.ts';
 import { AUDIO, FrameDecoder, JSON_KIND, encodeFrame, encodeJson } from '../src/voice/protocol.ts';
 
@@ -141,4 +141,14 @@ test('looksIncomplete com lista propria: varias palavras, lista vazia', () => {
   assert.equal(looksIncomplete('abre o projeto,', []), false);
   assert.equal(continuationWord('  O Meu, '), 'o meu');
   assert.equal(continuationWord('...'), '');
+});
+
+test('spokenPin: fala que e so uma senha numerica, em digitos ou por extenso', () => {
+  for (const [t, want] of [
+    ['123456', '123456'], ['1, 2, 3, 4, 5, 6.', '123456'], ['123.456', '123456'], ['um dois três quatro', '1234'],
+    ['meia cinco zero nove', '6509'], ['A senha é 4321.', '4321'], ['Senha: 0 0 1 2', '0012'], ['minha senha é 98765', '98765'],
+  ] as const)
+    assert.equal(spokenPin(t), want, t);
+  for (const t of ['abre o 123456', '12', '123', '1234567', 'senha', 'doze trinta e quatro', 'o voo sai as 1430', ''])
+    assert.equal(spokenPin(t), null, t);
 });
