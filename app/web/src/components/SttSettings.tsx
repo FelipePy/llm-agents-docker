@@ -48,8 +48,8 @@ export function SttSettings({ api }: { api: Api }) {
   };
 
   return (
-    <div className="stt-settings">
-      <div className="stt-title">Transcrição da fala</div>
+    <div className="settings-card">
+      <div className="settings-card-title">Transcrição da fala</div>
       <label title="Whisper rodando no seu PC: nada sai da máquina">
         <input type="radio" name="stt" checked={provider === 'local'} onChange={() => setProvider('local')} />
         Local (no seu PC)

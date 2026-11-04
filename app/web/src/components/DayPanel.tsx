@@ -17,7 +17,7 @@ function useNow(ms: number): Date {
   return now;
 }
 
-/** Coluna esquerda no modo 3D: hora, data, clima e notícias. */
+/** Modal de notícias no modo 3D: hora, data, clima e notícias. */
 export function DayPanel({ api, voiceStatus }: Props) {
   const now = useNow(1000);
   const [day, setDay] = useState<DayInfo | null>(null);

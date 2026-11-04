@@ -55,8 +55,8 @@ export function PauseSettings({ api }: { api: Api }) {
   };
 
   return (
-    <div className="stt-settings pause-settings">
-      <div className="stt-title">Pausas da fala</div>
+    <div className="settings-card pause-settings">
+      <div className="settings-card-title">Pausas da fala</div>
       <label className="field" title="Quanto tempo calado encerra a sua fala e o Jarvis responde">
         <span>Silêncio até responder (segundos)</span>
         <input inputMode="decimal" value={draft.silence} onChange={edit('silence')} />
