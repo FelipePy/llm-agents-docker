@@ -3,8 +3,8 @@ import { Api, LiveSocket, backoff, takeToken, wsUrl, type Status } from './api.t
 import { bus } from './bus.ts';
 import { playSound } from './sound.ts';
 import { currentNode, initialNav, navReducer, projectIdOf } from './nav.ts';
-import { hasWebGL, systemReducedMotion, useChoice, useHotkey, usePref } from './prefs.ts';
-import { isGlobeColor, isGlobeStyle, type GlobeColor, type GlobeStyle } from './scene/globe.ts';
+import { hasWebGL, systemReducedMotion, useChoice, useHotkey, usePref, useSavedHotkey } from './prefs.ts';
+import { isGlobeColor, isGlobeStyle, nextGlobeStyle, type GlobeColor, type GlobeStyle } from './scene/globe.ts';
 import { crumbLabel, filterItems, itemsFor, type Panel, type RingItem } from './ring.ts';
 import { demoSignal, MODE_LABEL, type CoreSignal } from './scene/core.ts';
 import { addTab, applyAction, closeTab, emptyTabs, shortcut, syncTabs, type TabsState } from './tabs.ts';
@@ -29,7 +29,7 @@ import { backgroundLabel } from './format.ts';
 import { OFF_VIEW, VoiceClient, VoiceConnectionError, timingText, voiceStatus, type VoiceView } from './voice/client.ts';
 import { floatSupported, openFloatingOrb, type FloatingOrb } from './voice/float.ts';
 import { useHoldKeys } from './voice/useHoldKeys.ts';
-import { MIDDLE_BUTTON, matchesHotkey } from './voice/hotkey.ts';
+import { DEFAULT_GLOBE_HOTKEY, MIDDLE_BUTTON, matchesHotkey, sameHotkey } from './voice/hotkey.ts';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { setAutostart, useDesktop } from './desktop.ts';
 
@@ -74,13 +74,14 @@ function Connected({ token }: { token: string }) {
   const [floating, setFloating] = useState<FloatingOrb | null>(null);
   const [globeColor, setGlobeColor] = useChoice<GlobeColor>('llm-agent-globe-color', 'dourado', isGlobeColor);
   const [globeStyle, setGlobeStyle] = useChoice<GlobeStyle>('llm-agent-globe-style', 'holografico', isGlobeStyle);
+  const [globeHotkey, setGlobeHotkey] = useSavedHotkey('llm-agent-globe-hotkey', DEFAULT_GLOBE_HOTKEY);
   const [sounds, setSounds] = usePref('llm-agent-sounds', true);
   const [voice, setVoice] = useState<VoiceView>(OFF_VIEW);
   const voiceRef = useRef<VoiceClient | null>(null);
   // Ordens do Jarvis para a interface; atualizada a cada render (ver mais abaixo).
   const onUiRef = useRef<(command: UiCommand) => void>(() => {});
   const use3d = webgl && mode3d;
-  const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn && !holdKey, holdKey, hotkey, globeColor, globeStyle, sounds };
+  const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn && !holdKey, holdKey, hotkey, globeColor, globeStyle, globeHotkey, sounds };
   const toggles = {
     on3d: () => setMode3d(!mode3d),
     onReduceMotion: () => setReduceMotion(!reduceMotion),
@@ -91,6 +92,7 @@ function Connected({ token }: { token: string }) {
     onHotkeyCapturing: setHotkeyCapturing,
     onGlobeColor: (c: GlobeColor) => setGlobeColor(c),
     onGlobeStyle: (s: GlobeStyle) => setGlobeStyle(s),
+    onGlobeHotkey: setGlobeHotkey,
     onSounds: () => setSounds(!sounds),
   };
 
@@ -193,6 +195,11 @@ function Connected({ token }: { token: string }) {
     },
     () => voiceRef.current?.holdEnd(),
   );
+
+  // Atalho de trocar o estilo: sem o globo na tela (modo lista), o select tambem fica desligado.
+  // Igual ao de falar (gravado antes de existir este atalho), o de falar tem prioridade.
+  const globeShortcutOn = use3d && !hotkeyCapturing && !(holdKey && sameHotkey(hotkey, globeHotkey));
+  useHoldKeys(globeShortcutOn ? globeHotkey : null, () => setGlobeStyle(nextGlobeStyle(globeStyle)));
   const holdLevel = useCallback(() => voiceRef.current?.micLevel() ?? 0, []);
   const holdWave = voice.holding ? <HoldWave level={holdLevel} reduced={reduceMotion} hotkey={hotkey.label} /> : null;
 
@@ -354,7 +361,7 @@ function Connected({ token }: { token: string }) {
   useEffect(() => {
     if (!sounds) return;
     const onDown = (e: PointerEvent) => {
-      if (e.button === MIDDLE_BUTTON) return; // pode ser o atalho de falar
+      if (e.button === MIDDLE_BUTTON) return; // pode ser um dos atalhos
       const el = (e.target as HTMLElement | null)?.closest?.('button, .ring-card, .tab, a, input[type="checkbox"]');
       if (!el || el.closest('.terminal') || (el as HTMLButtonElement).disabled) return;
       playSound(el.classList.contains('ring-card') ? 'open' : 'tap');

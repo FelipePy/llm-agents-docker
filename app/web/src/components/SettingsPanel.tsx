@@ -1,6 +1,6 @@
 import type { Api } from '../api.ts';
 import type { DesktopInfo } from '../desktop.ts';
-import { HotkeyField } from './HotkeyField.tsx';
+import { GlobeHotkeyField, TalkHotkeyField } from './HotkeyField.tsx';
 import { PauseSettings } from './PauseSettings.tsx';
 import { SettingsCard } from './SettingsCard.tsx';
 import { SttSettings } from './SttSettings.tsx';
@@ -39,7 +39,7 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
               <input type="checkbox" checked={settings.holdKey} onChange={toggles.onHoldKey} />
               Falar com {settings.hotkey.label}
             </label>
-            <HotkeyField hotkey={settings.hotkey} onChange={toggles.onHotkey} onCapturing={toggles.onHotkeyCapturing} />
+            <TalkHotkeyField hotkey={settings.hotkey} globeHotkey={settings.globeHotkey} onChange={toggles.onHotkey} onCapturing={toggles.onHotkeyCapturing} />
             {settings.holdKey && (
               <p className="muted">Segure para falar e solte para o Jarvis responder. Ele não fica esperando ser chamado: o que o microfone capta só vai para ele enquanto você segura.</p>
             )}
@@ -72,6 +72,7 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
               ))}
             </select>
           </label>
+          <GlobeHotkeyField hotkey={settings.hotkey} globeHotkey={settings.globeHotkey} onChange={toggles.onGlobeHotkey} onCapturing={toggles.onHotkeyCapturing} />
           <label className="field" title="Cor do globo do Jarvis">
             <span>Cor do Jarvis</span>
             <select

@@ -44,15 +44,21 @@ export function useChoice<T extends string>(key: string, initial: T, valid: (v: 
   return [value, set];
 }
 
-/**
- * Atalho de falar, guardado no localStorage; o que estiver invalido volta ao padrao.
- * Com o botao do meio e sem mouse, vale o padrao, mas a escolha fica guardada para quando o mouse voltar.
- */
-export function useHotkey(key: string): [Hotkey, (h: Hotkey) => void] {
-  const [value, setValue] = useState<Hotkey>(() => parseHotkey(localStorage.getItem(key)) ?? DEFAULT_HOTKEY);
+/** Atalho guardado no localStorage; o que estiver invalido volta ao padrao. */
+export function useSavedHotkey(key: string, initial: Hotkey): [Hotkey, (h: Hotkey) => void] {
+  const [value, setValue] = useState<Hotkey>(() => parseHotkey(localStorage.getItem(key)) ?? initial);
   const set = (h: Hotkey) => {
     localStorage.setItem(key, JSON.stringify(h));
     setValue(h);
   };
+  return [value, set];
+}
+
+/**
+ * Atalho de falar. Com o botao do meio e sem mouse, vale o padrao, mas a escolha fica guardada
+ * para quando o mouse voltar.
+ */
+export function useHotkey(key: string): [Hotkey, (h: Hotkey) => void] {
+  const [value, set] = useSavedHotkey(key, DEFAULT_HOTKEY);
   return [usableHotkey(value, hasMouse()), set];
 }

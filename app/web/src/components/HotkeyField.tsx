@@ -1,26 +1,46 @@
 import { useEffect, useRef, useState } from 'react';
 import { hasMouse } from '../prefs.ts';
-import { DEFAULT_HOTKEY, HotkeyCapture, MAX_HOTKEY_KEYS, MIDDLE_BUTTON, hotkeyHasMouse, sameHotkey, type Hotkey } from '../voice/hotkey.ts';
+import {
+  DEFAULT_GLOBE_HOTKEY, DEFAULT_HOTKEY, HotkeyCapture, MAX_HOTKEY_KEYS, MIDDLE_BUTTON, hotkeyConflict, hotkeyHasMouse, sameHotkey, type Hotkey, type NamedHotkey,
+} from '../voice/hotkey.ts';
+
+const TALK_NAME = 'Atalho para falar';
+const GLOBE_NAME = 'Atalho para trocar o estilo';
 
 interface Props {
+  name: string;
+  title: string;
   hotkey: Hotkey;
+  fallback: Hotkey;
+  /** Os outros atalhos configuraveis: o que eles usam nao pode ser gravado aqui. */
+  others: NamedHotkey[];
   onChange: (h: Hotkey) => void;
   /** Enquanto espera a combinacao, os atalhos do app nao podem reagir as teclas. */
   onCapturing: (on: boolean) => void;
 }
 
-/** Atalho de falar: mostra o atual, grava outro direto do teclado e do mouse e volta ao padrao. */
-export function HotkeyField({ hotkey, onChange, onCapturing }: Props) {
+/** Um atalho: mostra o atual, grava outro direto do teclado e do mouse e volta ao padrao. */
+export function HotkeyField({ name, title, hotkey, fallback, others, onChange, onCapturing }: Props) {
   const [capturing, setCapturing] = useState(false);
   const [preview, setPreview] = useState('');
+  // A combinacao recusada, para dizer por que nada mudou.
+  const [refused, setRefused] = useState('');
   const root = useRef<HTMLDivElement>(null);
   const mouse = hasMouse();
+  const inUse = hotkeyConflict(hotkey, others);
+
+  const pick = (h: Hotkey) => {
+    const owner = hotkeyConflict(h, others);
+    setRefused(owner ? `${h.label} já é usado em “${owner}”. Escolha outro.` : '');
+    if (!owner) onChange(h);
+  };
 
   useEffect(() => {
     if (!capturing) return;
     const stop = () => setCapturing(false);
     setPreview('');
-    const capture = new HotkeyCapture(onChange, stop, setPreview, mouse);
+    setRefused('');
+    const capture = new HotkeyCapture(pick, stop, setPreview, mouse);
     const consume = (e: Event) => {
       e.preventDefault();
       e.stopPropagation();
@@ -76,8 +96,8 @@ export function HotkeyField({ hotkey, onChange, onCapturing }: Props) {
   }, [capturing]);
 
   return (
-    <div className="field hotkey-field" ref={root} title="O que você segura para falar com o Jarvis: uma tecla ou uma combinação de até três, que pode incluir o botão do meio do mouse">
-      <span>Atalho para falar</span>
+    <div className="field hotkey-field" ref={root} title={title}>
+      <span>{name}</span>
       <div className="hotkey-row">
         <kbd className={capturing ? 'hotkey-current capturing' : 'hotkey-current'} aria-live="polite">
           {capturing ? preview || 'Aperte e segure…' : hotkey.label}
@@ -97,20 +117,63 @@ export function HotkeyField({ hotkey, onChange, onCapturing }: Props) {
           Até {MAX_HOTKEY_KEYS} teclas{mouse ? ', contando o botão do meio do mouse (clique do scroll)' : ''}. Solte para gravar.
         </small>
       )}
+      {!capturing && refused && (
+        <small className="hotkey-hint hotkey-refused" role="alert">
+          {refused}
+        </small>
+      )}
+      {!capturing && inUse && <small className="hotkey-hint hotkey-refused">Também usado em “{inUse}”. Grave outro atalho.</small>}
       {!capturing && hotkeyHasMouse(hotkey) && (
         <small className="hotkey-hint">O botão do meio pode conflitar com o navegador ou o sistema. Se atrapalhar, grave outro atalho.</small>
       )}
       {!mouse && <small className="hotkey-hint">Sem mouse neste aparelho: o botão do meio fica indisponível.</small>}
       <button
         className="link"
-        disabled={sameHotkey(hotkey, DEFAULT_HOTKEY)}
+        disabled={sameHotkey(hotkey, fallback)}
         onClick={() => {
           setCapturing(false);
-          onChange(DEFAULT_HOTKEY);
+          pick(fallback);
         }}
       >
-        Voltar ao padrão ({DEFAULT_HOTKEY.label})
+        Voltar ao padrão ({fallback.label})
       </button>
     </div>
+  );
+}
+
+interface PairProps {
+  hotkey: Hotkey;
+  globeHotkey: Hotkey;
+  onChange: (h: Hotkey) => void;
+  onCapturing: (on: boolean) => void;
+}
+
+/** O que se segura para falar. */
+export function TalkHotkeyField({ hotkey, globeHotkey, onChange, onCapturing }: PairProps) {
+  return (
+    <HotkeyField
+      name={TALK_NAME}
+      title="O que você segura para falar com o Jarvis: uma tecla ou uma combinação de até três, que pode incluir o botão do meio do mouse"
+      hotkey={hotkey}
+      fallback={DEFAULT_HOTKEY}
+      others={[{ name: GLOBE_NAME, hotkey: globeHotkey }]}
+      onChange={onChange}
+      onCapturing={onCapturing}
+    />
+  );
+}
+
+/** O que passa o globo para o proximo estilo. */
+export function GlobeHotkeyField({ hotkey, globeHotkey, onChange, onCapturing }: PairProps) {
+  return (
+    <HotkeyField
+      name={GLOBE_NAME}
+      title="Passa o globo para o próximo estilo, sem abrir as configurações (só no Modo 3D): uma tecla ou uma combinação de até três, que pode incluir o botão do meio do mouse"
+      hotkey={globeHotkey}
+      fallback={DEFAULT_GLOBE_HOTKEY}
+      others={[{ name: TALK_NAME, hotkey }]}
+      onChange={onChange}
+      onCapturing={onCapturing}
+    />
   );
 }

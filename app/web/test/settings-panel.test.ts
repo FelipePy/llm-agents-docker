@@ -6,7 +6,7 @@ import { SettingsCard } from '../src/components/SettingsCard.tsx';
 import { SettingsPanel } from '../src/components/SettingsPanel.tsx';
 import type { SettingsState, SettingsToggles } from '../src/components/Settings.tsx';
 import type { DesktopInfo } from '../src/desktop.ts';
-import { DEFAULT_HOTKEY } from '../src/voice/hotkey.ts';
+import { DEFAULT_GLOBE_HOTKEY, DEFAULT_HOTKEY } from '../src/voice/hotkey.ts';
 
 const settings: SettingsState = {
   webgl: true,
@@ -18,6 +18,7 @@ const settings: SettingsState = {
   hotkey: DEFAULT_HOTKEY,
   globeColor: 'dourado',
   globeStyle: 'holografico',
+  globeHotkey: DEFAULT_GLOBE_HOTKEY,
   sounds: true,
 };
 const noop = () => {};
@@ -31,10 +32,11 @@ const toggles: SettingsToggles = {
   onHotkeyCapturing: noop,
   onGlobeColor: noop,
   onGlobeStyle: noop,
+  onGlobeHotkey: noop,
   onSounds: noop,
 };
 
-const render = (extra: { desktop?: DesktopInfo | null; floating?: { open: boolean; toggle: () => void } | null } = {}) =>
+const render = (extra: { desktop?: DesktopInfo | null; floating?: { open: boolean; toggle: () => void } | null; settings?: SettingsState } = {}) =>
   renderToStaticMarkup(
     createElement(SettingsPanel, {
       api: {} as Api,
@@ -69,7 +71,19 @@ describe('SettingsPanel', () => {
     const voz = html.slice(0, html.indexOf('<h2>Aparência e som</h2>'));
     const visual = html.slice(html.indexOf('<h2>Aparência e som</h2>'));
     for (const item of ['Escuta ativa', 'Falar com', 'Atalho para falar', 'ouvindo']) expect(voz).toContain(item);
-    for (const item of ['Modo 3D', 'Estilo do Jarvis', 'Holográfico', 'Partículas', 'Órbitas', 'Cor do Jarvis', 'Reduzir movimento', 'Demonstração de voz', 'Sons de clique']) expect(visual).toContain(item);
+    for (const item of ['Modo 3D', 'Estilo do Jarvis', 'Atalho para trocar o estilo', 'Ctrl+Botão do meio', 'Holográfico', 'Partículas', 'Órbitas', 'Cor do Jarvis', 'Reduzir movimento', 'Demonstração de voz', 'Sons de clique']) expect(visual).toContain(item);
+  });
+  it('o atalho de trocar o estilo fica logo depois do estilo, sem aviso de conflito nos padroes', () => {
+    const html = render();
+    expect(html.indexOf('Atalho para trocar o estilo')).toBeGreaterThan(html.indexOf('Estilo do Jarvis'));
+    expect(html.indexOf('Atalho para trocar o estilo')).toBeLessThan(html.indexOf('Cor do Jarvis'));
+    expect(html).toContain('Voltar ao padrão (Ctrl+Botão do meio)');
+    expect(html).not.toContain('Também usado em');
+  });
+  it('avisa quem usa o atalho se o de falar ja era igual ao padrao do estilo', () => {
+    const html = render({ settings: { ...settings, hotkey: DEFAULT_GLOBE_HOTKEY } });
+    expect(html).toContain('Também usado em “Atalho para trocar o estilo”');
+    expect(html).toContain('Também usado em “Atalho para falar”');
   });
   it('so mostra Sistema com algo para configurar', () => {
     expect(render()).not.toContain('Sistema</h2>');

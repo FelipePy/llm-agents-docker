@@ -1,6 +1,6 @@
 import type { GlobeColor, GlobeStyle } from '../scene/globe.ts';
 import type { Hotkey } from '../voice/hotkey.ts';
-import { HotkeyField } from './HotkeyField.tsx';
+import { TalkHotkeyField } from './HotkeyField.tsx';
 
 export interface SettingsState {
   webgl: boolean;
@@ -16,6 +16,8 @@ export interface SettingsState {
   globeColor: GlobeColor;
   /** Estilo do globo do Jarvis. */
   globeStyle: GlobeStyle;
+  /** Combinacao do atalho que troca o estilo do globo. */
+  globeHotkey: Hotkey;
   sounds: boolean;
 }
 
@@ -29,6 +31,7 @@ export interface SettingsToggles {
   onHotkeyCapturing: (on: boolean) => void;
   onGlobeColor: (c: GlobeColor) => void;
   onGlobeStyle: (s: GlobeStyle) => void;
+  onGlobeHotkey: (h: Hotkey) => void;
   onSounds: () => void;
 }
 
@@ -44,7 +47,7 @@ export function Settings({ settings, toggles, voiceStatus }: { settings: Setting
         <input type="checkbox" checked={settings.holdKey} onChange={toggles.onHoldKey} />
         Falar com {settings.hotkey.label}
       </label>
-      <HotkeyField hotkey={settings.hotkey} onChange={toggles.onHotkey} onCapturing={toggles.onHotkeyCapturing} />
+      <TalkHotkeyField hotkey={settings.hotkey} globeHotkey={settings.globeHotkey} onChange={toggles.onHotkey} onCapturing={toggles.onHotkeyCapturing} />
       {(settings.voice || settings.holdKey) && voiceStatus && <div className="voice-status">{voiceStatus}</div>}
       <label title={settings.webgl ? '' : 'Este navegador não tem WebGL 2'}>
         <input type="checkbox" checked={use3d} disabled={!settings.webgl} onChange={toggles.on3d} />
