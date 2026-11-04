@@ -1,4 +1,6 @@
-// Atalho de falar: segurar Ctrl+Espaco abre o microfone para o Jarvis; soltar encerra a fala.
+// Atalho de falar: segurar a combinacao abre o microfone para o Jarvis; soltar encerra a fala.
+
+import { DEFAULT_HOTKEY, isHotkeyModifier, matchesHotkey, type Hotkey } from './hotkey.ts';
 
 /** Quadros (80 ms) anteriores ao aperto enviados junto: a fala costuma comecar com ele. */
 const PREROLL_FRAMES = 3;
@@ -10,19 +12,21 @@ type KeyLike = { code: string; key: string; ctrlKey: boolean; shiftKey: boolean;
 /** Teclas do atalho, a partir dos eventos do teclado. `keydown` e `keyup`: true se o app deve consumir a tecla. */
 export class HoldKeys {
   private held = false;
-  /** Soltou o Ctrl com o espaco ainda apertado: a repeticao nao vira espaco digitado. */
-  private swallowSpace = false;
+  /** Soltou um modificador com a tecla ainda apertada: a repeticao nao vira texto digitado. */
+  private swallowKey = false;
   private readonly onPress: () => void;
   private readonly onRelease: () => void;
+  private readonly hotkey: Hotkey;
 
-  constructor(onPress: () => void, onRelease: () => void) {
+  constructor(onPress: () => void, onRelease: () => void, hotkey: Hotkey = DEFAULT_HOTKEY) {
     this.onPress = onPress;
     this.onRelease = onRelease;
+    this.hotkey = hotkey;
   }
 
   keydown(e: KeyLike): boolean {
-    if (e.code !== 'Space') return false;
-    if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return this.swallowSpace;
+    if (e.code !== this.hotkey.code) return false;
+    if (!matchesHotkey(e, this.hotkey)) return this.swallowKey;
     if (!this.held) {
       this.held = true;
       this.onPress();
@@ -31,20 +35,20 @@ export class HoldKeys {
   }
 
   keyup(e: KeyLike): boolean {
-    const space = e.code === 'Space';
-    if (space && this.swallowSpace) {
-      this.swallowSpace = false;
+    const main = e.code === this.hotkey.code;
+    if (main && this.swallowKey) {
+      this.swallowKey = false;
       return true;
     }
-    if (!this.held || (!space && e.key !== 'Control')) return false;
-    this.swallowSpace = !space;
+    if (!this.held || (!main && !isHotkeyModifier(e.key, this.hotkey))) return false;
+    this.swallowKey = !main;
     this.release();
-    return space;
+    return main;
   }
 
   /** A janela perdeu o foco: o "soltar" nao chegaria aqui. */
   cancel(): void {
-    this.swallowSpace = false;
+    this.swallowKey = false;
     if (this.held) this.release();
   }
 

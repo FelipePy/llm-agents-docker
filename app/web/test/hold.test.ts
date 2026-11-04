@@ -68,6 +68,55 @@ describe('HoldKeys', () => {
   });
 });
 
+describe('HoldKeys com outro atalho', () => {
+  const hotkey = { code: 'KeyJ', ctrl: true, shift: true, alt: false, meta: false, label: 'Ctrl+Shift+J' };
+  const COMBO = key('KeyJ', 'J', { ctrl: true, shift: true });
+
+  function keys(h = hotkey) {
+    const log: string[] = [];
+    return { log, k: new HoldKeys(() => log.push('press'), () => log.push('release'), h) };
+  }
+
+  it('so a combinacao escolhida aperta; Ctrl+Espaco deixa de ser do Jarvis', () => {
+    const { log, k } = keys();
+    expect(k.keydown(CTRL_SPACE)).toBe(false);
+    expect(k.keydown(key('KeyJ', 'j', { ctrl: true }))).toBe(false);
+    expect(k.keydown(key('KeyJ', 'J', { ctrl: true, shift: true, alt: true }))).toBe(false);
+    expect(log).toEqual([]);
+    expect(k.keydown(COMBO)).toBe(true);
+    expect(log).toEqual(['press']);
+    expect(k.keyup(key('KeyJ', 'J'))).toBe(true);
+    expect(log).toEqual(['press', 'release']);
+  });
+
+  it('soltar qualquer modificador da combinacao solta; a repeticao da tecla nao vira texto', () => {
+    const { log, k } = keys();
+    k.keydown(COMBO);
+    expect(k.keyup(key('ShiftLeft', 'Shift'))).toBe(false);
+    expect(log).toEqual(['press', 'release']);
+    expect(k.keydown(key('KeyJ', 'j', { ctrl: true }))).toBe(true);
+    expect(k.keyup(key('KeyJ', 'j'))).toBe(true);
+    expect(k.keydown(key('KeyJ', 'j'))).toBe(false);
+  });
+
+  it('modificador fora da combinacao nao solta', () => {
+    const { log, k } = keys();
+    k.keydown(COMBO);
+    expect(k.keyup(key('AltLeft', 'Alt'))).toBe(false);
+    expect(log).toEqual(['press']);
+  });
+
+  it('uma tecla sozinha tambem serve e solta ao soltar a tecla', () => {
+    const { log, k } = keys({ code: 'F9', ctrl: false, shift: false, alt: false, meta: false, label: 'F9' });
+    expect(k.keydown(key('F9', 'F9', { ctrl: true }))).toBe(false);
+    expect(k.keydown(key('F9', 'F9'))).toBe(true);
+    expect(k.keyup(key('ControlLeft', 'Control'))).toBe(false);
+    expect(log).toEqual(['press']);
+    expect(k.keyup(key('F9', 'F9'))).toBe(true);
+    expect(log).toEqual(['press', 'release']);
+  });
+});
+
 describe('HoldGate', () => {
   beforeEach(() => {
     vi.useFakeTimers();
