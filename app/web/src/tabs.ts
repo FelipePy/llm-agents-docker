@@ -1,3 +1,6 @@
+import { LABEL } from './format.ts';
+import type { SessionInfo } from './types.ts';
+
 export interface TabsState {
   order: string[];
   active: string | null;
@@ -37,6 +40,12 @@ export function syncTabs(s: TabsState, ids: string[]): TabsState {
   const order = [...kept, ...ids.filter((id) => !kept.includes(id))];
   const active = s.active && known.has(s.active) ? s.active : (order[0] ?? null);
   return { order, active };
+}
+
+/** Nome completo da aba: e o que a aba mostra (cortado) e o que a dica mostra (inteiro). */
+export function tabName(s: Pick<SessionInfo, 'projectPath' | 'agent' | 'title' | 'alive'>, projectName?: string): string {
+  const name = `${projectName ?? s.projectPath} · ${LABEL[s.agent]} · ${s.title}`;
+  return s.alive ? name : `${name} (encerrada)`;
 }
 
 export function shortcut(e: { key: string; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }): TabAction | null {

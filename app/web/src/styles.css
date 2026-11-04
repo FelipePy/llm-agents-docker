@@ -66,12 +66,16 @@ code { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size: 12p
 .drawer { grid-column: 1 / -1; grid-row: 2; display: flex; flex-direction: column; border-top: 1px solid var(--line); background: var(--bg); min-height: 36px; }
 .drag { height: 5px; cursor: ns-resize; }
 .drag:hover { background: var(--accent); }
-.tabs { display: flex; gap: 2px; padding: 0 8px; overflow-x: auto; flex: none; }
-.tab { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 6px 6px 0 0; color: var(--muted); cursor: pointer; white-space: nowrap; font-size: 12px; }
+.tabs { display: flex; gap: 2px; padding: 0 8px; flex: none; }
+/* Sem barra de rolagem: as abas encolhem por igual ate a largura minima; o que passar disso fica cortado. */
+.tab-list { display: flex; gap: 2px; flex: 1; min-width: 0; overflow: hidden; }
+/* Minimo: cerca de 8 caracteres do nome mais numero, bolinha, fechar, espacos e margens (70px). */
+.tab { flex: 0 1 220px; min-width: calc(8ch + 70px); display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px 6px 0 0; color: var(--muted); cursor: pointer; white-space: nowrap; font-size: 12px; }
 .tab.active { background: var(--panel); color: var(--text); }
-.tab kbd { font-size: 10px; color: var(--muted); }
-.tab .x { padding: 0 6px; border: none; background: transparent; }
-.collapse { margin-left: auto; border: none; background: transparent; }
+.tab kbd { flex: none; font-size: 10px; color: var(--muted); }
+.tab-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tab .x { flex: none; padding: 0 6px; border: none; background: transparent; }
+.collapse { flex: none; border: none; background: transparent; }
 .terms { flex: 1; min-height: 0; position: relative; background: var(--panel); }
 .term-wrap { position: absolute; inset: 0; }
 .terminal { position: absolute; inset: 0; padding: 6px 8px; }

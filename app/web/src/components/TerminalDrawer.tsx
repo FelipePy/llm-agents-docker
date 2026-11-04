@@ -2,7 +2,7 @@ import { useState, type MouseEvent as ReactMouseEvent } from 'react';
 import type { LiveSocket } from '../api.ts';
 import type { ProjectSummary, SessionInfo } from '../types.ts';
 import type { TabsState } from '../tabs.ts';
-import { LABEL } from '../format.ts';
+import { TerminalTab } from './TerminalTab.tsx';
 import { TerminalView } from './TerminalView.tsx';
 
 interface Props {
@@ -41,36 +41,26 @@ export function TerminalDrawer(props: Props) {
     <section className="drawer" style={{ height: collapsed ? undefined : height }}>
       {!collapsed && <div className="drag" onMouseDown={startDrag} />}
       <div className="tabs">
-        {tabs.order.map((id, i) => {
-          const s = byId.get(id);
-          if (!s) return null;
-          return (
-            <div
-              key={id}
-              className={id === tabs.active ? 'tab active' : 'tab'}
-              title={s.projectPath}
-              onClick={() => {
-                onActivate(id);
-                onCollapsedChange(false);
-              }}
-            >
-              <span className={`dot ${s.agent}`} />
-              {i < 9 && <kbd>{i + 1}</kbd>}
-              {names.get(s.projectPath) ?? s.projectPath} · {LABEL[s.agent]} · {s.title}
-              {!s.alive && ' (encerrada)'}
-              <button
-                className="x"
-                aria-label="Fechar"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClose(id);
+        <div className="tab-list">
+          {tabs.order.map((id, i) => {
+            const s = byId.get(id);
+            if (!s) return null;
+            return (
+              <TerminalTab
+                key={id}
+                session={s}
+                projectName={names.get(s.projectPath)}
+                index={i}
+                active={id === tabs.active}
+                onActivate={() => {
+                  onActivate(id);
+                  onCollapsedChange(false);
                 }}
-              >
-                ×
-              </button>
-            </div>
-          );
-        })}
+                onClose={() => onClose(id)}
+              />
+            );
+          })}
+        </div>
         <button className="collapse" onClick={() => onCollapsedChange(!collapsed)} aria-label="Recolher">
           {collapsed ? '▲' : '▼'}
         </button>

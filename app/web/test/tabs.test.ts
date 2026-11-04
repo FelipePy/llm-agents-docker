@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addTab, applyAction, closeTab, cycle, emptyTabs, goto, shortcut, syncTabs } from '../src/tabs.ts';
+import { addTab, applyAction, closeTab, cycle, emptyTabs, goto, shortcut, syncTabs, tabName } from '../src/tabs.ts';
 
 const three = { order: ['a', 'b', 'c'], active: 'b' };
 
@@ -27,6 +27,17 @@ describe('abas', () => {
   it('syncTabs remove sessoes que sumiram e acrescenta as novas', () => {
     expect(syncTabs(three, ['c', 'd', 'a'])).toEqual({ order: ['a', 'c', 'd'], active: 'a' });
     expect(syncTabs(three, ['b'])).toEqual({ order: ['b'], active: 'b' });
+  });
+});
+
+describe('nome da aba', () => {
+  const session = { projectPath: '/p/jarvis', agent: 'claude', title: 'Sessão 1', alive: true } as const;
+  it('junta projeto, agente e titulo; sem nome de projeto, usa o caminho', () => {
+    expect(tabName(session, 'jarvis')).toBe('jarvis · Claude · Sessão 1');
+    expect(tabName(session)).toBe('/p/jarvis · Claude · Sessão 1');
+  });
+  it('avisa quando a sessao terminou', () => {
+    expect(tabName({ ...session, alive: false }, 'jarvis')).toBe('jarvis · Claude · Sessão 1 (encerrada)');
   });
 });
 
