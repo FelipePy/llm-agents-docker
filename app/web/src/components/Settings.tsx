@@ -12,7 +12,7 @@ export interface SettingsState {
   holdKey: boolean;
   /** Combinacao do atalho de falar. */
   hotkey: Hotkey;
-  /** Cor do globo do Jarvis. */
+  /** Cor do globo do Jarvis e da interface. */
   globeColor: GlobeColor;
   /** Estilo do globo do Jarvis. */
   globeStyle: GlobeStyle;

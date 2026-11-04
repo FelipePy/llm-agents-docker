@@ -73,11 +73,10 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
             </select>
           </label>
           <GlobeHotkeyField hotkey={settings.hotkey} globeHotkey={settings.globeHotkey} onChange={toggles.onGlobeHotkey} onCapturing={toggles.onHotkeyCapturing} />
-          <label className="field" title="Cor do globo do Jarvis">
+          <label className="field" title="Cor do globo e dos detalhes da interface (o terminal não muda)">
             <span>Cor do Jarvis</span>
             <select
               value={settings.globeColor}
-              disabled={!use3d}
               onChange={(e) => isGlobeColor(e.target.value) && toggles.onGlobeColor(e.target.value)}
             >
               {Object.entries(GLOBE_COLORS).map(([id, c]) => (

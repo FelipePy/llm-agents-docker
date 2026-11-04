@@ -66,6 +66,13 @@ describe('SettingsPanel', () => {
     expect(html.indexOf('Como falar')).toBeGreaterThan(html.indexOf('<h2>Voz</h2>'));
     expect(html.indexOf('<h2>Aparência e som</h2>')).toBeGreaterThan(html.indexOf('Como falar'));
   });
+  it('a cor continua escolhivel sem o modo 3D, porque vale para toda a interface', () => {
+    const html = render({ settings: { ...settings, mode3d: false } });
+    const color = html.slice(html.indexOf('Cor do Jarvis'));
+    const select = color.slice(color.indexOf('<select'), color.indexOf('>', color.indexOf('<select')));
+    expect(select).not.toContain('disabled');
+    for (const label of ['Dourado', 'Ciano', 'Branco', 'Vermelho', 'Verde', 'Roxo']) expect(color).toContain(label);
+  });
   it('mantem todos os itens de cada grupo', () => {
     const html = render();
     const voz = html.slice(0, html.indexOf('<h2>Aparência e som</h2>'));
