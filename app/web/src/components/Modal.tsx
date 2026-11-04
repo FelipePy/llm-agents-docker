@@ -2,6 +2,11 @@ import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
 
 const FOCUSABLE = 'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled)';
 
+/** O que o Tab alcanca: um grupo recolhido continua no DOM, mas nao recebe foco. */
+export function focusableIn(root: Pick<ParentNode, 'querySelectorAll'>): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.getClientRects().length > 0);
+}
+
 /** Para onde o Tab deve pular para nao sair do modal; null deixa o navegador seguir a ordem normal. */
 export function wrapFocus<T>(items: T[], active: unknown, back: boolean): T | null {
   if (!items.length) return null;
@@ -42,7 +47,7 @@ export function Modal({ open, label, wide, onClose, children }: Props) {
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== 'Tab' || !box.current) return;
-    const target = wrapFocus(Array.from(box.current.querySelectorAll<HTMLElement>(FOCUSABLE)), document.activeElement, e.shiftKey);
+    const target = wrapFocus(focusableIn(box.current), document.activeElement, e.shiftKey);
     if (!target) return;
     e.preventDefault();
     target.focus();

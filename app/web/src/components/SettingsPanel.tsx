@@ -1,5 +1,7 @@
+import { useState, type ReactNode } from 'react';
 import type { Api } from '../api.ts';
 import type { DesktopInfo } from '../desktop.ts';
+import { Chevron } from './Chevron.tsx';
 import { HotkeyField } from './HotkeyField.tsx';
 import { PauseSettings } from './PauseSettings.tsx';
 import { SttSettings } from './SttSettings.tsx';
@@ -19,6 +21,26 @@ interface Props {
   floating: { open: boolean; toggle: () => void } | null;
 }
 
+/** Grupo que recolhe pelo titulo. Comeca recolhido: o painel e desmontado ao fechar o modal, e nada fica guardado. */
+function SettingsSection({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const bodyId = `settings-section-${id}`;
+  return (
+    <section>
+      <h2>
+        <button className="settings-toggle" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen(!open)}>
+          <Chevron direction={open ? 'down' : 'right'} />
+          {title}
+        </button>
+      </h2>
+      {/* Recolher so esconde: desmontar perderia o que esta sendo digitado ou gravado. */}
+      <div id={bodyId} hidden={!open}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
 /** Configuracoes, no modal aberto pelo botao de engrenagem. */
 export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, onAutostart, floating }: Props) {
   const use3d = settings.webgl && settings.mode3d;
@@ -26,38 +48,32 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
     <aside className="day settings-panel">
       <div className="brand">Configurações</div>
 
-      <section>
-        <h2>Voz</h2>
-        <div className="settings-columns">
-          <div className="settings-column">
-            <div className="settings-card">
-              <div className="settings-card-title">Como falar</div>
-              <label title={settings.holdKey ? `Desligada enquanto o atalho ${settings.hotkey.label} estiver ativado` : 'Escuta o microfone esperando “Jarvis”'}>
-                <input type="checkbox" checked={settings.voice} disabled={settings.holdKey} onChange={toggles.onVoice} />
-                Escuta ativa
-              </label>
-              <label title={`Segure ${settings.hotkey.label} para falar; ao soltar, o Jarvis responde`}>
-                <input type="checkbox" checked={settings.holdKey} onChange={toggles.onHoldKey} />
-                Falar com {settings.hotkey.label}
-              </label>
-              <HotkeyField hotkey={settings.hotkey} onChange={toggles.onHotkey} onCapturing={toggles.onHotkeyCapturing} />
-              {settings.holdKey && (
-                <p className="muted">Segure para falar e solte para o Jarvis responder. Ele não fica esperando ser chamado: o que o microfone capta só vai para ele enquanto você segura.</p>
-              )}
-              {(settings.voice || settings.holdKey) && voiceStatus && <div className="voice-status">{voiceStatus}</div>}
-            </div>
-            <VoiceProfileSettings api={api} />
+      <SettingsSection id="voice" title="Voz">
+        <div className="settings-column">
+          <div className="settings-card">
+            <div className="settings-card-title">Como falar</div>
+            <label title={settings.holdKey ? `Desligada enquanto o atalho ${settings.hotkey.label} estiver ativado` : 'Escuta o microfone esperando “Jarvis”'}>
+              <input type="checkbox" checked={settings.voice} disabled={settings.holdKey} onChange={toggles.onVoice} />
+              Escuta ativa
+            </label>
+            <label title={`Segure ${settings.hotkey.label} para falar; ao soltar, o Jarvis responde`}>
+              <input type="checkbox" checked={settings.holdKey} onChange={toggles.onHoldKey} />
+              Falar com {settings.hotkey.label}
+            </label>
+            <HotkeyField hotkey={settings.hotkey} onChange={toggles.onHotkey} onCapturing={toggles.onHotkeyCapturing} />
+            {settings.holdKey && (
+              <p className="muted">Segure para falar e solte para o Jarvis responder. Ele não fica esperando ser chamado: o que o microfone capta só vai para ele enquanto você segura.</p>
+            )}
+            {(settings.voice || settings.holdKey) && voiceStatus && <div className="voice-status">{voiceStatus}</div>}
           </div>
-          <div className="settings-column">
-            <SttSettings api={api} />
-            <PauseSettings api={api} />
-          </div>
+          <VoiceProfileSettings api={api} />
+          <SttSettings api={api} />
+          <PauseSettings api={api} />
         </div>
-      </section>
+      </SettingsSection>
 
       <div className="settings-columns">
-        <section>
-          <h2>Aparência e som</h2>
+        <SettingsSection id="appearance" title="Aparência e som">
           <div className="settings-card">
             <label title={settings.webgl ? '' : 'Este navegador não tem WebGL 2'}>
               <input type="checkbox" checked={use3d} disabled={!settings.webgl} onChange={toggles.on3d} />
@@ -90,11 +106,10 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
               Sons de clique
             </label>
           </div>
-        </section>
+        </SettingsSection>
 
         {(desktop || floating) && (
-          <section>
-            <h2>Sistema</h2>
+          <SettingsSection id="system" title="Sistema">
             <div className="settings-card">
               {desktop && (
                 <label title="Abre o Jarvis minimizado na bandeja quando você entra no sistema">
@@ -110,7 +125,7 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
                 </>
               )}
             </div>
-          </section>
+          </SettingsSection>
         )}
       </div>
     </aside>

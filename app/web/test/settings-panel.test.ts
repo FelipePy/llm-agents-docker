@@ -45,21 +45,26 @@ const render = (extra: { desktop?: DesktopInfo | null; floating?: { open: boolea
     }),
   );
 
+const getItem = vi.fn((_key: string) => '1');
+
 describe('SettingsPanel', () => {
   beforeEach(() => {
     vi.stubGlobal('window', {});
+    // Nada do painel pode vir do que ficou guardado.
+    getItem.mockClear();
+    vi.stubGlobal('localStorage', { getItem, setItem: noop });
   });
 
   it('agrupa em voz e depois aparencia e som', () => {
     const html = render();
-    expect(html.indexOf('<h2>Voz</h2>')).toBeGreaterThan(-1);
-    expect(html.indexOf('Como falar')).toBeGreaterThan(html.indexOf('<h2>Voz</h2>'));
-    expect(html.indexOf('<h2>Aparência e som</h2>')).toBeGreaterThan(html.indexOf('Como falar'));
+    expect(html.indexOf('Voz</button>')).toBeGreaterThan(-1);
+    expect(html.indexOf('Como falar')).toBeGreaterThan(html.indexOf('Voz</button>'));
+    expect(html.indexOf('Aparência e som</button>')).toBeGreaterThan(html.indexOf('Como falar'));
   });
   it('mantem todos os itens de cada grupo', () => {
     const html = render();
-    const voz = html.slice(0, html.indexOf('<h2>Aparência e som</h2>'));
-    const visual = html.slice(html.indexOf('<h2>Aparência e som</h2>'));
+    const voz = html.slice(0, html.indexOf('Aparência e som</button>'));
+    const visual = html.slice(html.indexOf('Aparência e som</button>'));
     for (const item of ['Escuta ativa', 'Falar com', 'Atalho para falar', 'ouvindo']) expect(voz).toContain(item);
     for (const item of ['Modo 3D', 'Cor do Jarvis', 'Reduzir movimento', 'Demonstração de voz', 'Sons de clique']) expect(visual).toContain(item);
   });
@@ -67,5 +72,27 @@ describe('SettingsPanel', () => {
     expect(render()).not.toContain('Sistema');
     expect(render({ floating: { open: false, toggle: noop } })).toContain('Abrir janela flutuante');
     expect(render({ desktop: { autostart: true } as DesktopInfo })).toContain('Iniciar com o sistema');
+  });
+  it('todos os grupos comecam recolhidos, sem ler nada guardado', () => {
+    const html = render({ floating: { open: false, toggle: noop } });
+    expect(html.match(/aria-expanded="false"/g)).toHaveLength(3);
+    expect(html).not.toContain('aria-expanded="true"');
+    for (const id of ['voice', 'appearance', 'system']) {
+      expect(html).toContain(`aria-controls="settings-section-${id}"`);
+      expect(html).toContain(`<div id="settings-section-${id}" hidden`);
+    }
+    expect(getItem).not.toHaveBeenCalled();
+  });
+  it('recolhido, o conteudo continua montado', () => {
+    const html = render();
+    expect(html).toContain('Como falar');
+    expect(html).toContain('Sons de clique');
+  });
+  it('voz fica em uma coluna so', () => {
+    const html = render();
+    const inicio = html.indexOf('id="settings-section-voice"');
+    const voz = html.slice(inicio, html.indexOf('</section>', inicio));
+    expect(voz).not.toContain('settings-columns');
+    expect(voz.match(/class="settings-column"/g)).toHaveLength(1);
   });
 });
