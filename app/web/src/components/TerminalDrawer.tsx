@@ -2,6 +2,7 @@ import { useState, type MouseEvent as ReactMouseEvent } from 'react';
 import type { LiveSocket } from '../api.ts';
 import type { ProjectSummary, SessionInfo } from '../types.ts';
 import type { TabsState } from '../tabs.ts';
+import { Chevron } from './Chevron.tsx';
 import { TabStrip } from './TabStrip.tsx';
 import { TerminalView } from './TerminalView.tsx';
 
@@ -54,8 +55,8 @@ export function TerminalDrawer(props: Props) {
           onClose={onClose}
           onPickerClosed={() => setFocusKey((k) => k + 1)}
         />
-        <button className="collapse" onClick={() => onCollapsedChange(!collapsed)} aria-label="Recolher">
-          {collapsed ? '▲' : '▼'}
+        <button className="collapse" onClick={() => onCollapsedChange(!collapsed)} aria-label={collapsed ? 'Expandir' : 'Recolher'}>
+          <Chevron direction={collapsed ? 'up' : 'down'} />
         </button>
       </div>
       {/* Recolher so esconde: desmontar perderia o conteudo dos terminais. */}

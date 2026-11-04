@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { SessionInfo } from '../types.ts';
 import { revealScroll, tabLabels, tabName, type TabsState } from '../tabs.ts';
+import { Chevron } from './Chevron.tsx';
 import { TerminalTab } from './TerminalTab.tsx';
 
 interface Props {
@@ -60,7 +61,7 @@ export function TabStrip({ tabs, sessions, projectNames, onActivate, onClose, on
     <>
       {(edges.left || edges.right) && (
         <button className="tab-scroll" aria-label="Abas anteriores" disabled={!edges.left} onClick={() => page(-1)}>
-          ‹
+          <Chevron direction="left" />
         </button>
       )}
       <div
@@ -86,11 +87,14 @@ export function TabStrip({ tabs, sessions, projectNames, onActivate, onClose, on
       </div>
       {(edges.left || edges.right) && (
         <button className="tab-scroll" aria-label="Próximas abas" disabled={!edges.right} onClick={() => page(1)}>
-          ›
+          <Chevron direction="right" />
         </button>
       )}
       <button className="tab-menu" aria-label="Lista de terminais" title="Lista de terminais" aria-expanded={pickerOpen} onClick={() => (pickerOpen ? closePicker() : setPickerOpen(true))}>
-        ⌄
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+          <path d="M1.5 3h9M1.5 6h9M1.5 9h9" />
+        </svg>
+        {sessions.length}
       </button>
       {pickerOpen && (
         <TabPicker
@@ -162,7 +166,7 @@ function TabPicker({ sessions, labels, projectNames, active, onPick, onDismiss }
         {rows.map((r, i) => (
           <li
             key={r.s.id}
-            className={[i === selected && 'selected', r.s.id === active && 'current', !r.s.alive && 'ended'].filter(Boolean).join(' ')}
+            className={[i === selected && 'selected', r.s.id === active && 'current', !r.s.alive && 'picker-ended'].filter(Boolean).join(' ')}
             title={r.name}
             onMouseEnter={() => setSelected(i)}
             onClick={() => onPick(r.s.id)}

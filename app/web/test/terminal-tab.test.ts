@@ -37,7 +37,7 @@ describe('aba do terminal', () => {
     const html = renderToStaticMarkup(
       createElement(TerminalTab, { session: { ...session, alive: false }, label: 'Claude', index: 0, active: false, onActivate: () => {}, onClose: () => {} }),
     );
-    expect(html).toContain('class="tab ended"');
+    expect(html).toContain('class="tab tab-ended"');
   });
   it('numera so as abas com atalho (Ctrl+1 a Ctrl+9)', () => {
     expect(render({ index: 8 })).toContain('<kbd>9</kbd>');

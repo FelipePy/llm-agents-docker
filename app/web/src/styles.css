@@ -76,7 +76,7 @@ code { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size: 12p
 /* Minimo: cerca de 8 caracteres do nome mais numero, bolinha, fechar, espacos e margens (70px). */
 .tab { container-type: inline-size; flex: 0 1 220px; min-width: calc(8ch + 70px); display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px 6px 0 0; color: var(--muted); cursor: pointer; white-space: nowrap; font-size: 12px; }
 .tab.active { background: var(--panel); color: var(--text); }
-.tab.ended .tab-name { font-style: italic; opacity: 0.6; }
+.tab.tab-ended .tab-name { font-style: italic; opacity: 0.6; }
 .tab kbd { flex: none; font-size: 10px; color: var(--muted); }
 .tab-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tab .x { flex: none; padding: 0 6px; border: none; background: transparent; }
@@ -84,22 +84,26 @@ code { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size: 12p
 @container (max-width: 130px) {
   .tab:not(.active):not(:hover) .x { display: none; }
 }
-.tab-scroll, .tab-menu { flex: none; padding: 2px 6px; border: none; background: transparent; color: var(--muted); }
+.tab-scroll, .collapse { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: none; border-radius: 6px; background: transparent; color: var(--muted); }
+.tab-scroll:hover:not(:disabled), .collapse:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
 .tab-scroll:disabled { opacity: 0.3; cursor: default; }
+.tab-menu { flex: none; display: flex; align-items: center; gap: 6px; height: 24px; margin: 0 2px 0 4px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.tab-menu:hover, .tab-menu[aria-expanded='true'] { border-color: var(--accent); color: var(--text); }
 .tab-picker { position: absolute; right: 8px; bottom: 100%; width: min(420px, calc(100vw - 16px)); padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; z-index: 20; }
 .tab-picker input { width: 100%; }
 .tab-picker ul { list-style: none; margin: 8px 0 0; padding: 0; max-height: 40vh; overflow-y: auto; }
 .tab-picker li { display: flex; align-items: baseline; gap: 12px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 12px; }
 .tab-picker li.selected { background: #141c33; }
 .tab-picker li.current .picker-label { color: var(--accent); }
-.tab-picker li.ended .picker-label { font-style: italic; opacity: 0.6; }
+.tab-picker li.picker-ended .picker-label { font-style: italic; opacity: 0.6; }
 .picker-label { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .picker-empty { padding: 6px 8px; font-size: 12px; color: var(--muted); }
-.collapse { flex: none; border: none; background: transparent; }
 .terms { flex: 1; min-height: 0; position: relative; background: var(--panel); }
 .term-wrap { position: absolute; inset: 0; }
 .terminal { position: absolute; inset: 0; padding: 6px 8px; }
+/* O xterm 6 desenha a propria barra: sem isto, a nativa do navegador aparece junto. */
+.term-wrap .xterm .xterm-viewport { overflow: hidden; background: #0c0f18; }
 .ended { position: absolute; right: 16px; bottom: 12px; padding: 8px 12px; border-radius: 8px; background: #1a2238; z-index: 5; }
 
 .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); display: flex; justify-content: center; padding-top: 12vh; z-index: 10; }
