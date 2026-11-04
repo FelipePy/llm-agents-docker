@@ -121,6 +121,7 @@ jobs:
       - run: bash tests/restart.test.sh
       - run: bash tests/remote-control.test.sh
       - run: bash tests/setup.test.sh
+      - run: bash tests/setup-deps.test.sh
 
   version:
     runs-on: ubuntu-latest
@@ -297,5 +298,5 @@ jobs:
             | Ubuntu / Debian | `Jarvis_${{ needs.version.outputs.version }}_amd64.deb` |
             | Outras distribuições Linux | `Jarvis_${{ needs.version.outputs.version }}_amd64.AppImage` |
 
-            O instalador já traz o llm-agents-docker (servidor, interface e voz) desta versão: não é preciso clonar o repositório nem rodar o `./install.sh`. No Windows, o WSL com uma distribuição Linux precisa estar instalado.
+            O instalador já traz o llm-agents-docker (servidor, interface e voz) desta versão: não é preciso clonar o repositório nem rodar o `./install.sh`. Ao abrir, o app confere as dependências (WSL e Ubuntu no Windows, Docker, Node, Python, imagem dos agentes, voz) e instala o que faltar, com a sua aprovação.
           files: installers/*
