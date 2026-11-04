@@ -177,6 +177,12 @@ export type GlobeStyle = keyof typeof GLOBE_STYLES;
 
 export const isGlobeStyle = (v: unknown): v is GlobeStyle => typeof v === 'string' && Object.hasOwn(GLOBE_STYLES, v);
 
+/** O estilo seguinte, na ordem das configuracoes; depois do ultimo, volta ao primeiro. */
+export function nextGlobeStyle(style: GlobeStyle): GlobeStyle {
+  const order = Object.keys(GLOBE_STYLES) as GlobeStyle[];
+  return order[(order.indexOf(style) + 1) % order.length];
+}
+
 export interface GlobeDynamics {
   /** Escala das cascas (1 = repouso). */
   expand: number;

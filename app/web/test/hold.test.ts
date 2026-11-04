@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HoldGate, HoldKeys, frameRms, waveBars, waveLevel } from '../src/voice/hold.ts';
-import { DEFAULT_HOTKEY, MOUSE_MIDDLE, type Hotkey } from '../src/voice/hotkey.ts';
+import { DEFAULT_GLOBE_HOTKEY, DEFAULT_HOTKEY, MOUSE_MIDDLE, type Hotkey } from '../src/voice/hotkey.ts';
 
 const key = (code: string, k: string, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean } = {}) => ({
   code,
@@ -13,6 +13,38 @@ const key = (code: string, k: string, mods: { ctrl?: boolean; shift?: boolean; a
 const SPACE = key('Space', ' ');
 const CTRL_SPACE = key('Space', ' ', { ctrl: true });
 const CTRL = key('ControlLeft', 'Control');
+
+describe('HoldKeys com o atalho de trocar o estilo', () => {
+  const mouse = (mods: { ctrl?: boolean } = {}) => ({ button: 1, ...key('', '', mods) });
+  const ctrlDown = key('ControlLeft', 'Control', { ctrl: true });
+
+  function keys() {
+    const presses = { count: 0 };
+    return { presses, k: new HoldKeys(() => presses.count++, () => {}, DEFAULT_GLOBE_HOTKEY) };
+  }
+
+  it('cada clique com Ctrl dispara uma vez e consome o clique inteiro', () => {
+    const { presses, k } = keys();
+    expect(k.keydown(ctrlDown)).toBe(false);
+    // O navegador manda `pointerdown` e `mousedown` para o mesmo aperto.
+    expect(k.mousedown(mouse({ ctrl: true }))).toBe(true);
+    expect(k.mousedown(mouse({ ctrl: true }))).toBe(true);
+    expect(presses.count).toBe(1);
+    expect(k.mouseup(mouse({ ctrl: true }))).toBe(true);
+    expect(k.auxclick({ button: 1 })).toBe(true);
+    k.mousedown(mouse({ ctrl: true }));
+    k.mouseup(mouse({ ctrl: true }));
+    expect(presses.count).toBe(2);
+  });
+
+  it('o clique do scroll sem o Ctrl continua sendo do navegador', () => {
+    const { presses, k } = keys();
+    expect(k.mousedown(mouse())).toBe(false);
+    expect(k.mouseup(mouse())).toBe(false);
+    expect(k.auxclick({ button: 1 })).toBe(false);
+    expect(presses.count).toBe(0);
+  });
+});
 
 describe('HoldKeys', () => {
   function keys() {

@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import {
-  ARC, DOT, GLOBE_COLORS, GLOBE_RADIUS, GLOBE_STYLES, globeDynamics, globeFragments, isGlobeColor, isGlobeStyle, mulberry32, orbitFragments, particleFragments,
+  ARC, DOT, GLOBE_COLORS, GLOBE_RADIUS, GLOBE_STYLES, globeDynamics, globeFragments, isGlobeColor, isGlobeStyle, mulberry32, nextGlobeStyle, orbitFragments, particleFragments,
 } from '../src/scene/globe.ts';
 
 it('mulberry32 e deterministico e fica em [0, 1)', () => {
@@ -125,4 +125,10 @@ it('orbitas: arcos e contas em poucos planos, sem o arco dar a volta inteira', (
   expect(arcs + dots).toBe(f.count);
   // Com a voz, o arco cresce ate 2,6 vezes: cada divisao ainda precisa parecer curva.
   expect((1.4 * 2.6) / GLOBE_STYLES.orbitas.segments).toBeLessThan(0.25);
+});
+
+it('nextGlobeStyle: Holografico, Particulas, Orbitas e volta ao comeco', () => {
+  expect(GLOBE_STYLES[nextGlobeStyle('holografico')].label).toBe('Partículas');
+  expect(GLOBE_STYLES[nextGlobeStyle('particulas')].label).toBe('Órbitas');
+  expect(GLOBE_STYLES[nextGlobeStyle('orbitas')].label).toBe('Holográfico');
 });

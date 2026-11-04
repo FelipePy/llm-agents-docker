@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { voiceStatus } from '../src/voice/client.ts';
-import { DEFAULT_HOTKEY, HotkeyCapture, MOUSE_MIDDLE, hotkeyHasMouse, isHotkeyModifier, matchesHotkey, parseHotkey, sameHotkey, usableHotkey, type Hotkey } from '../src/voice/hotkey.ts';
+import { shortcut } from '../src/tabs.ts';
+import { APP_SHORTCUTS, DEFAULT_GLOBE_HOTKEY, DEFAULT_HOTKEY, HotkeyCapture, MOUSE_MIDDLE, hotkeyConflict, hotkeyHasMouse, isHotkeyModifier, matchesHotkey, parseHotkey, sameHotkey, usableHotkey, type Hotkey } from '../src/voice/hotkey.ts';
 
 const key = (code: string, k: string, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean; repeat?: boolean } = {}) => ({
   code,
@@ -76,6 +77,53 @@ describe('combinacao', () => {
     const ab = { ...DEFAULT_HOTKEY, ctrl: false, codes: ['KeyA', 'KeyB'] };
     expect(sameHotkey(ab, { ...ab, codes: ['KeyB', 'KeyA'] })).toBe(true);
     expect(sameHotkey(ab, { ...ab, codes: ['KeyA'] })).toBe(false);
+  });
+});
+
+describe('conflito entre atalhos da ferramenta', () => {
+  const talk = { name: 'Atalho para falar', hotkey: DEFAULT_HOTKEY };
+
+  it('recusa o que outro atalho configuravel ja usa, mesmo gravado com outro nome', () => {
+    expect(hotkeyConflict({ ...DEFAULT_HOTKEY, label: 'outro' }, [talk])).toBe('Atalho para falar');
+    expect(hotkeyConflict(DEFAULT_HOTKEY, [])).toBeNull();
+  });
+
+  it('recusa os atalhos fixos do app, gravados de verdade', () => {
+    const fixos = [
+      key('Digit1', '1', { ctrl: true }),
+      key('Digit9', '9', { ctrl: true }),
+      key('Numpad5', '5', { ctrl: true }),
+      key('Tab', 'Tab', { ctrl: true }),
+      key('Tab', 'Tab', { ctrl: true, shift: true }),
+      key('KeyW', 'W', { ctrl: true, shift: true }),
+      key('KeyK', 'k', { ctrl: true }),
+      key('KeyJ', 'j', { ctrl: true, alt: true }),
+    ];
+    for (const e of fixos) expect(hotkeyConflict(record(e), [])).not.toBeNull();
+  });
+
+  it('a lista fixa acompanha os atalhos das abas', () => {
+    const tabs = APP_SHORTCUTS.filter((s) => s.name.includes('aba') || s.name.includes('Aba'));
+    expect(tabs.length).toBe(21);
+    for (const { hotkey: h } of tabs) {
+      const code = h.codes[0];
+      const k = code === 'Tab' ? 'Tab' : code === 'KeyW' ? 'w' : code.slice(-1);
+      expect(shortcut({ key: k, ctrlKey: h.ctrl, shiftKey: h.shift, altKey: h.alt })).not.toBeNull();
+    }
+  });
+
+  it('o que nao e usado passa, e parte de uma combinacao nao conta', () => {
+    expect(hotkeyConflict(COMBO, [talk])).toBeNull();
+    expect(hotkeyConflict(record(key('KeyW', 'w', { ctrl: true })), [talk])).toBeNull();
+    expect(hotkeyConflict({ ...DEFAULT_HOTKEY, codes: [], alt: true, label: 'Ctrl+Alt' }, [talk])).toBeNull();
+  });
+
+  it('o padrao de trocar o estilo e Ctrl mais o clique do scroll, sem conflito com os padroes', () => {
+    const { picked, c } = capture();
+    c.mousedown(mouse(1, { ctrl: true }));
+    c.mouseup(mouse(1, { ctrl: true }));
+    expect(picked[0]).toEqual(DEFAULT_GLOBE_HOTKEY);
+    expect(hotkeyConflict(DEFAULT_GLOBE_HOTKEY, [talk])).toBeNull();
   });
 });
 

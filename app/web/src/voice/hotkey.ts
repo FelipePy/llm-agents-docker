@@ -1,4 +1,4 @@
-// Atalho de falar configuravel: a combinacao escolhida, como ela e capturada e como e guardada.
+// Atalhos configuraveis (falar, trocar o estilo do globo): a combinacao escolhida, como ela e capturada e como e guardada.
 
 export interface Hotkey {
   /**
@@ -28,6 +28,33 @@ const MOUSE_MIDDLE_NAME = 'Botão do meio';
 export const MAX_HOTKEY_KEYS = 3;
 
 export const DEFAULT_HOTKEY: Hotkey = { codes: ['Space'], ctrl: true, shift: false, alt: false, meta: false, label: 'Ctrl+Espaço' };
+
+/** Padrao do atalho que troca o estilo do globo: Ctrl mais o clique do scroll. */
+export const DEFAULT_GLOBE_HOTKEY: Hotkey = { codes: [MOUSE_MIDDLE], ctrl: true, shift: false, alt: false, meta: false, label: `Ctrl+${MOUSE_MIDDLE_NAME}` };
+
+/** Um atalho da ferramenta e o nome com que ele aparece na tela. */
+export interface NamedHotkey {
+  name: string;
+  hotkey: Hotkey;
+}
+
+const fixed = (name: string, label: string, codes: string[], mods: Partial<Pick<Hotkey, 'shift' | 'alt'>> = {}): NamedHotkey => ({
+  name,
+  hotkey: { codes, ctrl: true, shift: false, alt: false, meta: false, ...mods, label },
+});
+
+/** Os atalhos fixos do app (abas e busca em App.tsx e tabs.ts; o da janela, no app desktop). */
+export const APP_SHORTCUTS: NamedHotkey[] = [
+  ...[1, 2, 3, 4, 5, 6, 7, 8, 9].flatMap((n) => [
+    fixed('Ir para uma aba', `Ctrl+${n}`, [`Digit${n}`]),
+    fixed('Ir para uma aba', `Ctrl+Num ${n}`, [`Numpad${n}`]),
+  ]),
+  fixed('Próxima aba', 'Ctrl+Tab', ['Tab']),
+  fixed('Aba anterior', 'Ctrl+Shift+Tab', ['Tab'], { shift: true }),
+  fixed('Fechar a aba', 'Ctrl+Shift+W', ['KeyW'], { shift: true }),
+  fixed('Abrir a busca', 'Ctrl+K', ['KeyK']),
+  fixed('Mostrar ou esconder a janela', 'Ctrl+Alt+J', ['KeyJ'], { alt: true }),
+];
 
 const MODIFIER_KEYS = new Set(['Control', 'Shift', 'Alt', 'AltGraph', 'Meta', 'OS', 'Fn', 'FnLock', 'Hyper', 'Super', 'Symbol', 'SymbolLock']);
 
@@ -83,6 +110,14 @@ export const sameHotkey = (a: Hotkey, b: Hotkey): boolean =>
   a.meta === b.meta &&
   a.codes.length === b.codes.length &&
   a.codes.every((c) => b.codes.includes(c));
+
+/**
+ * Nome do atalho da ferramenta que ja usa exatamente esta combinacao (`others`: os outros atalhos
+ * configuraveis). Parte de uma combinacao nao conta: `Ctrl+Alt` continua valendo, mesmo com `Ctrl+Alt+J`.
+ */
+export function hotkeyConflict(h: Hotkey, others: NamedHotkey[]): string | null {
+  return [...others, ...APP_SHORTCUTS].find((o) => sameHotkey(h, o.hotkey))?.name ?? null;
+}
 
 /** Le o que foi guardado no localStorage; null se nao ha nada ou esta invalido. */
 export function parseHotkey(saved: string | null): Hotkey | null {
