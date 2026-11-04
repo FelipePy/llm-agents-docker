@@ -108,7 +108,7 @@ Evite continuar o mesmo chat no host e no container ao mesmo tempo.
 
 Ao abrir o Claude Code, o `llm-agent` liga o Remote Control: a sessão aparece no app Claude do celular e em [claude.ai/code](https://claude.ai/code), e você pode continuar a conversa por lá enquanto o agente roda no seu computador.
 
-A sessão recebe o nome do container sem o prefixo `llm-agent-`, como `claude-meu-app` (ou `claude-meu-app-2` numa segunda sessão no mesmo projeto).
+A sessão recebe o nome do container sem o prefixo `llm-agent-`, como `claude-meu-app` (ou `claude-meu-app-2` numa segunda sessão no mesmo projeto). Sessões abertas ao mesmo tempo recebem números diferentes: cada nome é reservado com um lock em `~/.config/llm-agent/locks` enquanto a sessão estiver aberta.
 
 ```sh
 llm-agent claude --remote-control outro-nome   # escolhe outro nome
@@ -285,6 +285,7 @@ Os testes do launcher usam um Docker falso e não precisam de Docker:
 
 ```sh
 tests/remote-control.test.sh
+tests/container-name.test.sh
 tests/ui.test.sh                          # requer: npm --prefix app/server ci
 npm --prefix app/server test              # servidor da interface
 npm --prefix app/web test                 # lógica da interface

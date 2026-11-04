@@ -118,6 +118,7 @@ jobs:
       - run: bash tests/ui.test.sh
       - run: bash tests/restart.test.sh
       - run: bash tests/remote-control.test.sh
+      - run: bash tests/container-name.test.sh
       - run: bash tests/voice-setup.test.sh
 
   version:
