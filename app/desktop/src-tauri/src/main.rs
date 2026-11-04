@@ -1,9 +1,12 @@
-// Jarvis: janela do llm-agent (Windows e Linux). Ao abrir, executa `llm-agent ui`
-// (no WSL, no Windows; direto, no Linux), le a URL impressa e carrega a
-// interface; fica na bandeja ao fechar.
+// Jarvis: janela do llm-agent (Windows e Linux). Ao abrir, instala ou atualiza o
+// llm-agents-docker que vem no instalador e sobe o servidor da interface (no WSL,
+// no Windows; direto, no Linux), le a URL impressa e carrega a interface; fica na
+// bandeja ao fechar.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::process::Command;
+use std::io::{BufRead, BufReader, Read};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
@@ -47,16 +50,30 @@ fn tail(text: &str, lines: usize) -> String {
     all[all.len().saturating_sub(lines)..].join("\n")
 }
 
-/// Executa `llm-agent ui` (com `--stop` antes, ao reiniciar) e devolve a URL.
-fn start_server(restart: bool) -> Result<String, String> {
-    let stop = if restart { "llm-agent ui --stop >/dev/null 2>&1; " } else { "" };
-    let script = format!(
-        "export PATH=\"$HOME/.local/bin:$PATH\"; \
-         command -v llm-agent >/dev/null || {{ echo 'llm-agent não encontrado no WSL: rode ./install.sh no repositório.' >&2; exit 127; }}; \
-         {stop}llm-agent ui"
-    );
+/// Pacote do llm-agents-docker embutido no instalador (scripts/build-payload.sh):
+/// (setup.sh, llm-agents-docker.tar.gz). None num build sem ele (tauri dev).
+fn payload(app: &AppHandle) -> Option<(PathBuf, PathBuf)> {
+    let dir = app.path().resource_dir().ok()?.join("payload");
+    let (setup, archive) = (dir.join("setup.sh"), dir.join("llm-agents-docker.tar.gz"));
+    (setup.is_file() && archive.is_file()).then_some((setup, archive))
+}
+
+/// Caminho para o bash (no Windows, sem o prefixo \\?\ que o wslpath nao entende).
+fn shell_path(p: &Path) -> String {
+    let s = p.to_string_lossy().to_string();
+    s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s)
+}
+
+/// Clone do repositorio para desenvolvimento (JARVIS_REPO; no Windows, caminho do WSL).
+fn dev_repo() -> Option<String> {
+    std::env::var("JARVIS_REPO").ok().map(|r| r.trim().to_string()).filter(|r| !r.is_empty())
+}
+
+/// bash de login (no Windows, dentro do WSL) rodando `script` com os argumentos.
+/// No WSL, argumentos que sao caminhos do Windows sao convertidos pelo setup.sh.
+fn bash_command(script: &str, args: &[String]) -> Command {
     #[cfg(windows)]
-    let mut cmd = {
+    {
         let mut cmd = Command::new("wsl.exe");
         // JARVIS_WSL_DISTRO escolhe a distribuicao (padrao: a do WSL).
         if let Ok(distro) = std::env::var("JARVIS_WSL_DISTRO") {
@@ -64,22 +81,68 @@ fn start_server(restart: bool) -> Result<String, String> {
                 cmd.args(["-d", distro.trim()]);
             }
         }
-        cmd.args(["-e", "bash", "-lc", &script]);
+        cmd.args(["-e", "bash", "-lc", script, "jarvis"]).args(args);
         cmd.creation_flags(CREATE_NO_WINDOW);
         cmd
-    };
+    }
     #[cfg(not(windows))]
-    let mut cmd = {
+    {
         let mut cmd = Command::new("bash");
-        cmd.args(["-lc", &script]);
+        cmd.args(["-lc", script, "jarvis"]).args(args);
         cmd
-    };
+    }
+}
 
-    let out = cmd.output().map_err(|e| {
+/// Roda o comando, mostra as linhas "@status ..." na tela de abertura e devolve
+/// (codigo, stdout, stderr).
+fn run_streaming(app: &AppHandle, mut cmd: Command) -> Result<(Option<i32>, String, String), String> {
+    let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| {
         if cfg!(windows) { format!("Não consegui executar o wsl.exe ({e}). O WSL está instalado?") } else { format!("Não consegui executar o bash ({e}).") }
     })?;
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stderr = child.stderr.take().map(|err| {
+        thread::spawn(move || {
+            let mut text = String::new();
+            let _ = BufReader::new(err).read_to_string(&mut text);
+            text
+        })
+    });
+    let mut stdout = String::new();
+    if let Some(out) = child.stdout.take() {
+        for line in BufReader::new(out).lines().map_while(Result::ok) {
+            if let Some(text) = line.strip_prefix("@status ") {
+                let text = serde_json::to_string(text).unwrap_or_default();
+                eval(app, &format!("window.setStatus && window.setStatus({text})"));
+            }
+            stdout.push_str(&line);
+            stdout.push('\n');
+        }
+    }
+    let status = child.wait().map_err(|e| e.to_string())?;
+    let stderr = stderr.and_then(|h| h.join().ok()).unwrap_or_default();
+    Ok((status.code(), stdout, stderr))
+}
+
+/// Sobe o servidor e devolve a URL. Com o pacote embutido, o setup.sh instala ou
+/// atualiza o codigo dele antes (no Windows, dentro do WSL); com JARVIS_REPO, usa
+/// o clone; sem nenhum dos dois, o `llm-agent` instalado pelo install.sh.
+fn start_server(app: &AppHandle, restart: bool) -> Result<String, String> {
+    const LEGACY: &str = "export PATH=\"$HOME/.local/bin:$PATH\"; command -v llm-agent >/dev/null || { echo 'llm-agent não encontrado: rode ./install.sh no repositório.' >&2; exit 127; }; ";
+    let (script, args): (String, Vec<String>) = match (dev_repo(), payload(app)) {
+        (Some(repo), _) => {
+            let stop = if restart { "\"$1/llm-agent\" ui --stop >/dev/null 2>&1; " } else { "" };
+            (format!("[ -x \"$1/llm-agent\" ] || {{ echo \"JARVIS_REPO sem llm-agent: $1\" >&2; exit 127; }}; {stop}exec \"$1/llm-agent\" ui"), vec![repo])
+        }
+        (None, Some((setup, archive))) => {
+            let mut args = vec![shell_path(&setup), "start".into(), "--payload".into(), shell_path(&archive)];
+            if restart {
+                args.push("--restart".into());
+            }
+            let script = if cfg!(windows) { "f=\"$(wslpath -u \"$1\")\"; shift; exec bash \"$f\" \"$@\"" } else { "exec bash \"$@\"" };
+            (script.to_string(), args)
+        }
+        (None, None) => (format!("{LEGACY}{}llm-agent ui", if restart { "llm-agent ui --stop >/dev/null 2>&1; " } else { "" }), vec![]),
+    };
+    let (code, stdout, stderr) = run_streaming(app, bash_command(&script, &args))?;
     stdout
         .lines()
         .rev()
@@ -87,8 +150,8 @@ fn start_server(restart: bool) -> Result<String, String> {
         .find(|l| l.starts_with("http://127.0.0.1:") && l.contains("#token="))
         .map(str::to_string)
         .ok_or_else(|| {
-            let detail = tail(&format!("{stderr}\n{stdout}"), 20);
-            if detail.is_empty() { format!("O llm-agent ui terminou sem imprimir a URL (código {:?}).", out.status.code()) } else { detail }
+            let detail = tail(&format!("{stderr}\n{}", stdout.lines().filter(|l| !l.starts_with("@status ")).collect::<Vec<_>>().join("\n")), 20);
+            if detail.is_empty() { format!("O servidor terminou sem imprimir a URL (código {code:?}).") } else { detail }
         })
 }
 
@@ -126,8 +189,8 @@ fn show_error(app: &AppHandle, message: &str) {
 
 /// Sobe (ou reinicia) o servidor numa thread e carrega a interface.
 fn boot(app: AppHandle, restart: bool) {
-    eval(&app, "window.setStatus && window.setStatus('Iniciando o servidor no WSL… (na primeira vez ele instala o que falta e demora mais)')");
-    thread::spawn(move || match start_server(restart) {
+    eval(&app, "window.setStatus && window.setStatus('Iniciando o servidor… (na primeira vez ele instala o que falta e demora mais)')");
+    thread::spawn(move || match start_server(&app, restart) {
         Ok(url) => match url.parse::<Url>() {
             Ok(u) => {
                 if let Ok(mut current) = app.state::<ServerUrl>().0.lock() {
