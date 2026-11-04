@@ -48,6 +48,7 @@ bash tests/voice-setup.test.sh                                  # se mexer em ap
 ```
 
 ## Regras
+- Um push roda só as verificações no CI. Os instaladores e o release (workflow `desktop`) só saem quando o usuário pede.
 - Commits pequenos, com testes, mensagem em inglês no imperativo. Sem push (quem aplica é o usuário, pelo Jarvis).
 - Siga os padrões do código ao redor; comentários em português sem acento, como no resto do código.
 - Nada de chaves, tokens ou dados pessoais em arquivos versionados.
