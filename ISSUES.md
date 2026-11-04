@@ -14,10 +14,3 @@ texto abaixo foi recuperado do histórico das conversas. A situação foi confer
 - Mais opções de voz para selecionar, com prévia.
 
 **Situação:** pendente; nenhum sinal no código da interface.
-
-### 4. Remover margem arredondada do menu de navegação
-O menu de navegação no canto superior esquerdo da página, que mostra o início e as rotas acessadas, possui uma margem fina com
-cantos arredondados. Remover essa margem, deixando os nomes da navegação (início e pastas/rotas) flutuando diretamente na
-página.
-
-**Situação:** pendente.

@@ -6,9 +6,11 @@
 
 .navbar { position: absolute; top: 16px; left: 16px; right: 16px; z-index: 4; display: flex; align-items: center; gap: 12px; pointer-events: none; }
 .navbar > * { pointer-events: auto; }
-.crumbs { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-.crumbs button { background: rgba(10, 14, 26, 0.7); }
-.crumbs .current { border-color: var(--sys-main); color: var(--sys-main); }
+/* Flutuantes: so os nomes sobre a cena. A sombra garante a leitura sobre o globo, e o foco pelo teclado aparece na cor. */
+.crumbs { display: flex; align-items: center; gap: 6px; font-size: 13px; filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.9)); }
+.crumbs button { padding: 4px 2px; border: none; outline: none; background: transparent; transition: color 0.15s; }
+.crumbs .current { color: var(--sys-main); }
+.crumbs button:hover, .crumbs button:focus-visible { color: var(--sys-hot); }
 .crumbs .sep { color: var(--muted); }
 .top-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .top-actions input { width: 220px; margin-right: 6px; background: rgba(10, 14, 26, 0.7); }
