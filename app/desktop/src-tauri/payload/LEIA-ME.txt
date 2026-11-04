@@ -1,0 +1,4 @@
+Pacote do llm-agents-docker que vai dentro do instalador do Jarvis.
+Gerado por: app/desktop/scripts/build-payload.sh (no CI, antes do build).
+Sem ele (por exemplo, num "tauri dev" sem rodar o script), o app usa o
+llm-agent ja instalado (install.sh) ou o clone indicado em JARVIS_REPO.

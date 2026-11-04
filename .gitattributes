@@ -1,0 +1,3 @@
+# Scripts rodam no Linux/WSL: sem CRLF, mesmo num checkout no Windows.
+*.sh text eol=lf
+llm-agent text eol=lf

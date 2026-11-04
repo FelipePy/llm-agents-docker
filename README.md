@@ -20,7 +20,11 @@ Agentes como esses costumam ser usados em modo autônomo (`--dangerously-skip-pe
 - Linux (ou WSL2) com Docker e o plugin `docker compose` v2.
 - Uma conta do Claude e/ou da OpenAI para os respectivos CLIs.
 
+Quem usa o app desktop (Jarvis) não precisa clonar o repositório: o instalador já traz o llm-agents-docker (veja [App desktop](#app-desktop-windows-e-ubuntu)).
+
 ## Instalação
+
+Pelo app desktop: baixe o instalador do Jarvis e abra o app; ele instala o código desta versão sozinho. Pelo repositório (desenvolvimento, servidores sem interface):
 
 ```sh
 git clone https://github.com/FelipePy/llm-agents-docker.git
@@ -208,7 +212,11 @@ Com GPU NVIDIA (no WSL, com o driver do Windows), a preparação da voz instala 
 
 ## App desktop (Windows e Ubuntu)
 
-O **Jarvis** é a mesma interface numa janela própria (Tauri). Ao abrir, ele executa `llm-agent ui` (no Windows, dentro do WSL; no Ubuntu, direto) e carrega a interface; se algo falhar, mostra o erro e um botão para tentar de novo. O `llm-agent` precisa estar instalado (`./install.sh`; no Windows, dentro do WSL).
+O **Jarvis** é a mesma interface numa janela própria (Tauri). O instalador traz o llm-agents-docker da mesma versão (o comando `llm-agent`, o `Dockerfile`/`docker-compose.yml`, o servidor com as dependências, a interface já construída e o worker de voz): não é preciso clonar o repositório nem rodar o `./install.sh`. Ao abrir, o app instala (ou atualiza) esse código e sobe o servidor da interface (no Windows, dentro do WSL, onde os containers rodam; no Ubuntu, direto) e carrega a interface; se algo falhar, mostra o erro e um botão para tentar de novo.
+
+- **Onde fica:** `~/.local/share/llm-agent/versions/<versão>`, com o link `current` para a versão em uso, e o comando `~/.local/bin/llm-agent` (se ele já existir apontando para um clone seu, fica como está). No Windows, dentro do WSL. O ambiente da voz (`voice-venv`, pacotes e modelos) é compartilhado entre as versões.
+- **Versão única:** atualizar o app atualiza o servidor e a voz para a versão dele. Na primeira abertura depois da atualização, o servidor é reiniciado com a versão nova e verificado (`app/restart.sh --switch`); se não subir ou falhar nas verificações, o app volta para a versão anterior e não tenta de novo até vir outro instalador. Funcionalidades que o Jarvis desenvolveu nele mesmo nessa instalação são substituídas pela versão do instalador novo.
+- **Desenvolvimento:** defina `JARVIS_REPO` com o caminho de um clone (no Windows, o caminho dentro do WSL, por exemplo `/home/voce/llm-agents-docker`) e o app usa o `llm-agent` desse clone em vez do que veio no instalador. Num build sem o pacote (`npx tauri dev` sem o `scripts/build-payload.sh`), o app usa o `llm-agent` do `PATH` (`./install.sh`).
 
 - **Instaladores:** baixe do último [release](https://github.com/FelipePy/llm-agents-docker/releases/latest), só o arquivo do seu sistema: `Jarvis_<versão>_x64-setup.exe` (Windows, recomendado), `Jarvis_<versão>_x64_en-US.msi` (Windows, instalação gerenciada), `Jarvis_<versão>_amd64.deb` (Ubuntu/Debian) ou `Jarvis_<versão>_amd64.AppImage` (outras distribuições). Cada merge na `main` publica um release novo do projeto (a versão parte do arquivo `VERSION` e o patch sobe sozinho: 1.3.0, 1.3.1…; edite o `VERSION` para um salto maior). Builds de outras branches ficam nos artefatos do workflow **desktop**, um por instalador.
 - **Atualizar:** rode o instalador novo com o Jarvis aberto mesmo: ele encerra o Jarvis (que normalmente só se esconde na bandeja) e instala por cima. Antivírus que mantêm o executável aberto (como o McAfee) também não travam mais a instalação nem a desinstalação: o executável antigo é renomeado e apagado. Se o seu Jarvis é anterior à 1.3.7 e o instalador acusar "Jarvis is running", escolha **Do not uninstall** na tela "Already Installed" (ou renomeie `%LOCALAPPDATA%\Jarvis\jarvis-desktop.exe` antes).
@@ -221,11 +229,13 @@ O **Jarvis** é a mesma interface numa janela própria (Tauri). Ao abrir, ele ex
 - **Voz:** no app, o áudio toca sem precisar clicar antes e o microfone é liberado direto.
 - **Erros ao abrir:** o que falhar sem impedir o app de abrir (a bolinha, o atalho) fica em `%LOCALAPPDATA%\dev.llmagent.jarvis\logs\jarvis.log` (no Ubuntu, `~/.local/share/dev.llmagent.jarvis/logs`).
 - **Outra distribuição do WSL (Windows):** defina a variável de ambiente `JARVIS_WSL_DISTRO` (por exemplo, `Ubuntu-24.04`).
+- **Tamanho:** o pacote embutido tem cerca de 150 MB comprimido (≈ 385 MB instalado; a maior parte é o Claude Agent SDK usado pelo cérebro do Jarvis). A primeira abertura leva alguns segundos a mais para descompactá-lo.
 
 Para compilar à mão (Rust e Node instalados; no Ubuntu, também `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf`; no Windows, as Build Tools do Visual Studio com C++):
 
 ```sh
 cd app/desktop && npm ci && npm run icons
+bash scripts/build-payload.sh   # pacote do llm-agents-docker embutido (opcional no tauri dev)
 npx tauri dev     # abre o app em modo de desenvolvimento
 npm run build     # instaladores em src-tauri/target/release/bundle/
 ```

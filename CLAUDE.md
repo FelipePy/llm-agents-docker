@@ -9,7 +9,8 @@ funcionalidade nova nele mesmo (`aplicar_evolucao`). Textos para o usuário são
 | --- | --- |
 | `llm-agent`, `install.sh`, `Dockerfile`, `docker-compose.yml` | CLI que roda Claude Code / Codex num container por projeto. |
 | `app/ui.sh` | `llm-agent ui`: sobe, reaproveita e para o servidor da interface (porta 7777, `~/.config/llm-agent/ui`). |
-| `app/restart.sh` | Reinício verificado depois de uma evolução, com volta à versão anterior se falhar. |
+| `app/restart.sh` | Reinício verificado depois de uma evolução (ou de uma atualização do app, `--switch`), com volta à versão anterior se falhar. |
+| `app/setup.sh` | Instalação do código embutido no app desktop (`~/.local/share/llm-agent`), chamada pelo app ao abrir. |
 | `app/server` | Servidor Node 24 (TypeScript executado direto, sem build): API, terminais (PTY), voz e evolução. |
 | `app/web` | Interface React + Three.js (Vite): cartões, gaveta de terminais, globo do Jarvis, configurações. |
 | `app/voice` | Worker Python da voz: palavra de ativação, detecção de fala, transcrição (whisper local ou Groq), voz (edge-tts). |
@@ -44,6 +45,7 @@ npm --prefix app/web run typecheck
 npm --prefix app/web run build
 python3 -m unittest discover -s app/voice/tests -t app/voice   # se mexer no worker (usa o .venv de app/voice)
 bash tests/ui.test.sh && bash tests/restart.test.sh             # se mexer em app/ui.sh ou app/restart.sh
+bash tests/setup.test.sh                                        # se mexer em app/setup.sh ou app/restart.sh
 ```
 
 ## Regras

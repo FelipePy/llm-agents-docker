@@ -3,8 +3,10 @@ name: desktop
 # Verificacoes (testes, tipos, build da web) em jobs paralelos e, so depois
 # que todas passam, os instaladores do Jarvis para Windows e Linux (Tauri).
 # - push em qualquer branch: instaladores como artefatos da execucao (um por tipo);
-#   so quando o push muda app/desktop, VERSION ou este workflow (as verificacoes
-#   rodam sempre; workflow_dispatch sempre constroi);
+#   so quando o push muda o que vai dentro deles: o app desktop e o pacote do
+#   llm-agents-docker embutido (app/, llm-agent, Dockerfile, docker-compose.yml),
+#   VERSION ou este workflow (as verificacoes rodam sempre; workflow_dispatch
+#   sempre constroi);
 # - push na main: tambem publica um release do projeto (vX.Y.Z) com cada
 #   instalador como um arquivo separado, com a versao no nome.
 #
@@ -118,6 +120,7 @@ jobs:
       - run: bash tests/ui.test.sh
       - run: bash tests/restart.test.sh
       - run: bash tests/remote-control.test.sh
+      - run: bash tests/setup.test.sh
 
   version:
     runs-on: ubuntu-latest
@@ -129,8 +132,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      # O build desktop so roda se o push mexeu no app desktop, no VERSION ou
-      # neste workflow. Sem um "antes" confiavel (branch nova, force push),
+      # O build desktop so roda se o push mexeu no que vai no instalador, no
+      # VERSION ou neste workflow. Sem um "antes" confiavel (branch nova, force push),
       # compara com a main; sem base nenhuma, constroi.
       - id: changes
         env:
@@ -153,13 +156,13 @@ jobs:
             echo "Sem base para comparar: build desktop roda." >>"$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          changed="$(git diff --name-only "$base" HEAD | grep -E '^(app/desktop/|VERSION$|\.github/workflows/desktop\.yml$)' || true)"
+          changed="$(git diff --name-only "$base" HEAD | grep -E '^(app/|llm-agent$|Dockerfile$|docker-compose\.yml$|VERSION$|\.github/workflows/desktop\.yml$)' || true)"
           if [ -n "$changed" ]; then
             echo "desktop=true" >>"$GITHUB_OUTPUT"
             { echo "Build desktop roda por causa de:"; echo "$changed" | sed 's/^/- /'; } >>"$GITHUB_STEP_SUMMARY"
           else
             echo "desktop=false" >>"$GITHUB_OUTPUT"
-            echo "Nada em app/desktop, VERSION ou no workflow: build desktop pulado." >>"$GITHUB_STEP_SUMMARY"
+            echo "Nada no app, VERSION ou no workflow: build desktop pulado." >>"$GITHUB_STEP_SUMMARY"
           fi
       - id: v
         run: |
@@ -183,10 +186,34 @@ jobs:
           echo "release=true" >>"$GITHUB_OUTPUT"
           echo "Versão: $version" >>"$GITHUB_STEP_SUMMARY"
 
-  # Os instaladores so saem com todas as verificacoes verdes e se o app desktop
+  # Pacote do llm-agents-docker embutido nos instaladores (scripts/build-payload.sh):
+  # repositorio, interface construida e dependencias do servidor (Linux x64, que e
+  # tambem o que roda no WSL). Montado uma vez, no Linux, para os dois sistemas.
+  payload:
+    needs: [version, server-test, web-test, typecheck, web-build, voice-test, scripts-test]
+    if: needs.version.outputs.desktop == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: bash app/desktop/scripts/build-payload.sh ${{ needs.version.outputs.version }}
+      - run: du -h app/desktop/src-tauri/payload/* | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: payload
+          path: |
+            app/desktop/src-tauri/payload/setup.sh
+            app/desktop/src-tauri/payload/llm-agents-docker.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+
+  # Os instaladores so saem com todas as verificacoes verdes e se o que vai neles
   # mudou. Pulado o build, o release (que depende dele) tambem e pulado.
   build:
-    needs: [version, server-test, web-test, typecheck, web-build, voice-test, scripts-test]
+    needs: [version, payload]
     if: needs.version.outputs.desktop == 'true'
     strategy:
       fail-fast: false
@@ -208,6 +235,10 @@ jobs:
         working-directory: app/desktop
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: payload
+          path: app/desktop/src-tauri/payload
       - if: runner.os == 'Linux'
         run: |
           sudo apt-get update
@@ -223,6 +254,8 @@ jobs:
       - run: node scripts/set-version.mjs ${{ needs.version.outputs.version }}
       - run: npm run icons
       - run: npm run build
+      - shell: bash
+        run: ls -la src-tauri/target/release/bundle/*/ | tee -a "$GITHUB_STEP_SUMMARY"
       # Um artefato por instalador: baixa-se so o que quiser.
       - uses: actions/upload-artifact@v4
         with:
@@ -264,5 +297,5 @@ jobs:
             | Ubuntu / Debian | `Jarvis_${{ needs.version.outputs.version }}_amd64.deb` |
             | Outras distribuições Linux | `Jarvis_${{ needs.version.outputs.version }}_amd64.AppImage` |
 
-            O app usa o `llm-agent` instalado no WSL (Windows) ou no próprio Linux: rode `./install.sh` no repositório antes.
+            O instalador já traz o llm-agents-docker (servidor, interface e voz) desta versão: não é preciso clonar o repositório nem rodar o `./install.sh`. No Windows, o WSL com uma distribuição Linux precisa estar instalado.
           files: installers/*

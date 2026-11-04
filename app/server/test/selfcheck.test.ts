@@ -70,6 +70,10 @@ test('/api/self-check: voz quebrada reprova; cerebro fora do ar nao', async () =
     assert.deepEqual([voz.ok, voz.error], [false, 'edge-tts fora do ar']);
     assert.equal(r.checks.find((c: { name: string }) => c.name === 'cerebro').ok, false);
     assert.equal(JSON.parse(readFileSync(s.updateFile, 'utf8')).checks, undefined, 'sem record=1 nao grava');
+    // Atualizacao do app sem a voz instalada (app/restart.sh --switch): a voz fica de fora.
+    const semVoz = await (await get(s.base, '/api/self-check?voice=0')).json();
+    assert.equal(semVoz.checks.some((c: { name: string }) => c.name === 'voz'), false);
+    assert.equal(semVoz.ok, true);
   } finally {
     await s.app.close();
   }

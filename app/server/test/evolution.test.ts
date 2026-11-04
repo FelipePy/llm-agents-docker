@@ -14,10 +14,11 @@ const exec = (cmd: string, args: string[], cwd: string) =>
     );
   });
 
-async function setup(opts: { npmFails?: string } = {}) {
+async function setup(opts: { npmFails?: string; noWebModules?: boolean } = {}) {
   const home = tempHome();
   const repo = join(home, 'jarvis');
-  mkdirSync(repo, { recursive: true });
+  mkdirSync(join(repo, 'app', 'server', 'node_modules'), { recursive: true });
+  if (!opts.noWebModules) mkdirSync(join(repo, 'app', 'web', 'node_modules'), { recursive: true });
   await exec('git', ['init', '-q', '-b', 'main'], repo);
   writeFileSync(join(repo, 'README.md'), '# Jarvis\n');
   writeFileSync(join(repo, '.gitignore'), '.jarvis/\nnode_modules/\n');
@@ -125,7 +126,7 @@ test('poll avisa quando termina (ate o aviso ser entregue) e quando a sessao par
   assert.equal(t.m.get()?.state, 'parado');
 });
 
-async function ready(opts?: { npmFails?: string }) {
+async function ready(opts?: { npmFails?: string; noWebModules?: boolean }) {
   const s = await setup(opts);
   s.m.draft('Previsão', 'spec');
   s.m.summarize('resumo', 1);
@@ -165,6 +166,13 @@ test('aplicar: verifica no clone, junta no repositorio, grava o update e reinici
   s.m.finish();
   assert.equal(s.m.get(), undefined);
   assert.ok(!existsSync(dir));
+});
+
+test('aplicar na instalacao do app desktop (interface sem node_modules): instala antes de compilar', async () => {
+  const s = await ready({ noWebModules: true });
+  await s.m.apply({}, s.notify);
+  await waitFor(() => s.restarts.length === 1);
+  assert.deepEqual(s.npm.filter((c) => c.startsWith('repo:')), ['repo: --prefix app/web ci --silent', 'repo: --prefix app/web run build']);
 });
 
 test('aplicar recusa repositorio sujo e avisa das sessoes que serao fechadas', async () => {
