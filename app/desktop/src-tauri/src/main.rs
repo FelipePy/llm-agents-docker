@@ -20,7 +20,9 @@ struct ServerUrl(Mutex<Option<String>>);
 /// Item "Iniciar com o sistema" da bandeja (para ficar igual a opcao da interface).
 struct AutostartItem(CheckMenuItem<Wry>);
 
-/// WebView2: audio sem clique, microfone liberado.
+/// WebView2: audio sem clique, microfone liberado. Vale para TODAS as janelas: com
+/// argumentos diferentes na mesma pasta de dados, o WebView2 nao cria a janela
+/// (a bolinha sem eles derrubava o app ao abrir).
 #[cfg(windows)]
 const BROWSER_ARGS: &str =
     "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --use-fake-ui-for-media-stream";
@@ -88,6 +90,18 @@ fn start_server(restart: bool) -> Result<String, String> {
             let detail = tail(&format!("{stderr}\n{stdout}"), 20);
             if detail.is_empty() { format!("O llm-agent ui terminou sem imprimir a URL (código {:?}).", out.status.code()) } else { detail }
         })
+}
+
+/// Erro que nao impede o app de abrir: vai para jarvis.log, na pasta de logs do app
+/// (no Windows, %LOCALAPPDATA%\dev.llmagent.jarvis\logs).
+fn log_error(app: &AppHandle, what: &str, err: impl std::fmt::Display) {
+    use std::io::Write;
+    let Ok(dir) = app.path().app_log_dir() else { return };
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("jarvis.log")) {
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let _ = writeln!(f, "[{secs}] {what}: {err}");
+    }
 }
 
 fn eval(app: &AppHandle, js: &str) {
@@ -229,7 +243,8 @@ fn create_main(app: &AppHandle) -> tauri::Result<()> {
 
 /// Bolinha do Jarvis na lateral da tela, sempre por cima, quando o app nao esta em uso.
 fn create_orb(app: &AppHandle) -> tauri::Result<()> {
-    let orb = WebviewWindowBuilder::new(app, "orb", WebviewUrl::App("orb.html".into()))
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(app, "orb", WebviewUrl::App("orb.html".into()))
         .title("Jarvis")
         .inner_size(84.0, 84.0)
         .decorations(false)
@@ -239,8 +254,12 @@ fn create_orb(app: &AppHandle) -> tauri::Result<()> {
         .skip_taskbar(true)
         .resizable(false)
         .focused(false)
-        .visible(false)
-        .build()?;
+        .visible(false);
+    #[cfg(windows)]
+    {
+        builder = builder.additional_browser_args(BROWSER_ARGS);
+    }
+    let orb = builder.build()?;
     if let Ok(Some(monitor)) = orb.primary_monitor() {
         let (size, origin, scale) = (monitor.size(), monitor.position(), monitor.scale_factor());
         let side = (84.0 * scale) as i32;
@@ -305,7 +324,10 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
             create_main(&handle)?;
-            create_orb(&handle)?;
+            // Sem a bolinha (ou o atalho) o app ainda funciona: registra e segue.
+            if let Err(e) = create_orb(&handle) {
+                log_error(&handle, "bolinha", e);
+            }
             if start_minimized() {
                 show_orb(&handle);
             }
@@ -338,8 +360,10 @@ fn main() {
             }
             tray.build(app)?;
 
-            app.global_shortcut()
-                .register(Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyJ))?;
+            // Outro programa pode ja usar o Ctrl+Alt+J.
+            if let Err(e) = app.global_shortcut().register(Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyJ)) {
+                log_error(&handle, "atalho Ctrl+Alt+J", e);
+            }
 
             configure_webview(&handle);
             boot(handle, false);
