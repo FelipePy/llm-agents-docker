@@ -165,6 +165,7 @@ export function createApp(opts: AppOptions): App {
     output: (id) => terminals.screen(id),
     summarize: opts.voice?.watchSummary,
     quietMs: opts.voice?.watchQuietMs,
+    log: (line) => console.error(`[voz] ${line}`),
   });
 
   const broadcast = (msg: ServerMessage): void => {
@@ -421,16 +422,14 @@ export function createApp(opts: AppOptions): App {
       discard: () => evolution.discard(),
     };
   }
+  // Avisos pedidos (sessao acompanhada, evolucao): saem tambem no meio da conversa, num silencio.
+  const say = (text: string) => voiceSession?.announce(text, { whileListening: true }) ?? false;
   let delivering = false;
-  /** Fala o que estiver pendente: avisos, o resultado de uma atualizacao, "terminei". */
+  /** Fala o que estiver pendente: o resultado de uma atualizacao, "terminei". */
   async function deliverNotices(): Promise<void> {
     if (delivering) return;
     delivering = true;
     try {
-      // Avisos pedidos (sessao acompanhada, evolucao): saem tambem no meio da conversa, num silencio.
-      const say = (text: string) => voiceSession?.announce(text, { whileListening: true }) ?? false;
-      notices.push(...(await watcher.check()));
-      while (notices.length && say(notices[0])) notices.shift();
       for (const { id, text } of trustWatcher.pending()) if (say(text)) trustWatcher.markWarned(id);
       const file = opts.evolution?.updateFile;
       const u = file ? readUpdate(file) : null;
@@ -448,6 +447,17 @@ export function createApp(opts: AppOptions): App {
     }
   }
   const noticeTimer = setInterval(() => void deliverNotices().catch(() => {}), 15_000);
+  // Ciclo rapido: o fim de uma sessao acompanhada e os avisos na fila nao esperam os 15 s acima.
+  const deliverWatched = (): void => {
+    try {
+      watcher.deliver(say);
+      while (notices.length && say(notices[0])) notices.shift();
+    } catch {
+      // o proximo ciclo tenta de novo
+    }
+  };
+  const watchTimer = setInterval(deliverWatched, 1_000);
+  terminals.on('exit', deliverWatched);
 
   /** O worker sobe e sintetiza uma fala curta. */
   async function voiceCheck(worker: VoiceWorker): Promise<void> {
@@ -684,6 +694,7 @@ export function createApp(opts: AppOptions): App {
       }),
     close: async () => {
       clearInterval(noticeTimer);
+      clearInterval(watchTimer);
       clearInterval(backgroundTimer);
       terminals.closeAll();
       voiceSession?.stop();

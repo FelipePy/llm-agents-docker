@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SessionWatcher, TrustWatcher, waitingForTrust, countWorking, findError, looksBusy, plainReport, usefulLines } from '../src/voice/session-watch.ts';
+import { SessionWatcher, TrustWatcher, waitingForTrust, countWorking, findError, looksBusy, plainReport, quickReport, usefulLines } from '../src/voice/session-watch.ts';
 import type { SessionInfo } from '../src/types.ts';
 
 function setup(opts: { quietMs?: number; summarize?: ConstructorParameters<typeof SessionWatcher>[0]['summarize'] } = {}) {
@@ -23,6 +23,7 @@ function setup(opts: { quietMs?: number; summarize?: ConstructorParameters<typeo
     add,
     sessions,
     write: (id: string, s: string) => outputs.set(id, (outputs.get(id) ?? '') + s),
+    set: (id: string, s: string) => outputs.set(id, s),
     advance: (ms: number) => (now += ms),
   };
 }
@@ -42,6 +43,105 @@ test('findError acha linhas de erro de verdade, mas nao frases que citam erro', 
 test('looksBusy: o agente ainda mostra "esc to interrupt"', () => {
   assert.equal(looksBusy('✻ Pensando… (12s · esc to interrupt)'), true);
   assert.equal(looksBusy('Pronto.\n> '), false);
+});
+
+test('looksBusy so olha o fim da tela: citar a frase numa resposta antiga nao conta', () => {
+  assert.equal(looksBusy(`O indicador "esc to interrupt" sumiu.\n${'linha\n'.repeat(12)}> `), false);
+});
+
+const WORKING_LINE = '\n✻ Pensando… (esc to interrupt)';
+const IDLE_SCREEN = '\nTestes passaram e fiz o commit.\n> ';
+
+test('agente que mostrou o indicador: avisa logo depois de ele sumir e a tela parar', () => {
+  const t = setup();
+  t.add('s1', 'Comecando');
+  t.w.watch('s1', 'Claude de app');
+  t.write('s1', WORKING_LINE);
+  assert.deepEqual(t.w.reports(), [], 'trabalhando');
+  t.set('s1', `Comecando${IDLE_SCREEN}`);
+  assert.deepEqual(t.w.reports(), [], 'a tela acabou de mudar');
+  t.advance(2_000);
+  assert.deepEqual(t.w.reports(), [], 'ainda dentro da espera curta');
+  t.advance(1_000);
+  const [r] = t.w.reports();
+  assert.equal(r.outcome, 'done');
+  assert.match(r.tail, /fiz o commit/);
+});
+
+test('indicador sumido com a tela ainda mudando nao e o fim', () => {
+  const t = setup();
+  t.add('s1', `x${WORKING_LINE}`);
+  t.w.watch('s1', 'Claude de app');
+  t.w.reports();
+  for (let i = 0; i < 5; i++) {
+    t.set('s1', `linha ${i}`);
+    assert.deepEqual(t.w.reports(), []);
+    t.advance(2_000);
+  }
+});
+
+test('shell nao usa a espera curta, mesmo mostrando a frase do indicador', () => {
+  const t = setup();
+  t.add('s1', 'grep "esc to interrupt" README.md');
+  t.sessions.get('s1')!.agent = 'shell';
+  t.w.watch('s1', 'Shell de app');
+  t.w.reports();
+  t.set('s1', 'pronto');
+  t.w.reports();
+  t.advance(10_000);
+  assert.deepEqual(t.w.reports(), []);
+  t.advance(21_000);
+  assert.equal(t.w.reports().length, 1);
+});
+
+test('rewatch recomeca sem o indicador visto antes: vale de novo a espera longa ate ele aparecer', () => {
+  const t = setup();
+  t.add('s1', `x${WORKING_LINE}`);
+  t.w.watch('s1', 'Claude de app');
+  t.w.reports();
+  t.set('s1', 'parou');
+  t.w.reports();
+  t.advance(3_000);
+  assert.equal(t.w.reports().length, 1);
+  assert.equal(t.w.rewatch('s1'), true);
+  t.advance(10_000);
+  assert.deepEqual(t.w.reports(), []);
+});
+
+test('agente que volta a trabalhar logo depois do aviso volta a ser acompanhado, sem falar nada', () => {
+  const t = setup();
+  t.add('s1', `x${WORKING_LINE}`);
+  t.w.watch('s1', 'Claude de app');
+  t.w.reports();
+  t.set('s1', 'pausa');
+  t.w.reports();
+  t.advance(3_000);
+  assert.equal(t.w.reports().length, 1);
+  t.set('s1', `pausa${WORKING_LINE}`);
+  assert.deepEqual(t.w.reports(), []);
+  assert.equal(t.w.isWatching('s1'), true);
+  t.set('s1', 'fim de verdade');
+  t.w.reports();
+  t.advance(3_000);
+  assert.match(t.w.reports()[0].tail, /fim de verdade/);
+});
+
+test('depois do prazo, o agente trabalhando de novo nao reabre o acompanhamento; unwatch tambem nao', () => {
+  const t = setup();
+  t.add('a', 'fim');
+  t.add('b', 'fim');
+  t.w.watch('a', 'A');
+  t.w.watch('b', 'B');
+  t.advance(31_000);
+  assert.equal(t.w.reports().length, 2);
+  t.w.unwatch('b');
+  t.set('b', `fim${WORKING_LINE}`);
+  t.w.reports();
+  assert.equal(t.w.isWatching('b'), false, 'parou de acompanhar');
+  t.advance(61_000);
+  t.set('a', `fim${WORKING_LINE}`);
+  t.w.reports();
+  assert.equal(t.w.isWatching('a'), false, 'passou do prazo');
 });
 
 test('avisa que terminou depois de um tempo sem saida nova, uma vez so', () => {
@@ -98,20 +198,129 @@ test('processo encerrado: codigo 0 terminou; outro codigo e erro; fechada some s
   assert.deepEqual(t.w.list(), []);
 });
 
-test('check usa o resumo do cerebro e, se ele falhar, o texto simples', async () => {
-  const t = setup({ summarize: async (r) => (r.id === 'a' ? 'Senhor, o Claude terminou: testes passando. Quer que eu conte mais?' : Promise.reject(new Error('x'))) });
+const flush = () => new Promise<void>((ok) => setImmediate(ok));
+
+function deferred() {
+  let resolve!: (text: string) => void;
+  let reject!: (e: Error) => void;
+  const promise = new Promise<string>((ok, fail) => {
+    resolve = ok;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
+test('deliver fala o aviso curto na hora e o resumo quando ele ficar pronto', async () => {
+  const d = deferred();
+  const t = setup({ summarize: () => d.promise });
+  t.add('a', 'fim a');
+  t.w.watch('a', 'Claude de app');
+  t.advance(31_000);
+  const said: string[] = [];
+  const say = (text: string) => (said.push(text), true);
+  t.w.deliver(say);
+  assert.deepEqual(said, ['Senhor, a sessão do Claude de app terminou.']);
+  t.w.deliver(say);
+  assert.equal(said.length, 1, 'nao repete o aviso curto');
+  d.resolve('Claude de app: testes passando. Quer que eu conte mais?');
+  await flush();
+  t.w.deliver(say);
+  assert.equal(said[1], 'Claude de app: testes passando. Quer que eu conte mais?');
+  t.w.deliver(say);
+  assert.equal(said.length, 2, 'uma vez so');
+});
+
+test('deliver: resumo pronto antes de o Jarvis ficar livre vai numa fala so', async () => {
+  const t = setup({ summarize: async () => 'Senhor, No Claude de app os testes passaram.' });
+  t.add('a', 'fim a');
+  t.w.watch('a', 'Claude de app');
+  t.advance(31_000);
+  t.w.deliver(() => false);
+  await flush();
+  const said: string[] = [];
+  t.w.deliver((text) => (said.push(text), true));
+  assert.deepEqual(said, ['Senhor, no Claude de app os testes passaram.']);
+});
+
+test('deliver: resumo que falha ou vem vazio cai no texto simples', async () => {
+  const t = setup({ summarize: async (r) => (r.id === 'a' ? '' : Promise.reject(new Error('x'))) });
   t.add('a', 'fim a');
   t.add('b', 'fim b');
   t.w.watch('a', 'Claude de app');
   t.w.watch('b', 'Codex de api');
   t.advance(31_000);
-  const texts = await t.w.check();
-  assert.equal(texts[0], 'Senhor, o Claude terminou: testes passando. Quer que eu conte mais?');
-  assert.match(texts[1], /Codex de api terminou.*fim b.*conte mais/);
+  t.w.deliver(() => false);
+  await flush();
+  const said: string[] = [];
+  t.w.deliver((text) => (said.push(text), true));
+  assert.match(said[0], /Claude de app terminou\. As últimas linhas dizem: fim a.*conte mais/);
+  assert.match(said[1], /Codex de api terminou\. As últimas linhas dizem: fim b.*conte mais/);
 });
 
-test('plainReport de erro diz o erro', () => {
-  assert.equal(plainReport({ id: 'x', label: 'Claude de app', outcome: 'error', tail: '', error: 'fatal: boom' }), 'Senhor, a sessão do Claude de app deu erro: fatal: boom.');
+test('deliver: um resumo demorado nao segura o aviso de outra sessao', async () => {
+  const lento = deferred();
+  const t = setup({ summarize: (r) => (r.id === 'a' ? lento.promise : Promise.resolve('Codex de api: pronto.')) });
+  t.add('a', 'fim a');
+  t.add('b', 'fim b');
+  t.w.watch('a', 'Claude de app');
+  t.w.watch('b', 'Codex de api');
+  t.advance(31_000);
+  const said: string[] = [];
+  const say = (text: string) => (said.push(text), true);
+  t.w.deliver(say);
+  await flush();
+  t.w.deliver(say);
+  assert.deepEqual(said, ['Senhor, a sessão do Claude de app terminou.', 'Senhor, a sessão do Codex de api terminou.', 'Codex de api: pronto.']);
+});
+
+test('deliver: parar de acompanhar descarta o resumo que ainda nao foi falado', async () => {
+  const d = deferred();
+  const t = setup({ summarize: () => d.promise });
+  t.add('a', 'fim a');
+  t.w.watch('a', 'Claude de app');
+  t.advance(31_000);
+  const said: string[] = [];
+  const say = (text: string) => (said.push(text), true);
+  t.w.deliver(say);
+  t.w.unwatch('a');
+  d.resolve('Claude de app: pronto.');
+  await flush();
+  t.w.deliver(say);
+  assert.equal(said.length, 1);
+});
+
+test('deliver registra os tempos de cada etapa', async () => {
+  let now = 0;
+  const lines: string[] = [];
+  const d = deferred();
+  const session: SessionInfo = { id: 'a', projectPath: '/w/app', agent: 'claude', title: 't', startedAt: '', alive: true };
+  const w = new SessionWatcher({ sessions: () => [session], output: () => 'fim', now: () => now, summarize: () => d.promise, log: (l) => lines.push(l) });
+  w.watch('a', 'Claude de app');
+  now += 31_000;
+  w.deliver(() => true);
+  now += 2_000;
+  d.resolve('Claude de app: pronto.');
+  await flush();
+  now += 1_000;
+  w.deliver(() => true);
+  assert.deepEqual(lines, ['aviso de Claude de app: tela parada ha 31.0 s, aviso curto em 0.0 s, resumo pronto em 2.0 s, fala final em 3.0 s']);
+});
+
+test('sem cerebro, deliver fala tudo de uma vez', () => {
+  const t = setup();
+  t.add('a', 'fim a');
+  t.w.watch('a', 'Claude de app');
+  t.advance(31_000);
+  const said: string[] = [];
+  t.w.deliver((text) => (said.push(text), true));
+  assert.equal(said.length, 1);
+  assert.match(said[0], /^Senhor, a sessão do Claude de app terminou\. As últimas linhas dizem: fim a/);
+});
+
+test('quickReport e plainReport de erro dizem o erro', () => {
+  const r = { id: 'x', label: 'Claude de app', outcome: 'error' as const, tail: '', error: 'fatal: boom' };
+  assert.equal(quickReport(r), 'Senhor, a sessão do Claude de app deu erro.');
+  assert.equal(plainReport(r), 'O erro foi: fatal: boom.');
 });
 
 test('unwatch para de acompanhar', () => {

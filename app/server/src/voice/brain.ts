@@ -1,7 +1,7 @@
 import { query, type McpServerConfig, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { COMMANDS } from './commands.ts';
 import { JARVIS_TOOL_NAMES } from './tools.ts';
-import { plainReport, type WatchReport, type WatchSummarizer } from './session-watch.ts';
+import type { WatchReport, WatchSummarizer } from './session-watch.ts';
 
 /** Responde a uma fala do usuario, em pedacos de texto (streaming). */
 /** Avisos do cerebro durante uma resposta (para medir a latencia). */
@@ -333,7 +333,7 @@ export const WATCH_PROMPT = [
   'Você recebe as últimas linhas do terminal de uma sessão de um agente de programação que o usuário pediu para acompanhar.',
   'Se a tarefa terminou: diga em uma ou duas frases curtas o resultado (o que foi feito, testes, commits, pendências, ou se o agente está esperando uma resposta) e termine perguntando se o usuário quer que você conte mais.',
   'Se deu erro: diga em uma ou duas frases curtas qual foi o erro, em palavras simples.',
-  'Comece com "Senhor," e diga de qual sessão se trata. Texto para falar: sem markdown, listas, caminhos longos ou códigos.',
+  'O usuário já ouviu que a sessão terminou ou deu erro: não repita isso, não comece com "Senhor" e vá direto ao resultado, dizendo de qual sessão se trata. Texto para falar: sem markdown, listas, caminhos longos ou códigos.',
   'Responda só com o aviso.',
 ].join(' ');
 
@@ -346,16 +346,17 @@ export function claudeWatchSummary(opts: { model: string; cwd: string; query?: Q
       r.outcome === 'error' ? `Situação: deu erro (${r.error ?? 'veja o terminal'}).` : 'Situação: a tarefa terminou (o terminal parou).',
       `Últimas linhas do terminal:\n${r.tail || '(vazio)'}`,
     ].join('\n');
-    const signal = AbortSignal.timeout(opts.timeoutMs ?? 30_000);
+    // O aviso curto ja saiu: passado este tempo, vale mais o texto simples do que a espera.
+    const signal = AbortSignal.timeout(opts.timeoutMs ?? 8_000);
     let out = '';
     try {
       for await (const d of brain.reply(prompt, signal)) out += d;
     } catch {
-      return plainReport(r);
+      return '';
     } finally {
       brain.close();
     }
-    // Cortado pela demora: aviso pela metade nao serve.
-    return (!signal.aborted && out.trim()) || plainReport(r);
+    // Cortado pela demora: aviso pela metade nao serve. Vazio: quem chamou usa o texto simples.
+    return signal.aborted ? '' : out.trim();
   };
 }
