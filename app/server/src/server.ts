@@ -24,6 +24,7 @@ import { gitLines } from './catalog.ts';
 import { VoiceSession, type VoiceWorker, type WorkerEvent } from './voice/session.ts';
 import { pauseConfig, type VoiceSettingsStore } from './voice/settings.ts';
 import { SpeakerProfileStore, type Mailer } from './voice/speaker.ts';
+import { IssueLog, type IssueDeps } from './voice/issues.ts';
 import { JarvisMemory } from './voice/memory.ts';
 import { NewsHistory } from './voice/news-history.ts';
 import type { SessionInfo, VoiceClientMessage, VoiceServerMessage } from './types.ts';
@@ -75,6 +76,8 @@ export interface AppOptions {
    * do /api/self-check que o app/restart.sh chama depois de reiniciar.
    */
   evolution?: Omit<EvolutionDeps, 'openSession' | 'sessions' | 'sessionOutput' | 'closeSession'>;
+  /** Issues pedidas por voz: repositorio do ISSUES.md e como rodar o git. */
+  issues?: IssueDeps;
   /** Verificacoes extras do /api/self-check (o cerebro responde?). */
   selfCheck?: { brain?: () => Promise<void> };
   /** Memoria do Jarvis entre sessoes (sem ela, um arquivo na pasta de trabalho). */
@@ -373,6 +376,11 @@ export function createApp(opts: AppOptions): App {
     newsHistory,
     watcher,
   };
+
+  if (opts.issues) {
+    const issues = new IssueLog(opts.issues);
+    jarvis.createIssue = (title, description) => issues.create(title, description);
+  }
 
   // Funcionalidades novas para o proprio Jarvis (definidas e aprovadas por voz).
   const evolution = opts.evolution

@@ -56,6 +56,8 @@ export interface JarvisContext {
   evolution?: EvolutionApi;
   /** Quantas falas do usuario ja foram respondidas (o "pode comecar" vem depois do resumo). */
   userTurn?(): number;
+  /** Grava uma issue no ISSUES.md do repositorio do Jarvis, com commit; devolve o numero. */
+  createIssue?(title: string, description: string): Promise<number>;
 }
 
 const LABEL: Record<SessionAgent, string> = { claude: 'Claude', codex: 'Codex', shell: 'Shell' };
@@ -570,6 +572,15 @@ export function jarvisHandlers(ctx: JarvisContext) {
     async descartar_evolucao(_args: Record<string, never>) {
       return evolution().discard();
     },
+    async criar_issue({ titulo, descricao }: { titulo: string; descricao: string }) {
+      const failed = (why: string) => `A issue NÃO foi gravada: ${why}. Avise o usuário.`;
+      if (!ctx.createIssue) return failed('o registro de issues não está disponível neste servidor');
+      try {
+        return `Issue número ${await ctx.createIssue(titulo, descricao)} gravada no ISSUES.md, com commit.`;
+      } catch (err) {
+        return failed((err as Error).message);
+      }
+    },
     async data_e_hora(_args: Record<string, never>) {
       const now = ctx.now();
       const date = now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -753,6 +764,15 @@ export function createJarvisServer(ctx: JarvisContext) {
         run(h.aplicar_evolucao),
       ),
       tool('descartar_evolucao', 'Descarta a funcionalidade nova (proposta, desenvolvimento ou pronta, ainda não aplicada).', {}, run(h.descartar_evolucao)),
+      tool(
+        'criar_issue',
+        'Registra uma issue (tarefa para depois) deste app, o llm-agent, no ISSUES.md do repositório, com commit. Só registra: não implementa. Use quando o usuário pedir para criar, abrir ou anotar uma issue. A resposta diz se gravou ou não.',
+        {
+          titulo: z.string().describe('Título curto da issue.'),
+          descricao: z.string().describe('O que o usuário pediu, fiel ao que ele disse, em uma ou mais frases.'),
+        },
+        run(h.criar_issue),
+      ),
       tool('data_e_hora', 'Data e hora atuais do usuário. Use sempre que precisar saber que dia ou que horas são.', {}, run(h.data_e_hora)),
       tool(
         'manual_do_app',
