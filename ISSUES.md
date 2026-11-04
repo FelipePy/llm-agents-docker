@@ -2,9 +2,9 @@
 
 Tarefas do projeto, registradas aqui porque as issues do fork no GitHub estão desativadas.
 
-As issues 1 a 5 foram ditadas ao Jarvis na madrugada de 04/11/2026 e a 7 na manhã do mesmo dia. Ele respondeu "anotado", mas
-nada foi gravado na hora; o texto abaixo foi recuperado do histórico das conversas, e a issue 7 foi redefinida depois pelo
-usuário. A situação foi conferida pelo código e pelos commits da `main` em 04/11/2026, sem abrir a interface.
+As issues 1 a 5 foram ditadas ao Jarvis na madrugada de 04/11/2026. Ele respondeu "anotado", mas nada foi gravado na hora; o
+texto abaixo foi recuperado do histórico das conversas. A situação foi conferida pelo código e pelos commits da `main` em
+04/11/2026, sem abrir a interface.
 
 ## Pendentes
 
@@ -38,14 +38,5 @@ e como pular essa etapa.
 ### 5. Novas estéticas para o globo
 Criar pelo menos mais dois estilos para o globo, trocáveis direto nas configurações. Falta conferir se o código está
 organizado para aceitar estilos diferentes.
-
-**Situação:** pendente; nenhum sinal no código da interface.
-
-### 7. Frase das tarefas em background
-Enquanto uma tarefa roda em background, nada na tela mostra que ela está rodando.
-
-- Uma frase dinâmica no canto inferior direito: "X tarefas rodando em background...", em que X é o número de tarefas.
-- Com o terminal aberto, a frase fica acima dele.
-- Sem nada rodando em background, a frase não aparece.
 
 **Situação:** pendente; nenhum sinal no código da interface.
