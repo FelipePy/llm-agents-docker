@@ -17,6 +17,7 @@ const settings: SettingsState = {
   holdKey: false,
   hotkey: DEFAULT_HOTKEY,
   globeColor: 'dourado',
+  globeStyle: 'holografico',
   sounds: true,
 };
 const noop = () => {};
@@ -29,6 +30,7 @@ const toggles: SettingsToggles = {
   onHotkey: noop,
   onHotkeyCapturing: noop,
   onGlobeColor: noop,
+  onGlobeStyle: noop,
   onSounds: noop,
 };
 
@@ -67,7 +69,7 @@ describe('SettingsPanel', () => {
     const voz = html.slice(0, html.indexOf('<h2>Aparência e som</h2>'));
     const visual = html.slice(html.indexOf('<h2>Aparência e som</h2>'));
     for (const item of ['Escuta ativa', 'Falar com', 'Atalho para falar', 'ouvindo']) expect(voz).toContain(item);
-    for (const item of ['Modo 3D', 'Cor do Jarvis', 'Reduzir movimento', 'Demonstração de voz', 'Sons de clique']) expect(visual).toContain(item);
+    for (const item of ['Modo 3D', 'Estilo do Jarvis', 'Holográfico', 'Partículas', 'Órbitas', 'Cor do Jarvis', 'Reduzir movimento', 'Demonstração de voz', 'Sons de clique']) expect(visual).toContain(item);
   });
   it('so mostra Sistema com algo para configurar', () => {
     expect(render()).not.toContain('Sistema</h2>');

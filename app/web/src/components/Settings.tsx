@@ -1,4 +1,4 @@
-import type { GlobeColor } from '../scene/globe.ts';
+import type { GlobeColor, GlobeStyle } from '../scene/globe.ts';
 import type { Hotkey } from '../voice/hotkey.ts';
 import { HotkeyField } from './HotkeyField.tsx';
 
@@ -14,6 +14,8 @@ export interface SettingsState {
   hotkey: Hotkey;
   /** Cor do globo do Jarvis. */
   globeColor: GlobeColor;
+  /** Estilo do globo do Jarvis. */
+  globeStyle: GlobeStyle;
   sounds: boolean;
 }
 
@@ -26,6 +28,7 @@ export interface SettingsToggles {
   onHotkey: (h: Hotkey) => void;
   onHotkeyCapturing: (on: boolean) => void;
   onGlobeColor: (c: GlobeColor) => void;
+  onGlobeStyle: (s: GlobeStyle) => void;
   onSounds: () => void;
 }
 

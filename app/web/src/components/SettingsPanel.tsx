@@ -5,7 +5,7 @@ import { PauseSettings } from './PauseSettings.tsx';
 import { SettingsCard } from './SettingsCard.tsx';
 import { SttSettings } from './SttSettings.tsx';
 import { VoiceProfileSettings } from './VoiceProfileSettings.tsx';
-import { GLOBE_COLORS, isGlobeColor } from '../scene/globe.ts';
+import { GLOBE_COLORS, GLOBE_STYLES, isGlobeColor, isGlobeStyle } from '../scene/globe.ts';
 import type { SettingsState, SettingsToggles } from './Settings.tsx';
 
 interface Props {
@@ -58,7 +58,21 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
             <input type="checkbox" checked={use3d} disabled={!settings.webgl} onChange={toggles.on3d} />
             Modo 3D
           </label>
-          <label className="field" title="Cor do globo holográfico do Jarvis">
+          <label className="field" title="Desenho do globo do Jarvis">
+            <span>Estilo do Jarvis</span>
+            <select
+              value={settings.globeStyle}
+              disabled={!use3d}
+              onChange={(e) => isGlobeStyle(e.target.value) && toggles.onGlobeStyle(e.target.value)}
+            >
+              {Object.entries(GLOBE_STYLES).map(([id, s]) => (
+                <option key={id} value={id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field" title="Cor do globo do Jarvis">
             <span>Cor do Jarvis</span>
             <select
               value={settings.globeColor}

@@ -29,6 +29,8 @@ export function mulberry32(seed: number): () => number {
 export const SEGMENT = 0;
 export const PANEL = 1;
 export const ARC = 2;
+/** Ponto redondo, sempre de frente para a camera. */
+export const DOT = 3;
 
 /**
  * Atributos por instancia, prontos para o InstancedBufferGeometry:
@@ -83,6 +85,97 @@ export function globeFragments(count: number, seed = 1): GlobeFragments {
   }
   return { count, band, shape, tilt };
 }
+
+/** Nuvem de pontos em duas cascas, distribuidos por igual (espiral de Fibonacci). */
+export function particleFragments(count: number, seed = 1): GlobeFragments {
+  const rnd = mulberry32(seed);
+  const range = (a: number, b: number) => a + (b - a) * rnd();
+  const band = new Float32Array(count * 4);
+  const shape = new Float32Array(count * 4);
+  const tilt = new Float32Array(count * 2);
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < count; i++) {
+    const outer = i % 3 !== 0;
+    const lat = Math.asin(1 - (2 * (i + 0.5)) / count);
+    band.set([(i * goldenAngle) % (Math.PI * 2), lat, GLOBE_RADIUS * (outer ? 1 : 0.68) * range(0.985, 1.015), outer ? 0.09 : -0.14], i * 4);
+    const size = range(0.06, 0.17);
+    shape.set([size, size, rnd(), DOT], i * 4);
+    tilt.set([0.25, -0.15], i * 2);
+  }
+  return { count, band, shape, tilt };
+}
+
+/** Planos orbitais: inclinacao em X e em Z e raio relativo. */
+const ORBITS: { tilt: [number, number]; shell: number }[] = [
+  { tilt: [0.15, 0.1], shell: 0.42 },
+  { tilt: [1.1, -0.35], shell: 0.56 },
+  { tilt: [-0.95, 0.5], shell: 0.68 },
+  { tilt: [0.5, 1.15], shell: 0.8 },
+  { tilt: [-0.45, -1.05], shell: 0.9 },
+  { tilt: [1.4, 0.75], shell: 1.0 },
+];
+
+/** Arcos longos e contas correndo em poucos planos, como um atomo. */
+export function orbitFragments(count: number, seed = 1): GlobeFragments {
+  const rnd = mulberry32(seed);
+  const range = (a: number, b: number) => a + (b - a) * rnd();
+  const band = new Float32Array(count * 4);
+  const shape = new Float32Array(count * 4);
+  const tilt = new Float32Array(count * 2);
+  for (let i = 0; i < count; i++) {
+    const index = i % ORBITS.length;
+    const orbit = ORBITS[index];
+    const radius = orbit.shell * GLOBE_RADIUS;
+    const arc = rnd() < 0.35;
+    // Orbitas vizinhas giram em sentidos opostos; as internas, mais rapido.
+    const speed = (index % 2 ? -1 : 1) * (0.5 - 0.3 * orbit.shell);
+    band.set([range(0, Math.PI * 2), 0, radius * range(0.995, 1.005), speed], i * 4);
+    const size = range(0.09, 0.24);
+    // No shader, comprimento / raio e o angulo do arco: ate 1,3 rad em qualquer orbita.
+    shape.set(arc ? [radius * range(0.3, 1.3), range(0.03, 0.06), rnd(), ARC] : [size, size, rnd(), DOT], i * 4);
+    tilt.set(orbit.tilt, i * 2);
+  }
+  return { count, band, shape, tilt };
+}
+
+export interface GlobeRing {
+  radius: number;
+  /** Inclinacao do anel em X e em Y. */
+  tilt: [number, number];
+  speed: number;
+}
+
+export interface GlobeStyleDef {
+  label: string;
+  /** Fragmentos com o detalhe no maximo. */
+  fragments: number;
+  build: (count: number, seed?: number) => GlobeFragments;
+  /** Divisoes de cada fragmento: arcos longos precisam de mais para ficarem redondos. */
+  segments: number;
+  rings: readonly GlobeRing[];
+  coreRadius: number;
+}
+
+/** Um estilo novo so precisa de uma entrada aqui: as configuracoes listam o que houver. */
+export const GLOBE_STYLES = {
+  holografico: {
+    label: 'Holográfico',
+    fragments: 3600,
+    build: globeFragments,
+    segments: 1,
+    rings: [
+      { radius: 1.5, tilt: [0.4, 0.2], speed: 0.9 },
+      { radius: 2.1, tilt: [-0.9, 0.5], speed: -0.6 },
+      { radius: 2.8, tilt: [1.3, -0.3], speed: 0.4 },
+    ],
+    coreRadius: 0.55,
+  },
+  particulas: { label: 'Partículas', fragments: 3000, build: particleFragments, segments: 1, rings: [], coreRadius: 0.4 },
+  orbitas: { label: 'Órbitas', fragments: 1200, build: orbitFragments, segments: 16, rings: [], coreRadius: 0.95 },
+} as const satisfies Record<string, GlobeStyleDef>;
+export type GlobeStyle = keyof typeof GLOBE_STYLES;
+
+export const isGlobeStyle = (v: unknown): v is GlobeStyle => typeof v === 'string' && Object.hasOwn(GLOBE_STYLES, v);
 
 export interface GlobeDynamics {
   /** Escala das cascas (1 = repouso). */
