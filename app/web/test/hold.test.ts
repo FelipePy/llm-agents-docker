@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HoldGate, HoldKeys, frameRms, waveBars, waveLevel } from '../src/voice/hold.ts';
+import { DEFAULT_HOTKEY, MOUSE_MIDDLE, type Hotkey } from '../src/voice/hotkey.ts';
 
 const key = (code: string, k: string, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean } = {}) => ({
   code,
@@ -69,7 +70,7 @@ describe('HoldKeys', () => {
 });
 
 describe('HoldKeys com outro atalho', () => {
-  const hotkey = { code: 'KeyJ', ctrl: true, shift: true, alt: false, meta: false, label: 'Ctrl+Shift+J' };
+  const hotkey = { codes: ['KeyJ'], ctrl: true, shift: true, alt: false, meta: false, label: 'Ctrl+Shift+J' };
   const COMBO = key('KeyJ', 'J', { ctrl: true, shift: true });
 
   function keys(h = hotkey) {
@@ -107,13 +108,173 @@ describe('HoldKeys com outro atalho', () => {
   });
 
   it('uma tecla sozinha tambem serve e solta ao soltar a tecla', () => {
-    const { log, k } = keys({ code: 'F9', ctrl: false, shift: false, alt: false, meta: false, label: 'F9' });
+    const { log, k } = keys({ codes: ['F9'], ctrl: false, shift: false, alt: false, meta: false, label: 'F9' });
     expect(k.keydown(key('F9', 'F9', { ctrl: true }))).toBe(false);
     expect(k.keydown(key('F9', 'F9'))).toBe(true);
     expect(k.keyup(key('ControlLeft', 'Control'))).toBe(false);
     expect(log).toEqual(['press']);
     expect(k.keyup(key('F9', 'F9'))).toBe(true);
     expect(log).toEqual(['press', 'release']);
+  });
+});
+
+describe('HoldKeys com combinacoes flexiveis', () => {
+  const NO_MODS = { ctrl: false, shift: false, alt: false, meta: false };
+
+  function keys(h: Hotkey) {
+    const log: string[] = [];
+    return { log, k: new HoldKeys(() => log.push('press'), () => log.push('release'), h) };
+  }
+
+  it('duas teclas comuns: a primeira segue para o app e a ultima aperta', () => {
+    const { log, k } = keys({ ...NO_MODS, codes: ['KeyA', 'KeyS'], label: 'A+S' });
+    expect(k.keydown(key('KeyA', 'a'))).toBe(false);
+    expect(log).toEqual([]);
+    expect(k.keydown(key('KeyS', 's'))).toBe(true);
+    expect(log).toEqual(['press']);
+    expect(k.keydown(key('KeyS', 's'))).toBe(true);
+    expect(log).toEqual(['press']);
+  });
+
+  it('soltar uma das teclas solta; a repeticao da outra nao vira texto', () => {
+    const { log, k } = keys({ ...NO_MODS, codes: ['KeyA', 'KeyS'], label: 'A+S' });
+    k.keydown(key('KeyA', 'a'));
+    k.keydown(key('KeyS', 's'));
+    expect(k.keyup(key('KeyA', 'a'))).toBe(true);
+    expect(log).toEqual(['press', 'release']);
+    expect(k.keydown(key('KeyS', 's'))).toBe(true);
+    expect(k.keyup(key('KeyS', 's'))).toBe(true);
+    expect(k.keydown(key('KeyS', 's'))).toBe(false);
+    expect(log).toEqual(['press', 'release']);
+  });
+
+  it('outra tecla apertada nao atrapalha quem digita rapido', () => {
+    const { log, k } = keys({ ...NO_MODS, codes: ['F9'], label: 'F9' });
+    expect(k.keydown(key('KeyX', 'x'))).toBe(false);
+    expect(k.keydown(key('F9', 'F9'))).toBe(true);
+    expect(k.keyup(key('KeyX', 'x'))).toBe(false);
+    expect(log).toEqual(['press']);
+  });
+
+  it('so modificadores: aperta com todos eles e consome, ou o Alt abriria o menu', () => {
+    const { log, k } = keys({ ctrl: true, shift: false, alt: true, meta: false, codes: [], label: 'Ctrl+Alt' });
+    expect(k.keydown(key('ControlLeft', 'Control', { ctrl: true }))).toBe(false);
+    expect(log).toEqual([]);
+    expect(k.keydown(key('AltLeft', 'Alt', { ctrl: true, alt: true }))).toBe(true);
+    expect(log).toEqual(['press']);
+    expect(k.keyup(key('AltLeft', 'Alt', { ctrl: true }))).toBe(true);
+    expect(log).toEqual(['press', 'release']);
+    expect(k.keyup(key('ControlLeft', 'Control'))).toBe(false);
+  });
+
+  it('um modificador sozinho tambem serve', () => {
+    const { log, k } = keys({ ctrl: true, shift: false, alt: false, meta: false, codes: [], label: 'Ctrl' });
+    k.keydown(key('ControlLeft', 'Control', { ctrl: true }));
+    expect(log).toEqual(['press']);
+    k.keyup(key('ControlLeft', 'Control'));
+    expect(log).toEqual(['press', 'release']);
+  });
+});
+
+describe('HoldKeys com o botao do meio do mouse', () => {
+  const mouse = (button: number, mods: { ctrl?: boolean } = {}) => ({ button, ...key('', '', mods) });
+  const MIDDLE: Hotkey = { codes: [MOUSE_MIDDLE], ctrl: false, shift: false, alt: false, meta: false, label: 'Botão do meio' };
+  const CTRL_MIDDLE: Hotkey = { ...MIDDLE, ctrl: true, label: 'Ctrl+Botão do meio' };
+
+  function keys(h: Hotkey = MIDDLE) {
+    const log: string[] = [];
+    return { log, k: new HoldKeys(() => log.push('press'), () => log.push('release'), h) };
+  }
+
+  it('segurar aperta e soltar solta, consumindo o clique inteiro', () => {
+    const { log, k } = keys();
+    expect(k.mousedown(mouse(1))).toBe(true);
+    expect(k.mousedown(mouse(1))).toBe(true); // `pointerdown` e `mousedown` do mesmo aperto
+    expect(log).toEqual(['press']);
+    expect(k.mouseup(mouse(1))).toBe(true);
+    expect(k.auxclick(mouse(1))).toBe(true);
+    expect(k.auxclick(mouse(1))).toBe(false);
+    expect(log).toEqual(['press', 'release']);
+  });
+
+  it('os outros botoes nao contam', () => {
+    const { log, k } = keys();
+    for (const button of [0, 2, 3, 4]) {
+      expect(k.mousedown(mouse(button))).toBe(false);
+      expect(k.mouseup(mouse(button))).toBe(false);
+      expect(k.auxclick(mouse(button))).toBe(false);
+    }
+    expect(log).toEqual([]);
+  });
+
+  it('sem o botao no atalho, o clique do meio segue para o navegador', () => {
+    const { log, k } = keys(DEFAULT_HOTKEY);
+    expect(k.mousedown(mouse(1, { ctrl: true }))).toBe(false);
+    expect(k.mouseup(mouse(1))).toBe(false);
+    expect(k.auxclick(mouse(1))).toBe(false);
+    expect(log).toEqual([]);
+  });
+
+  it('com Ctrl: so o clique com o Ctrl e do Jarvis, na ordem que vier', () => {
+    const plain = keys(CTRL_MIDDLE);
+    expect(plain.k.mousedown(mouse(1))).toBe(false);
+    expect(plain.k.mouseup(mouse(1))).toBe(false);
+    expect(plain.k.auxclick(mouse(1))).toBe(false);
+    expect(plain.log).toEqual([]);
+
+    const first = keys(CTRL_MIDDLE);
+    first.k.keydown(key('ControlLeft', 'Control', { ctrl: true }));
+    expect(first.log).toEqual([]);
+    expect(first.k.mousedown(mouse(1, { ctrl: true }))).toBe(true);
+    expect(first.log).toEqual(['press']);
+
+    const last = keys(CTRL_MIDDLE);
+    last.k.mousedown(mouse(1));
+    expect(last.k.keydown(key('ControlLeft', 'Control', { ctrl: true }))).toBe(false);
+    expect(last.log).toEqual(['press']);
+  });
+
+  it('soltar o Ctrl primeiro solta, e o resto do clique continua consumido', () => {
+    const { log, k } = keys(CTRL_MIDDLE);
+    k.keydown(key('ControlLeft', 'Control', { ctrl: true }));
+    k.mousedown(mouse(1, { ctrl: true }));
+    k.keyup(key('ControlLeft', 'Control'));
+    expect(log).toEqual(['press', 'release']);
+    expect(k.mouseup(mouse(1))).toBe(true);
+    expect(k.auxclick(mouse(1))).toBe(true);
+    expect(log).toEqual(['press', 'release']);
+  });
+
+  it('um auxclick antigo nao come o clique seguinte', () => {
+    const { k } = keys(CTRL_MIDDLE);
+    k.keydown(key('ControlLeft', 'Control', { ctrl: true }));
+    k.mousedown(mouse(1, { ctrl: true }));
+    k.mouseup(mouse(1, { ctrl: true }));
+    k.keyup(key('ControlLeft', 'Control'));
+    k.mousedown(mouse(1));
+    k.mouseup(mouse(1));
+    expect(k.auxclick(mouse(1))).toBe(false);
+  });
+
+  it('o botao solto sem o evento chegar nao deixa o microfone aberto', () => {
+    const { log, k } = keys();
+    k.mousedown(mouse(1));
+    k.mousemove({ buttons: 4 });
+    expect(log).toEqual(['press']);
+    k.mousemove({ buttons: 0 });
+    expect(log).toEqual(['press', 'release']);
+    k.mousemove({ buttons: 0 });
+    expect(log).toEqual(['press', 'release']);
+    expect(k.mouseup(mouse(1))).toBe(false);
+  });
+
+  it('perder o foco solta', () => {
+    const { log, k } = keys();
+    k.mousedown(mouse(1));
+    k.cancel();
+    expect(log).toEqual(['press', 'release']);
+    expect(k.mouseup(mouse(1))).toBe(false);
+    expect(k.auxclick(mouse(1))).toBe(false);
   });
 });
 

@@ -1,8 +1,11 @@
 // Atalho de falar configuravel: a combinacao escolhida, como ela e capturada e como e guardada.
 
 export interface Hotkey {
-  /** Tecla fisica (`KeyboardEvent.code`): nao muda com Shift nem com o layout. */
-  code: string;
+  /**
+   * O que se segura alem dos modificadores: teclas fisicas (`KeyboardEvent.code`, nao mudam com
+   * Shift nem com o layout) e, se fizer parte, o botao do meio do mouse. Vazio: so modificadores.
+   */
+  codes: string[];
   ctrl: boolean;
   shift: boolean;
   alt: boolean;
@@ -11,9 +14,20 @@ export interface Hotkey {
   label: string;
 }
 
-type KeyLike = { code: string; key: string; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean };
+type ModsLike = { ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean };
+type KeyLike = ModsLike & { code: string; key: string };
+type MouseLike = ModsLike & { button: number };
 
-export const DEFAULT_HOTKEY: Hotkey = { code: 'Space', ctrl: true, shift: false, alt: false, meta: false, label: 'Ctrl+Espaço' };
+/** O botao do meio do mouse (o clique do scroll) como parte da combinacao. */
+export const MOUSE_MIDDLE = 'MouseMiddle';
+/** `MouseEvent.button` do botao do meio; os outros botoes nao viram atalho. */
+export const MIDDLE_BUTTON = 1;
+const MOUSE_MIDDLE_NAME = 'Botão do meio';
+
+/** Limite de uma combinacao, contando modificadores, teclas e o botao do meio. */
+export const MAX_HOTKEY_KEYS = 3;
+
+export const DEFAULT_HOTKEY: Hotkey = { codes: ['Space'], ctrl: true, shift: false, alt: false, meta: false, label: 'Ctrl+Espaço' };
 
 const MODIFIER_KEYS = new Set(['Control', 'Shift', 'Alt', 'AltGraph', 'Meta', 'OS', 'Fn', 'FnLock', 'Hyper', 'Super', 'Symbol', 'SymbolLock']);
 
@@ -36,23 +50,13 @@ function keyName(code: string, key: string): string {
   return code;
 }
 
-/** A combinacao de um aperto; null se so ha modificadores (ainda falta a tecla) ou a tecla nao tem codigo. */
-export function hotkeyFrom(e: KeyLike): Hotkey | null {
-  if (MODIFIER_KEYS.has(e.key) || !e.code || e.code === 'Unidentified') return null;
-  const mods = [e.ctrlKey && 'Ctrl', e.shiftKey && 'Shift', e.altKey && 'Alt', e.metaKey && 'Win'].filter(Boolean);
-  return {
-    code: e.code,
-    ctrl: e.ctrlKey,
-    shift: e.shiftKey,
-    alt: e.altKey,
-    meta: e.metaKey,
-    label: [...mods, keyName(e.code, e.key)].join('+'),
-  };
-}
+/** O evento tem exatamente os modificadores da combinacao (a mais nao conta). */
+export const hotkeyModsMatch = (e: ModsLike, h: Hotkey): boolean =>
+  e.ctrlKey === h.ctrl && e.shiftKey === h.shift && e.altKey === h.alt && e.metaKey === h.meta;
 
-/** O evento e exatamente esta combinacao (modificadores a mais nao contam). */
+/** O evento e uma tecla da combinacao, com exatamente os modificadores dela. */
 export function matchesHotkey(e: KeyLike, h: Hotkey): boolean {
-  return e.code === h.code && e.ctrlKey === h.ctrl && e.shiftKey === h.shift && e.altKey === h.alt && e.metaKey === h.meta;
+  return h.codes.includes(e.code) && hotkeyModsMatch(e, h);
 }
 
 /** A tecla solta (`KeyboardEvent.key`) e um dos modificadores da combinacao. */
@@ -64,47 +68,103 @@ export function isHotkeyModifier(key: string, h: Hotkey): boolean {
   return false;
 }
 
+export const hotkeyHasMouse = (h: Hotkey): boolean => h.codes.includes(MOUSE_MIDDLE);
+
+/** Sem mouse no aparelho, um atalho com o botao do meio nao teria como ser apertado: vale o padrao. */
+export const usableHotkey = (h: Hotkey, mouse: boolean): Hotkey => (hotkeyHasMouse(h) && !mouse ? DEFAULT_HOTKEY : h);
+
+const keyCount = (h: Hotkey): number => h.codes.length + [h.ctrl, h.shift, h.alt, h.meta].filter(Boolean).length;
+
+/** A ordem das teclas nao importa, e o nome na tela nao entra na comparacao. */
 export const sameHotkey = (a: Hotkey, b: Hotkey): boolean =>
-  a.code === b.code && a.ctrl === b.ctrl && a.shift === b.shift && a.alt === b.alt && a.meta === b.meta;
+  a.ctrl === b.ctrl &&
+  a.shift === b.shift &&
+  a.alt === b.alt &&
+  a.meta === b.meta &&
+  a.codes.length === b.codes.length &&
+  a.codes.every((c) => b.codes.includes(c));
 
 /** Le o que foi guardado no localStorage; null se nao ha nada ou esta invalido. */
 export function parseHotkey(saved: string | null): Hotkey | null {
   if (!saved) return null;
   try {
-    const h = JSON.parse(saved) as Partial<Hotkey> | null;
-    if (!h || typeof h.code !== 'string' || !h.code || typeof h.label !== 'string' || !h.label) return null;
+    // `code`: o formato antigo, de uma tecla so. Com mais de tres teclas, volta ao padrao como qualquer invalido.
+    const h = JSON.parse(saved) as (Partial<Hotkey> & { code?: unknown }) | null;
+    if (!h || typeof h.label !== 'string' || !h.label) return null;
     if (typeof h.ctrl !== 'boolean' || typeof h.shift !== 'boolean' || typeof h.alt !== 'boolean' || typeof h.meta !== 'boolean') return null;
-    return { code: h.code, ctrl: h.ctrl, shift: h.shift, alt: h.alt, meta: h.meta, label: h.label };
+    const codes: unknown = h.codes ?? (h.code === undefined ? undefined : [h.code]);
+    if (!Array.isArray(codes) || !codes.every((c) => typeof c === 'string' && c)) return null;
+    const hotkey: Hotkey = { codes: codes as string[], ctrl: h.ctrl, shift: h.shift, alt: h.alt, meta: h.meta, label: h.label };
+    const count = keyCount(hotkey);
+    return count >= 1 && count <= MAX_HOTKEY_KEYS ? hotkey : null;
   } catch {
     return null;
   }
 }
 
 /**
- * Espera o usuario apertar a combinacao. Guarda ja no aperto, mas so termina ao soltar a tecla:
- * assim a repeticao do teclado nao dispara o atalho novo nem aciona o botao que tem o foco.
- * Esc sozinho cancela (por isso nao pode ser o atalho; com modificador, pode).
+ * Grava o atalho: junta o que o usuario aperta, ate o limite, e guarda ao soltar a primeira
+ * das teclas (quem solta ja mostrou tudo o que queria). Assim uma tecla so, modificadores sozinhos
+ * e o botao do meio do mouse entram do mesmo jeito. Esc sozinho cancela (por isso nao pode ser o
+ * atalho; numa combinacao, pode). `mouse`: se o botao do meio pode fazer parte.
  */
 export class HotkeyCapture {
-  private picked: string | null = null;
+  private readonly draft: Hotkey = { codes: [], ctrl: false, shift: false, alt: false, meta: false, label: '' };
+  private readonly names: string[] = [];
+  private finished = false;
   private readonly onPick: (h: Hotkey) => void;
   private readonly onEnd: () => void;
+  private readonly onPreview: (label: string) => void;
+  private readonly mouse: boolean;
 
-  constructor(onPick: (h: Hotkey) => void, onEnd: () => void) {
+  constructor(onPick: (h: Hotkey) => void, onEnd: () => void, onPreview: (label: string) => void = () => {}, mouse = true) {
     this.onPick = onPick;
     this.onEnd = onEnd;
+    this.onPreview = onPreview;
+    this.mouse = mouse;
   }
 
   keydown(e: KeyLike & { repeat?: boolean }): void {
-    if (this.picked || e.repeat) return;
-    const h = hotkeyFrom(e);
-    if (!h) return;
-    if (e.code === 'Escape' && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) return this.onEnd();
-    this.picked = h.code;
-    this.onPick(h);
+    if (this.finished || e.repeat) return;
+    if (MODIFIER_KEYS.has(e.key)) return this.add(e);
+    if (!e.code || e.code === 'Unidentified') return;
+    if (e.code === 'Escape' && !keyCount(this.draft) && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+      this.finished = true;
+      return this.onEnd();
+    }
+    this.add(e, e.code, keyName(e.code, e.key));
   }
 
   keyup(e: KeyLike): void {
-    if (e.code === this.picked) this.onEnd();
+    if (this.draft.codes.includes(e.code) || isHotkeyModifier(e.key, this.draft)) this.finish();
+  }
+
+  mousedown(e: MouseLike): void {
+    if (!this.finished && this.mouse && e.button === MIDDLE_BUTTON) this.add(e, MOUSE_MIDDLE, MOUSE_MIDDLE_NAME);
+  }
+
+  mouseup(e: MouseLike): void {
+    if (e.button === MIDDLE_BUTTON && hotkeyHasMouse(this.draft)) this.finish();
+  }
+
+  /** Modificadores vem das marcas do evento: valem mesmo apertados antes de a gravacao comecar. */
+  private add(e: ModsLike, code?: string, name?: string): void {
+    const d = this.draft;
+    for (const [on, mod] of [[e.ctrlKey, 'ctrl'], [e.shiftKey, 'shift'], [e.altKey, 'alt'], [e.metaKey, 'meta']] as const) {
+      if (on && !d[mod] && keyCount(d) < MAX_HOTKEY_KEYS) d[mod] = true;
+    }
+    if (code && name && !d.codes.includes(code) && keyCount(d) < MAX_HOTKEY_KEYS) {
+      d.codes.push(code);
+      this.names.push(name);
+    }
+    d.label = [d.ctrl && 'Ctrl', d.shift && 'Shift', d.alt && 'Alt', d.meta && 'Win', ...this.names].filter(Boolean).join('+');
+    if (d.label) this.onPreview(d.label);
+  }
+
+  private finish(): void {
+    if (this.finished) return;
+    this.finished = true;
+    this.onPick({ ...this.draft, codes: [...this.draft.codes] });
+    this.onEnd();
   }
 }

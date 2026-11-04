@@ -26,7 +26,7 @@ import { TerminalDrawer } from './components/TerminalDrawer.tsx';
 import { OFF_VIEW, VoiceClient, VoiceConnectionError, timingText, voiceStatus, type VoiceView } from './voice/client.ts';
 import { floatSupported, openFloatingOrb, type FloatingOrb } from './voice/float.ts';
 import { HoldKeys } from './voice/hold.ts';
-import { matchesHotkey } from './voice/hotkey.ts';
+import { MIDDLE_BUTTON, matchesHotkey } from './voice/hotkey.ts';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { setAutostart, useDesktop } from './desktop.ts';
 
@@ -189,22 +189,41 @@ function Connected({ token }: { token: string }) {
       () => voiceRef.current?.holdEnd(),
       hotkey,
     );
-    const consume = (taken: boolean, e: KeyboardEvent) => {
+    const consume = (taken: boolean, e: Event) => {
       if (!taken) return;
       e.preventDefault();
       e.stopPropagation();
     };
     const down = (e: KeyboardEvent) => consume(keys.keydown(e), e);
     const up = (e: KeyboardEvent) => consume(keys.keyup(e), e);
+    // Botao do meio: `mousedown` impede a rolagem automatica; `mouseup`, colar no Linux; `auxclick`, abrir link.
+    const mouseDown = (e: MouseEvent) => consume(keys.mousedown(e), e);
+    const mouseUp = (e: MouseEvent) => consume(keys.mouseup(e), e);
+    const aux = (e: MouseEvent) => consume(keys.auxclick(e), e);
+    const mouseMove = (e: MouseEvent) => keys.mousemove(e);
+    // Vem antes do `mousedown` e so nao chega ao zoom da cena; cancelar aqui sumiria com o `mouseup`.
+    const pointerDown = (e: PointerEvent) => {
+      if (keys.mousedown(e)) e.stopPropagation();
+    };
     const lost = () => keys.cancel();
     const hidden = () => document.hidden && keys.cancel();
     window.addEventListener('keydown', down, true);
     window.addEventListener('keyup', up, true);
+    window.addEventListener('pointerdown', pointerDown, true);
+    window.addEventListener('mousedown', mouseDown, true);
+    window.addEventListener('mouseup', mouseUp, true);
+    window.addEventListener('auxclick', aux, true);
+    window.addEventListener('mousemove', mouseMove, true);
     window.addEventListener('blur', lost);
     document.addEventListener('visibilitychange', hidden);
     return () => {
       window.removeEventListener('keydown', down, true);
       window.removeEventListener('keyup', up, true);
+      window.removeEventListener('pointerdown', pointerDown, true);
+      window.removeEventListener('mousedown', mouseDown, true);
+      window.removeEventListener('mouseup', mouseUp, true);
+      window.removeEventListener('auxclick', aux, true);
+      window.removeEventListener('mousemove', mouseMove, true);
       window.removeEventListener('blur', lost);
       document.removeEventListener('visibilitychange', hidden);
       keys.cancel();
@@ -368,6 +387,7 @@ function Connected({ token }: { token: string }) {
   useEffect(() => {
     if (!sounds) return;
     const onDown = (e: PointerEvent) => {
+      if (e.button === MIDDLE_BUTTON) return; // pode ser o atalho de falar
       const el = (e.target as HTMLElement | null)?.closest?.('button, .ring-card, .tab, a, input[type="checkbox"]');
       if (!el || el.closest('.terminal') || (el as HTMLButtonElement).disabled) return;
       playSound(el.classList.contains('ring-card') ? 'open' : 'tap');
