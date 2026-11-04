@@ -139,12 +139,12 @@
 .settings-toggle:hover { color: var(--text); }
 .settings-panel label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; }
 .settings-panel p { margin: 0; font-size: 12px; }
-.settings-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
 .settings-column { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-@media (max-width: 720px) { .settings-columns { grid-template-columns: minmax(0, 1fr); } }
 .settings-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, 0.02); }
 .settings-button { align-self: flex-start; }
-.settings-card-title { font-size: 13px; font-weight: 500; }
+.settings-card-title { margin: 0; font-size: 13px; font-weight: 500; }
+.settings-card-body { display: flex; flex-direction: column; gap: 8px; }
+.settings-card-body[hidden] { display: none; }
 .stt-groq { display: flex; flex-direction: column; gap: 8px; padding-left: 22px; }
 .settings-panel .field { flex-direction: column; align-items: stretch; gap: 4px; cursor: default; }
 .settings-panel .field span { font-size: 12px; color: var(--muted); }
