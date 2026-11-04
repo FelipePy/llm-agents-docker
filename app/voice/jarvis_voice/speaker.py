@@ -7,7 +7,8 @@ compara com o perfil salvo e o servidor; aqui so se calcula o vetor.
 """
 import os
 import urllib.request
-from typing import List, Optional
+from collections import deque
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -18,6 +19,11 @@ MODEL_URL = (
 MODEL_FILE = "wespeaker_en_voxceleb_resnet34.onnx"
 SAMPLE_RATE = 16000
 MIN_SAMPLES = SAMPLE_RATE // 2  # menos de 0,5 s de fala nao identifica ninguem
+# Corte do silencio antes de comparar: quadros com fala (score do VAD) e uma
+# folga em volta (o VAD atrasa um pouco no comeco e no fim da palavra).
+VOICED_THRESHOLD = 0.5
+VOICED_PAD = 2  # quadros de 80 ms
+RECENT_FRAMES = 32  # ~2,5 s guardados para a palavra de ativacao
 
 _FRAME = 400  # 25 ms
 _SHIFT = 160  # 10 ms
@@ -76,6 +82,18 @@ class SpeakerModel:
         self.log = log
         self._session = None
 
+    def downloaded(self) -> bool:
+        """O modelo ja foi baixado (alguem cadastrou ou tentou cadastrar a voz)."""
+        return os.path.exists(self.path)
+
+    def ready(self) -> bool:
+        return self._session is not None
+
+    def warm(self) -> None:
+        """Carrega o modelo ja baixado, para a primeira ativacao nao esperar por isso."""
+        if self.downloaded():
+            self._load()
+
     def _load(self):
         if self._session is None:
             if not os.path.exists(self.path):
@@ -101,30 +119,64 @@ class SpeakerModel:
         return [float(v) for v in out]
 
 
+Frame = Tuple[bytes, float]  # (PCM de um quadro, score do VAD)
+
+
+def voiced(frames: Sequence[Frame], threshold: float = VOICED_THRESHOLD, pad: int = VOICED_PAD,
+           min_bytes: int = MIN_SAMPLES * 2) -> bytes:
+    """So a parte com fala (mais a folga), para o silencio e o ruido nao pesarem no vetor.
+
+    Sem nenhum quadro com fala, devolve tudo (melhor tentar do que recusar).
+    Se a fala ficar curta demais para o modelo, alarga em volta dela ate o minimo.
+    """
+    n = len(frames)
+    loud = [i for i, (_, score) in enumerate(frames) if score >= threshold]
+    if not loud:
+        return b"".join(pcm for pcm, _ in frames)
+    keep = sorted({j for i in loud for j in range(max(0, i - pad), min(n, i + pad + 1))})
+    if sum(len(frames[i][0]) for i in keep) >= min_bytes:
+        return b"".join(frames[i][0] for i in keep)
+    lo, hi = keep[0], keep[-1] + 1
+    while sum(len(pcm) for pcm, _ in frames[lo:hi]) < min_bytes and (lo > 0 or hi < n):
+        if hi < n:
+            hi += 1
+        if lo > 0 and sum(len(pcm) for pcm, _ in frames[lo:hi]) < min_bytes:
+            lo -= 1
+    return b"".join(pcm for pcm, _ in frames[lo:hi])
+
+
 class Clips:
     """Audio guardado para conferir a voz de quem chamou: os ultimos segundos
-    (palavra de ativacao) e as falas ouvidas. O servidor pede a verificacao
-    pelo numero do trecho, so quando a fala era uma ativacao."""
+    (palavra de ativacao) e as falas ouvidas, ja sem o silencio. O servidor pede a
+    verificacao pelo numero do trecho, so quando a fala era uma ativacao. O vetor
+    pode ser calculado antes (junto da transcricao) e fica guardado com o trecho."""
 
-    def __init__(self, recent_bytes: int = int(2.5 * SAMPLE_RATE) * 2, keep: int = 4):
-        self.recent_bytes = recent_bytes
+    def __init__(self, recent_frames: int = RECENT_FRAMES, keep: int = 4):
         self.keep = keep
-        self._recent = bytearray()
+        self._recent: deque = deque(maxlen=recent_frames)
         self._clips: dict = {}
+        self._vectors: dict = {}
         self._next = 0
 
-    def feed(self, pcm: bytes) -> None:
-        self._recent += pcm
-        if len(self._recent) > self.recent_bytes:
-            del self._recent[: len(self._recent) - self.recent_bytes]
+    def feed(self, pcm: bytes, score: float) -> None:
+        self._recent.append((pcm, score))
 
-    def save(self, pcm: Optional[bytes] = None) -> int:
+    def save(self, frames: Optional[Sequence[Frame]] = None) -> int:
         """Guarda o trecho (sem argumento: os ultimos segundos) e devolve o numero dele."""
         self._next += 1
-        self._clips[self._next] = bytes(self._recent) if pcm is None else bytes(pcm)
+        self._clips[self._next] = voiced(list(self._recent) if frames is None else frames)
         for old in [k for k in self._clips if k <= self._next - self.keep]:
             del self._clips[old]
+            self._vectors.pop(old, None)
         return self._next
 
     def get(self, clip: int) -> Optional[bytes]:
         return self._clips.get(clip)
+
+    def set_vector(self, clip: int, vector) -> None:
+        if clip in self._clips:
+            self._vectors[clip] = vector
+
+    def vector(self, clip: int):
+        """(ja calculado?, vetor)."""
+        return (clip in self._vectors, self._vectors.get(clip))
