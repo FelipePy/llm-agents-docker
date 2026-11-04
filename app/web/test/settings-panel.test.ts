@@ -45,13 +45,14 @@ const render = (extra: { desktop?: DesktopInfo | null; floating?: { open: boolea
     }),
   );
 
-const saved = new Map<string, string>();
+const getItem = vi.fn((_key: string) => '1');
 
 describe('SettingsPanel', () => {
   beforeEach(() => {
     vi.stubGlobal('window', {});
-    saved.clear();
-    vi.stubGlobal('localStorage', { getItem: (k: string) => saved.get(k) ?? null, setItem: (k: string, v: string) => saved.set(k, v) });
+    // Nada do painel pode vir do que ficou guardado.
+    getItem.mockClear();
+    vi.stubGlobal('localStorage', { getItem, setItem: noop });
   });
 
   it('agrupa em voz e depois aparencia e som', () => {
@@ -72,19 +73,26 @@ describe('SettingsPanel', () => {
     expect(render({ floating: { open: false, toggle: noop } })).toContain('Abrir janela flutuante');
     expect(render({ desktop: { autostart: true } as DesktopInfo })).toContain('Iniciar com o sistema');
   });
-  it('de inicio, todos os grupos ficam abertos', () => {
+  it('todos os grupos comecam recolhidos, sem ler nada guardado', () => {
     const html = render({ floating: { open: false, toggle: noop } });
-    expect(html.match(/aria-expanded="true"/g)).toHaveLength(3);
-    expect(html).not.toContain('aria-expanded="false"');
-    expect(html).not.toMatch(/<div id="settings-section-[a-z]+" hidden/);
+    expect(html.match(/aria-expanded="false"/g)).toHaveLength(3);
+    expect(html).not.toContain('aria-expanded="true"');
+    for (const id of ['voice', 'appearance', 'system']) {
+      expect(html).toContain(`aria-controls="settings-section-${id}"`);
+      expect(html).toContain(`<div id="settings-section-${id}" hidden`);
+    }
+    expect(getItem).not.toHaveBeenCalled();
   });
-  it('recolhido fica guardado por grupo, e o conteudo continua montado', () => {
-    saved.set('llm-agent-settings-appearance-open', '0');
+  it('recolhido, o conteudo continua montado', () => {
     const html = render();
-    expect(html).toContain('aria-controls="settings-section-voice"');
-    expect(html.match(/aria-expanded="false"/g)).toHaveLength(1);
-    expect(html).toContain('<div id="settings-section-appearance" hidden');
-    expect(html).not.toContain('<div id="settings-section-voice" hidden');
+    expect(html).toContain('Como falar');
     expect(html).toContain('Sons de clique');
+  });
+  it('voz fica em uma coluna so', () => {
+    const html = render();
+    const inicio = html.indexOf('id="settings-section-voice"');
+    const voz = html.slice(inicio, html.indexOf('</section>', inicio));
+    expect(voz).not.toContain('settings-columns');
+    expect(voz.match(/class="settings-column"/g)).toHaveLength(1);
   });
 });

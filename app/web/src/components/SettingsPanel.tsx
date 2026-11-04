@@ -1,7 +1,6 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { Api } from '../api.ts';
 import type { DesktopInfo } from '../desktop.ts';
-import { usePref } from '../prefs.ts';
 import { Chevron } from './Chevron.tsx';
 import { HotkeyField } from './HotkeyField.tsx';
 import { PauseSettings } from './PauseSettings.tsx';
@@ -22,9 +21,9 @@ interface Props {
   floating: { open: boolean; toggle: () => void } | null;
 }
 
-/** Grupo que recolhe pelo titulo. O painel e desmontado ao fechar o modal: a escolha fica guardada. */
+/** Grupo que recolhe pelo titulo. Comeca recolhido: o painel e desmontado ao fechar o modal, e nada fica guardado. */
 function SettingsSection({ id, title, children }: { id: string; title: string; children: ReactNode }) {
-  const [open, setOpen] = usePref(`llm-agent-settings-${id}-open`, true);
+  const [open, setOpen] = useState(false);
   const bodyId = `settings-section-${id}`;
   return (
     <section>
@@ -50,30 +49,26 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
       <div className="brand">Configurações</div>
 
       <SettingsSection id="voice" title="Voz">
-        <div className="settings-columns">
-          <div className="settings-column">
-            <div className="settings-card">
-              <div className="settings-card-title">Como falar</div>
-              <label title={settings.holdKey ? `Desligada enquanto o atalho ${settings.hotkey.label} estiver ativado` : 'Escuta o microfone esperando “Jarvis”'}>
-                <input type="checkbox" checked={settings.voice} disabled={settings.holdKey} onChange={toggles.onVoice} />
-                Escuta ativa
-              </label>
-              <label title={`Segure ${settings.hotkey.label} para falar; ao soltar, o Jarvis responde`}>
-                <input type="checkbox" checked={settings.holdKey} onChange={toggles.onHoldKey} />
-                Falar com {settings.hotkey.label}
-              </label>
-              <HotkeyField hotkey={settings.hotkey} onChange={toggles.onHotkey} onCapturing={toggles.onHotkeyCapturing} />
-              {settings.holdKey && (
-                <p className="muted">Segure para falar e solte para o Jarvis responder. Ele não fica esperando ser chamado: o que o microfone capta só vai para ele enquanto você segura.</p>
-              )}
-              {(settings.voice || settings.holdKey) && voiceStatus && <div className="voice-status">{voiceStatus}</div>}
-            </div>
-            <VoiceProfileSettings api={api} />
+        <div className="settings-column">
+          <div className="settings-card">
+            <div className="settings-card-title">Como falar</div>
+            <label title={settings.holdKey ? `Desligada enquanto o atalho ${settings.hotkey.label} estiver ativado` : 'Escuta o microfone esperando “Jarvis”'}>
+              <input type="checkbox" checked={settings.voice} disabled={settings.holdKey} onChange={toggles.onVoice} />
+              Escuta ativa
+            </label>
+            <label title={`Segure ${settings.hotkey.label} para falar; ao soltar, o Jarvis responde`}>
+              <input type="checkbox" checked={settings.holdKey} onChange={toggles.onHoldKey} />
+              Falar com {settings.hotkey.label}
+            </label>
+            <HotkeyField hotkey={settings.hotkey} onChange={toggles.onHotkey} onCapturing={toggles.onHotkeyCapturing} />
+            {settings.holdKey && (
+              <p className="muted">Segure para falar e solte para o Jarvis responder. Ele não fica esperando ser chamado: o que o microfone capta só vai para ele enquanto você segura.</p>
+            )}
+            {(settings.voice || settings.holdKey) && voiceStatus && <div className="voice-status">{voiceStatus}</div>}
           </div>
-          <div className="settings-column">
-            <SttSettings api={api} />
-            <PauseSettings api={api} />
-          </div>
+          <VoiceProfileSettings api={api} />
+          <SttSettings api={api} />
+          <PauseSettings api={api} />
         </div>
       </SettingsSection>
 
