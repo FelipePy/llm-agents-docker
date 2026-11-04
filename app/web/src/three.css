@@ -117,7 +117,7 @@
 .modal { position: relative; display: flex; flex-direction: column; width: min(560px, 100%); max-height: 100%; background: rgba(10, 10, 16, 0.95); border: 1px solid rgba(255, 209, 102, 0.18); border-radius: 14px; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6); outline: none; }
 .modal.wide { width: min(940px, 100%); }
 .modal .day { flex: 1; min-height: 0; padding: 24px 28px; border: none; background: transparent; }
-.modal-close { position: absolute; top: 14px; right: 18px; z-index: 1; width: 28px; height: 28px; padding: 0; border: none; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; }
+.modal-close { position: absolute; top: 14px; right: 18px; z-index: 1; width: 28px; height: 28px; padding: 0; border: none; border-radius: 50%; background: rgba(10, 10, 16, 0.85); color: var(--muted); font-size: 20px; line-height: 1; }
 .modal-close:hover, .modal-close:focus-visible { color: var(--text); outline: none; }
 @media (prefers-reduced-motion: no-preference) {
   .modal { animation: modal-in 0.18s ease-out; }
@@ -137,8 +137,12 @@
 .settings-panel h2 { margin: 0 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
 .settings-panel label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; }
 .settings-panel p { margin: 0; font-size: 12px; }
-.stt-settings { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
-.stt-title { font-size: 13px; }
+.settings-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.settings-column { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+@media (max-width: 720px) { .settings-columns { grid-template-columns: minmax(0, 1fr); } }
+.settings-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, 0.02); }
+.settings-button { align-self: flex-start; }
+.settings-card-title { font-size: 13px; font-weight: 500; }
 .stt-groq { display: flex; flex-direction: column; gap: 8px; padding-left: 22px; }
 .settings-panel .field { flex-direction: column; align-items: stretch; gap: 4px; cursor: default; }
 .settings-panel .field span { font-size: 12px; color: var(--muted); }

@@ -164,8 +164,8 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
         'Pronto: agora só a sua voz ativa o Jarvis.',
       );
     return (
-      <div className="stt-settings">
-        <div className="stt-title">{redo ? 'Refazer a voz' : 'Cadastrar a sua voz'}</div>
+      <div className="settings-card">
+        <div className="settings-card-title">{redo ? 'Refazer a voz' : 'Cadastrar a sua voz'}</div>
         <p className="muted">Num lugar silencioso, grave cada frase com a sua voz normal, como fala com o Jarvis.</p>
         {PHRASES.map((phrase, i) => (
           <Recorder key={i} phrase={phrase} audio={audio[i]} onAudio={setPhrase(i)} onError={fail} disabled={busy} />
@@ -209,8 +209,8 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
 
   if (mode === 'recover') {
     return (
-      <div className="stt-settings">
-        <div className="stt-title">Esqueci a senha</div>
+      <div className="settings-card">
+        <div className="settings-card-title">Esqueci a senha</div>
         <p className="muted">Pela sua voz: grave a frase abaixo e defina a senha nova.</p>
         <Recorder phrase={PHRASES[0]} audio={audio[0]} onAudio={setPhrase(0)} onError={fail} disabled={busy} />
         {profile.emailRecovery && (
@@ -269,8 +269,8 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
   }
 
   return (
-    <div className="stt-settings">
-      <div className="stt-title">Sua voz</div>
+    <div className="settings-card">
+      <div className="settings-card-title">Sua voz</div>
       <p className={profile.enrolled ? 'voice-enrolled' : 'muted'}>
         {profile.enrolled
           ? `✓ Voz cadastrada${profile.enrolledAt ? ` em ${date(profile.enrolledAt)}` : ''}: só ela ativa o Jarvis.`
