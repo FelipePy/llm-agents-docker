@@ -29,9 +29,3 @@ Oferecer mais opções além de dourado, ciano e branco, como vermelho, verde e 
 - Mais opções de voz para selecionar, com prévia.
 
 **Situação:** pendente; nenhum sinal no código da interface.
-
-### 5. Novas estéticas para o globo
-Criar pelo menos mais dois estilos para o globo, trocáveis direto nas configurações. Falta conferir se o código está
-organizado para aceitar estilos diferentes.
-
-**Situação:** pendente; nenhum sinal no código da interface.
