@@ -91,6 +91,15 @@ export function looksBusy(output: string): boolean {
   return BUSY.test(stripTerminal(output.slice(-3000)));
 }
 
+// Mais estrito que o BUSY: um dialogo parado (o aviso de confianca) tambem mostra "esc to cancel".
+const WORKING = /esc to interrupt|esc para interromper/i;
+
+/** Sessoes com um agente trabalhando agora. O shell fica de fora: nao ha como saber se ele esta ocupado. */
+export function countWorking(sessions: SessionInfo[], output: (id: string) => string | null): number {
+  const working = (id: string) => WORKING.test(stripTerminal((output(id) ?? '').slice(-3000)));
+  return sessions.filter((s) => s.alive && s.agent !== 'shell' && working(s.id)).length;
+}
+
 export const tailOf = (output: string, lines = 30, max = 2500): string => usefulLines(output).slice(-lines).join('\n').slice(-max);
 
 /** Frase falada sem o resumo do cerebro: o essencial das ultimas linhas. */

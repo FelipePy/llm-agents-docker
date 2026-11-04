@@ -190,3 +190,30 @@ test('WebSocket: create-project cria a pasta na pasta-base e abre o Claude', asy
     await app.close();
   }
 });
+
+test('WebSocket avisa quantas tarefas estao rodando em background', async () => {
+  const fx = buildFixture();
+  // Agente falso: trabalha ate receber uma linha, depois limpa a tela (o eco da linha digitada desce o cursor) e fica parado.
+  const bin = join(fx.home, 'fake-busy-agent');
+  write(bin, '#!/usr/bin/env bash\nprintf "esc to interrupt"\nIFS= read -r line\nprintf "\\033[2J\\033[H"\nsleep 30\n');
+  chmodSync(bin, 0o755);
+  const { app, port } = await startApp(fx.home, { bin });
+  const c = await connect(port);
+  const last = () => c.messages.filter((m) => m.type === 'background').at(-1)?.count;
+  try {
+    await waitFor(() => last() === 0);
+    c.send({ type: 'open', projectPath: fx.p1, agent: 'claude', cols: 80, rows: 24 });
+    const opened = await waitFor(() => c.messages.find((m) => m.type === 'opened'));
+    await waitFor(() => last() === 1);
+
+    const late = await connect(port);
+    await waitFor(() => late.messages.find((m) => m.type === 'background')?.count === 1);
+    late.ws.close();
+
+    c.send({ type: 'input', id: opened.session.id, data: 'fim\r' });
+    await waitFor(() => last() === 0);
+  } finally {
+    c.ws.close();
+    await app.close();
+  }
+});

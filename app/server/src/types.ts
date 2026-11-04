@@ -109,6 +109,8 @@ export type ServerMessage =
   | { type: 'history'; id: string; data: string }
   | { type: 'exit'; id: string; code: number }
   | { type: 'changed' }
+  /** Agentes trabalhando agora nos terminais (a frase das tarefas em background). */
+  | { type: 'background'; count: number }
   /** Estado da voz e ultima fala do Jarvis (para a bolinha flutuante do app desktop). */
   | { type: 'voice'; state: VoiceState; text?: string }
   | { type: 'error'; message: string };

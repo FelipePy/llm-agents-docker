@@ -23,6 +23,7 @@ import { HoldWave } from './components/HoldWave.tsx';
 import { SkillDetail } from './components/SkillDetail.tsx';
 import { SkillsPanel } from './components/SkillsPanel.tsx';
 import { TerminalDrawer } from './components/TerminalDrawer.tsx';
+import { backgroundLabel } from './format.ts';
 import { OFF_VIEW, VoiceClient, VoiceConnectionError, timingText, voiceStatus, type VoiceView } from './voice/client.ts';
 import { floatSupported, openFloatingOrb, type FloatingOrb } from './voice/float.ts';
 import { HoldKeys } from './voice/hold.ts';
@@ -93,6 +94,7 @@ function Connected({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>('connecting');
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [backgroundCount, setBackgroundCount] = useState(0);
   const [tabs, setTabs] = useState<TabsState>(emptyTabs);
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -286,6 +288,9 @@ function Connected({ token }: { token: string }) {
             break;
           case 'changed':
             setRevision((r) => r + 1);
+            break;
+          case 'background':
+            setBackgroundCount(m.count);
             break;
           case 'error':
             setError(m.message);
@@ -625,6 +630,11 @@ function Connected({ token }: { token: string }) {
           </>
         )}
       </main>
+      {backgroundCount > 0 && (
+        <div className="background-tasks" role="status">
+          {backgroundLabel(backgroundCount)}
+        </div>
+      )}
       <TerminalDrawer
         tabs={tabs}
         sessions={sessions}

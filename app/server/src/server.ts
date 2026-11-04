@@ -18,7 +18,7 @@ import { COMMANDS } from './voice/commands.ts';
 import { EvolutionManager, markUpdateAnnounced, readUpdate, updateNotice, updateOutcome, type EvolutionDeps, type SelfCheck } from './evolution.ts';
 import { writeFile } from 'node:fs/promises';
 import { Announcer } from './voice/announcer.ts';
-import { SessionWatcher, type WatchSummarizer } from './voice/session-watch.ts';
+import { SessionWatcher, countWorking, type WatchSummarizer } from './voice/session-watch.ts';
 import { shortTitle } from './conversations.ts';
 import { gitLines } from './catalog.ts';
 import { VoiceSession, type VoiceWorker, type WorkerEvent } from './voice/session.ts';
@@ -166,6 +166,17 @@ export function createApp(opts: AppOptions): App {
   terminals.on('output', (id: string, data: string) => broadcast({ type: 'output', id, data }));
   terminals.on('exit', (id: string, code: number) => broadcast({ type: 'exit', id, code }));
   terminals.on('sessions', () => broadcast({ type: 'sessions', sessions: terminals.list() }));
+
+  // Tarefas em background: a tela so diz quem esta trabalhando quando olhada, entao a contagem e periodica.
+  let backgroundCount = 0;
+  const syncBackground = (): void => {
+    const count = countWorking(terminals.list(), (id) => terminals.screen(id));
+    if (count === backgroundCount) return;
+    backgroundCount = count;
+    broadcast({ type: 'background', count });
+  };
+  terminals.on('sessions', syncBackground);
+  const backgroundTimer = setInterval(syncBackground, 2_000);
 
   // Voz do usuario: o worker calcula os vetores (cadastro, recuperacao e ativacao).
   let embedSeq = 0;
@@ -620,6 +631,7 @@ export function createApp(opts: AppOptions): App {
     wss.handleUpgrade(req, socket, head, (ws) => {
       clients.add(ws);
       ws.on('close', () => clients.delete(ws));
+      ws.send(JSON.stringify({ type: 'background', count: backgroundCount } satisfies ServerMessage));
       ws.send(JSON.stringify({ type: 'sessions', sessions: terminals.list() } satisfies ServerMessage));
       ws.on('message', (raw) => {
         let msg: ClientMessage;
@@ -644,6 +656,7 @@ export function createApp(opts: AppOptions): App {
       }),
     close: async () => {
       clearInterval(noticeTimer);
+      clearInterval(backgroundTimer);
       terminals.closeAll();
       voiceSession?.stop();
       voiceSocket?.terminate();

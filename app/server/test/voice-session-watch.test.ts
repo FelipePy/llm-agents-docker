@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SessionWatcher, findError, looksBusy, plainReport, usefulLines } from '../src/voice/session-watch.ts';
+import { SessionWatcher, countWorking, findError, looksBusy, plainReport, usefulLines } from '../src/voice/session-watch.ts';
 import type { SessionInfo } from '../src/types.ts';
 
 function setup(opts: { quietMs?: number; summarize?: ConstructorParameters<typeof SessionWatcher>[0]['summarize'] } = {}) {
@@ -146,4 +146,26 @@ test('rewatch volta a acompanhar so sessoes ja acompanhadas; unwatch e sessao fe
   t.sessions.delete('s2');
   t.w.reports();
   assert.equal(t.w.rewatch('s2'), false, 'fechada: esquecida');
+});
+
+test('countWorking conta so os agentes vivos trabalhando', () => {
+  const session = (id: string, agent: SessionInfo['agent'], alive = true): SessionInfo => ({
+    id, projectPath: '/w/app', agent, title: 't', startedAt: '2026-11-03T10:00:00Z', alive,
+  });
+  const screens: Record<string, string> = {
+    claude: 'Lendo arquivos (esc to interrupt)',
+    codex: 'Working (esc to interrupt)',
+    parado: 'Pronto.\n> ',
+    dialogo: 'Yes, I trust this folder\nEnter to confirm · Esc to cancel',
+    morto: 'Lendo arquivos (esc to interrupt)',
+    shell: 'grep "esc to interrupt" README.md',
+  };
+  const count = (sessions: SessionInfo[]) => countWorking(sessions, (id) => screens[id] ?? null);
+  assert.equal(count([]), 0);
+  assert.equal(count([session('parado', 'claude')]), 0);
+  assert.equal(count([session('dialogo', 'claude')]), 0, 'esperando o usuario num dialogo: nao trabalha');
+  assert.equal(count([session('morto', 'claude', false)]), 0);
+  assert.equal(count([session('shell', 'shell')]), 0);
+  assert.equal(count([session('sumiu', 'claude')]), 0, 'sem tela: nao trabalha');
+  assert.equal(count([session('claude', 'claude'), session('codex', 'codex'), session('parado', 'claude'), session('shell', 'shell')]), 2);
 });

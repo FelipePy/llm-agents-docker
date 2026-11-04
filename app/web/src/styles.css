@@ -66,6 +66,9 @@ code { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size: 12p
 .card summary { padding: 8px 12px; cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted); }
 .markdown { padding: 0 16px 8px; line-height: 1.5; }
 
+/* Na mesma linha do conteudo, sem rolar com ele: fica no canto, logo acima do terminal. */
+.background-tasks { grid-column: 1 / -1; grid-row: 1; align-self: end; justify-self: end; position: relative; z-index: 6; margin: 0 16px 10px; color: var(--muted); font-size: 12px; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9); pointer-events: none; }
+
 .drawer { grid-column: 1 / -1; grid-row: 2; display: flex; flex-direction: column; border-top: 1px solid var(--line); background: var(--bg); min-width: 0; min-height: 36px; max-height: calc(100dvh - 80px); }
 .drag { height: 5px; cursor: ns-resize; }
 .drag:hover { background: var(--accent); }
