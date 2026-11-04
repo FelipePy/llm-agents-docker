@@ -2,7 +2,7 @@
 
 Tarefas do projeto, registradas aqui porque as issues do fork no GitHub estão desativadas.
 
-As issues 1 a 6 foram ditadas ao Jarvis na madrugada de 04/11/2026 e a 7 na manhã do mesmo dia. Ele respondeu "anotado", mas
+As issues 1 a 5 foram ditadas ao Jarvis na madrugada de 04/11/2026 e a 7 na manhã do mesmo dia. Ele respondeu "anotado", mas
 nada foi gravado na hora; o texto abaixo foi recuperado do histórico das conversas, e a issue 7 foi redefinida depois pelo
 usuário. A situação foi conferida pelo código e pelos commits da `main` em 04/11/2026, sem abrir a interface.
 
@@ -49,17 +49,3 @@ Enquanto uma tarefa roda em background, nada na tela mostra que ela está rodand
 - Sem nada rodando em background, a frase não aparece.
 
 **Situação:** pendente; nenhum sinal no código da interface.
-
-## Concluídas
-
-### 6. Rolagem no terminal
-O layout do terminal não se adaptava à responsividade da página e gerava rolagem horizontal e vertical. A meta era eliminar
-a rolagem e melhorar a estética da barra de abas.
-
-**Situação:** concluída na `main` (merges `ce51887` e `c587073`).
-
-### Atalho para falar com o Jarvis
-Segurar um atalho para falar e soltar para ele responder, com uma onda sonora no topo da tela. Começou como Ctrl+Espaço e
-hoje aceita outras teclas e o botão do meio do mouse.
-
-**Situação:** concluída na `main` (merge `55d23a6`).
