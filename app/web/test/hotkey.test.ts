@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { voiceStatus } from '../src/voice/client.ts';
 import { DEFAULT_HOTKEY, HotkeyCapture, hotkeyFrom, isHotkeyModifier, matchesHotkey, parseHotkey, sameHotkey, type Hotkey } from '../src/voice/hotkey.ts';
 
 const key = (code: string, k: string, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean; repeat?: boolean } = {}) => ({
@@ -118,5 +119,18 @@ describe('HotkeyCapture', () => {
     const { log, c } = capture();
     c.keydown(key('KeyW', 'w', { ctrl: true }));
     expect(log).toEqual(['Ctrl+W']);
+  });
+});
+
+describe('voiceStatus', () => {
+  const view = (state: 'sleeping' | 'listening', relay = '') => ({ state, relay }) as Parameters<typeof voiceStatus>[0];
+
+  it('as mensagens citam o atalho escolhido', () => {
+    expect(voiceStatus(view('sleeping'), 'Ctrl+Shift+J')).toBe('segure Ctrl+Shift+J para falar');
+    expect(voiceStatus(view('listening', 'claude'), 'F9')).toContain('segure F9 e diga');
+  });
+
+  it('sem o atalho ligado, continua esperando o nome', () => {
+    expect(voiceStatus(view('sleeping'))).toBe('diga “Jarvis”');
   });
 });

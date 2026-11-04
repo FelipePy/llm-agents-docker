@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { DEFAULT_HOTKEY, parseHotkey, type Hotkey } from './voice/hotkey.ts';
 
 export function hasWebGL(): boolean {
   try {
@@ -33,6 +34,16 @@ export function useChoice<T extends string>(key: string, initial: T, valid: (v: 
   const set = (v: T) => {
     localStorage.setItem(key, v);
     setValue(v);
+  };
+  return [value, set];
+}
+
+/** Atalho de falar, guardado no localStorage; o que estiver invalido volta ao padrao. */
+export function useHotkey(key: string): [Hotkey, (h: Hotkey) => void] {
+  const [value, setValue] = useState<Hotkey>(() => parseHotkey(localStorage.getItem(key)) ?? DEFAULT_HOTKEY);
+  const set = (h: Hotkey) => {
+    localStorage.setItem(key, JSON.stringify(h));
+    setValue(h);
   };
   return [value, set];
 }

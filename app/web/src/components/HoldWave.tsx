@@ -7,7 +7,7 @@ const RISE = 0.5;
 const FALL = 0.14;
 
 /** Onda sonora enquanto o usuario segura o atalho; acompanha o volume captado. */
-export function HoldWave({ level, reduced }: { level: () => number; reduced: boolean }) {
+export function HoldWave({ level, reduced, hotkey }: { level: () => number; reduced: boolean; hotkey: string }) {
   const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export function HoldWave({ level, reduced }: { level: () => number; reduced: boo
   }, [level, reduced]);
 
   return (
-    <div className="hold-wave" ref={root} role="status" aria-label="Ouvindo; solte Ctrl+Espaço para o Jarvis responder">
+    <div className="hold-wave" ref={root} role="status" aria-label={`Ouvindo; solte ${hotkey} para o Jarvis responder`}>
       {Array.from({ length: BARS }, (_, i) => (
         <span key={i} />
       ))}

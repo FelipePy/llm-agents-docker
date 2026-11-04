@@ -42,10 +42,10 @@ const MODE: Record<VoiceState, CoreMode> = {
   speaking: 'speaking',
 };
 
-/** `hold`: fala-se segurando o atalho (nao ha escuta esperando o nome). */
-export function voiceStatus(v: VoiceView, hold = false): string {
+/** `hold`: nome do atalho, se fala-se segurando ele (nao ha escuta esperando o nome). */
+export function voiceStatus(v: VoiceView, hold?: string): string {
   if (v.relay && v.state !== 'off') {
-    const how = hold ? 'segure Ctrl+Espaço e diga' : 'diga';
+    const how = hold ? `segure ${hold} e diga` : 'diga';
     return `ditando para o ${v.relay} — ${how} “envia” para enviar, “Jarvis, volta” para sair`;
   }
   switch (v.state) {
@@ -54,7 +54,7 @@ export function voiceStatus(v: VoiceView, hold = false): string {
     case 'preparing':
       return v.detail ? `${v.detail}…` : 'preparando a voz…';
     case 'sleeping':
-      return hold ? 'segure Ctrl+Espaço para falar' : 'diga “Jarvis”';
+      return hold ? `segure ${hold} para falar` : 'diga “Jarvis”';
     case 'listening':
       return 'ouvindo…';
     case 'thinking':

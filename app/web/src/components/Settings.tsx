@@ -1,4 +1,6 @@
 import type { GlobeColor } from '../scene/globe.ts';
+import type { Hotkey } from '../voice/hotkey.ts';
+import { HotkeyField } from './HotkeyField.tsx';
 
 export interface SettingsState {
   webgl: boolean;
@@ -6,8 +8,10 @@ export interface SettingsState {
   reduceMotion: boolean;
   voiceDemo: boolean;
   voice: boolean;
-  /** Fala-se segurando Ctrl+Espaco (a escuta continua fica desligada). */
+  /** Fala-se segurando o atalho (a escuta continua fica desligada). */
   holdKey: boolean;
+  /** Combinacao do atalho de falar. */
+  hotkey: Hotkey;
   /** Cor do globo do Jarvis. */
   globeColor: GlobeColor;
   sounds: boolean;
@@ -19,6 +23,8 @@ export interface SettingsToggles {
   onVoiceDemo: () => void;
   onVoice: () => void;
   onHoldKey: () => void;
+  onHotkey: (h: Hotkey) => void;
+  onHotkeyCapturing: (on: boolean) => void;
   onGlobeColor: (c: GlobeColor) => void;
   onSounds: () => void;
 }
@@ -27,14 +33,15 @@ export function Settings({ settings, toggles, voiceStatus }: { settings: Setting
   const use3d = settings.webgl && settings.mode3d;
   return (
     <div className="settings">
-      <label title={settings.holdKey ? 'Desligada enquanto o atalho Ctrl+Espaço estiver ativado' : 'Escuta o microfone esperando “Hey Jarvis”'}>
+      <label title={settings.holdKey ? `Desligada enquanto o atalho ${settings.hotkey.label} estiver ativado` : 'Escuta o microfone esperando “Hey Jarvis”'}>
         <input type="checkbox" checked={settings.voice} disabled={settings.holdKey} onChange={toggles.onVoice} />
         Escuta ativa
       </label>
-      <label title="Segure Ctrl+Espaço para falar; ao soltar, o Jarvis responde. A escuta por “Jarvis” fica desligada.">
+      <label title={`Segure ${settings.hotkey.label} para falar; ao soltar, o Jarvis responde. A escuta por “Jarvis” fica desligada.`}>
         <input type="checkbox" checked={settings.holdKey} onChange={toggles.onHoldKey} />
-        Falar com Ctrl+Espaço
+        Falar com {settings.hotkey.label}
       </label>
+      <HotkeyField hotkey={settings.hotkey} onChange={toggles.onHotkey} onCapturing={toggles.onHotkeyCapturing} />
       {(settings.voice || settings.holdKey) && voiceStatus && <div className="voice-status">{voiceStatus}</div>}
       <label title={settings.webgl ? '' : 'Este navegador não tem WebGL 2'}>
         <input type="checkbox" checked={use3d} disabled={!settings.webgl} onChange={toggles.on3d} />

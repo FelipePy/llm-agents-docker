@@ -1,5 +1,6 @@
 import type { Api } from '../api.ts';
 import type { DesktopInfo } from '../desktop.ts';
+import { HotkeyField } from './HotkeyField.tsx';
 import { PauseSettings } from './PauseSettings.tsx';
 import { SttSettings } from './SttSettings.tsx';
 import { VoiceProfileSettings } from './VoiceProfileSettings.tsx';
@@ -27,14 +28,15 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
 
       <section>
         <h2>Voz</h2>
-        <label title={settings.holdKey ? 'Desligada enquanto o atalho Ctrl+Espaço estiver ativado' : 'Escuta o microfone esperando “Jarvis”'}>
+        <label title={settings.holdKey ? `Desligada enquanto o atalho ${settings.hotkey.label} estiver ativado` : 'Escuta o microfone esperando “Jarvis”'}>
           <input type="checkbox" checked={settings.voice} disabled={settings.holdKey} onChange={toggles.onVoice} />
           Escuta ativa
         </label>
-        <label title="Segure Ctrl+Espaço para falar; ao soltar, o Jarvis responde">
+        <label title={`Segure ${settings.hotkey.label} para falar; ao soltar, o Jarvis responde`}>
           <input type="checkbox" checked={settings.holdKey} onChange={toggles.onHoldKey} />
-          Falar com Ctrl+Espaço
+          Falar com {settings.hotkey.label}
         </label>
+        <HotkeyField hotkey={settings.hotkey} onChange={toggles.onHotkey} onCapturing={toggles.onHotkeyCapturing} />
         {settings.holdKey && (
           <p className="muted">Segure para falar e solte para o Jarvis responder. Ele não fica esperando ser chamado: o que o microfone capta só vai para ele enquanto você segura.</p>
         )}
