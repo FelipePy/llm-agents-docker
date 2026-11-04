@@ -250,7 +250,7 @@ export function createApp(opts: AppOptions): App {
       return 'error' in result ? send(res, 400, result) : send(res, 200, result.view);
     }
     if (url.pathname === '/api/self-check' && req.method === 'GET') {
-      return send(res, 200, await selfCheck(url.searchParams.get('record') === '1'));
+      return send(res, 200, await selfCheck(url.searchParams.get('record') === '1', url.searchParams.get('voice') !== '0'));
     }
     if (url.pathname === '/api/jarvis/memory' && req.method === 'GET') {
       return send(res, 200, { facts: memory.facts(), conversations: memory.conversations() });
@@ -430,8 +430,8 @@ export function createApp(opts: AppOptions): App {
     });
   }
 
-  /** Verificacoes depois de uma atualizacao (chamadas pelo app/restart.sh). */
-  async function selfCheck(record: boolean): Promise<{ ok: boolean; checks: SelfCheck[] }> {
+  /** Verificacoes depois de uma atualizacao (chamadas pelo app/restart.sh). `voice` falso pula a voz (ainda nao instalada). */
+  async function selfCheck(record: boolean, voice = true): Promise<{ ok: boolean; checks: SelfCheck[] }> {
     const checks: SelfCheck[] = [];
     const check = async (name: string, essential: boolean, fn: () => Promise<unknown>, timeoutMs: number) => {
       const started = Date.now();
@@ -460,7 +460,7 @@ export function createApp(opts: AppOptions): App {
     await check('web', true, async () => {
       if (!(await isFile(join(webRoot, 'index.html')))) throw new Error('interface não compilada');
     }, 2_000);
-    if (opts.voice) await check('voz', true, () => voiceCheck(opts.voice!.worker), 180_000);
+    if (opts.voice && voice) await check('voz', true, () => voiceCheck(opts.voice!.worker), 180_000);
     if (opts.selfCheck?.brain) await check('cerebro', false, opts.selfCheck.brain, 45_000);
     const ok = checks.every((c) => c.ok || !c.essential);
     const file = opts.evolution?.updateFile;
