@@ -28,7 +28,7 @@ import { TopActions, type TopModal } from './components/TopActions.tsx';
 import { backgroundLabel } from './format.ts';
 import { OFF_VIEW, VoiceClient, VoiceConnectionError, timingText, voiceStatus, type VoiceView } from './voice/client.ts';
 import { floatSupported, openFloatingOrb, type FloatingOrb } from './voice/float.ts';
-import { HoldKeys } from './voice/hold.ts';
+import { useHoldKeys } from './voice/useHoldKeys.ts';
 import { MIDDLE_BUTTON, matchesHotkey } from './voice/hotkey.ts';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { setAutostart, useDesktop } from './desktop.ts';
@@ -185,56 +185,14 @@ function Connected({ token }: { token: string }) {
   }, [voiceActive, holdKey, token, voiceEpoch]);
 
   // Atalho de falar: funciona em toda a pagina, inclusive com o foco num terminal.
-  useEffect(() => {
-    if (!holdKey || hotkeyCapturing) return;
-    const keys = new HoldKeys(
-      () => {
-        if (voiceRef.current) voiceRef.current.holdStart();
-        else setVoiceEpoch((e) => e + 1); // o microfone falhou: tenta abrir de novo
-      },
-      () => voiceRef.current?.holdEnd(),
-      hotkey,
-    );
-    const consume = (taken: boolean, e: Event) => {
-      if (!taken) return;
-      e.preventDefault();
-      e.stopPropagation();
-    };
-    const down = (e: KeyboardEvent) => consume(keys.keydown(e), e);
-    const up = (e: KeyboardEvent) => consume(keys.keyup(e), e);
-    // Botao do meio: `mousedown` impede a rolagem automatica; `mouseup`, colar no Linux; `auxclick`, abrir link.
-    const mouseDown = (e: MouseEvent) => consume(keys.mousedown(e), e);
-    const mouseUp = (e: MouseEvent) => consume(keys.mouseup(e), e);
-    const aux = (e: MouseEvent) => consume(keys.auxclick(e), e);
-    const mouseMove = (e: MouseEvent) => keys.mousemove(e);
-    // Vem antes do `mousedown` e so nao chega ao zoom da cena; cancelar aqui sumiria com o `mouseup`.
-    const pointerDown = (e: PointerEvent) => {
-      if (keys.mousedown(e)) e.stopPropagation();
-    };
-    const lost = () => keys.cancel();
-    const hidden = () => document.hidden && keys.cancel();
-    window.addEventListener('keydown', down, true);
-    window.addEventListener('keyup', up, true);
-    window.addEventListener('pointerdown', pointerDown, true);
-    window.addEventListener('mousedown', mouseDown, true);
-    window.addEventListener('mouseup', mouseUp, true);
-    window.addEventListener('auxclick', aux, true);
-    window.addEventListener('mousemove', mouseMove, true);
-    window.addEventListener('blur', lost);
-    document.addEventListener('visibilitychange', hidden);
-    return () => {
-      window.removeEventListener('keydown', down, true);
-      window.removeEventListener('keyup', up, true);
-      window.removeEventListener('pointerdown', pointerDown, true);
-      window.removeEventListener('mousedown', mouseDown, true);
-      window.removeEventListener('mouseup', mouseUp, true);
-      window.removeEventListener('auxclick', aux, true);
-      window.removeEventListener('mousemove', mouseMove, true);
-      window.removeEventListener('blur', lost);
-      document.removeEventListener('visibilitychange', hidden);
-      keys.cancel();
-    };
-  }, [holdKey, hotkey, hotkeyCapturing]);
+  useHoldKeys(
+    holdKey && !hotkeyCapturing ? hotkey : null,
+    () => {
+      if (voiceRef.current) voiceRef.current.holdStart();
+      else setVoiceEpoch((e) => e + 1); // o microfone falhou: tenta abrir de novo
+    },
+    () => voiceRef.current?.holdEnd(),
+  );
   const holdLevel = useCallback(() => voiceRef.current?.micLevel() ?? 0, []);
   const holdWave = voice.holding ? <HoldWave level={holdLevel} reduced={reduceMotion} hotkey={hotkey.label} /> : null;
 
