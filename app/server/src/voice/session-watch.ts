@@ -139,52 +139,91 @@ export function plainReport(r: WatchReport): string {
   return `${last ? `As últimas linhas dizem: ${last}. ` : ''}Quer que eu conte mais?`;
 }
 
-const TRUST_PROMPT = /Yes, I trust this folder/;
+const TRUST_PROMPT = /Yes, I trust this folder|Do you trust the contents of this directory/;
+// Os dialogos ficam colados no fim da tela: o que rolou para cima nao esta mais esperando.
+const DIALOG_LINES = 30;
+const dialogArea = (screen: string): string[] => screen.split('\n').slice(-DIALOG_LINES);
 
-/** O Claude Code esta parado na tela de confiar na pasta. Olha so o fim: a sessao pode ter citado a frase antes. */
+/** O agente esta parado na tela de confiar na pasta. Olha so o fim: a sessao pode ter citado a frase antes. */
 export function waitingForTrust(screen: string): boolean {
-  return TRUST_PROMPT.test(screen.split('\n').slice(-30).join('\n'));
+  return TRUST_PROMPT.test(dialogArea(screen).join('\n'));
+}
+
+// O cursor dos menus do Claude (❯) e do Codex (›). A caixa de texto usa o mesmo sinal, por isso vale so o ultimo.
+const CURSOR = /^(\s*)[❯›](\s+|$)/u;
+// O menu pede uma resposta: uma pergunta, ou o rodape das telas de inicio do Codex (a de atualizar nao pergunta nada).
+const ASKS = /\p{L}\?(\s|$)|press enter to continue/iu;
+/** Ate onde procurar a pergunta acima do cursor: as opcoes e o comando ficam entre os dois. */
+const QUESTION_LINES = 15;
+
+/** Outra opcao do menu: alinhada com o texto do cursor (ou mais para dentro, como a descricao de uma opcao). */
+const isOption = (line: string | undefined, column: number): boolean =>
+  line !== undefined && line.search(/\S/) >= column && /[\p{L}\p{N}]/u.test(line);
+
+/**
+ * Filtro local, sem o cerebro, para o aviso sair na hora: um menu com cursor e uma pergunta logo
+ * acima dele. A caixa de texto (mesmo com rascunho) nao tem opcoes em volta, e um menu aberto pelo
+ * usuario, como o /model, nao pergunta nada.
+ */
+export function waitingForDecision(screen: string): boolean {
+  if (waitingForTrust(screen)) return true;
+  const lines = dialogArea(screen);
+  const at = lines.findLastIndex((l) => CURSOR.test(l));
+  if (at < 0) return false;
+  const cursor = CURSOR.exec(lines[at])!;
+  if (cursor[0].length === lines[at].length) return false;
+  const column = cursor[0].length;
+  if (!isOption(lines[at - 1], column) && !isOption(lines[at + 1], column)) return false;
+  return lines.slice(Math.max(0, at - QUESTION_LINES)).some((l) => ASKS.test(l));
+}
+
+/** Frase fixa e curta: o aviso nao espera o cerebro. */
+export function decisionNotice(title: string, screen: string): string {
+  return waitingForTrust(screen)
+    ? `Senhor, a sessão "${title}" está esperando você confirmar, no terminal dela, que confia na pasta.`
+    : `Senhor, a sessão "${title}" está esperando uma decisão sua no terminal.`;
 }
 
 /**
- * Sessoes paradas na tela de confiar na pasta ha algum tempo. A espera poupa o aviso
- * de quem acabou de abrir o terminal e esta olhando para ela. Avisa uma vez por sessao.
+ * Sessoes de agente paradas pedindo uma resposta do usuario. A espera curta deixa de fora o dialogo
+ * que o usuario responde na hora. Avisa uma vez por pergunta: responder libera o aviso da proxima.
  */
-export class TrustWatcher {
+export class DecisionWatcher {
   private readonly since = new Map<string, number>();
   private readonly warned = new Set<string>();
   private readonly sessions: () => SessionInfo[];
   private readonly output: (id: string) => string | null;
   private readonly now: () => number;
   private readonly graceMs: number;
+  private readonly log?: (line: string) => void;
 
-  constructor(opts: { sessions: () => SessionInfo[]; output: (id: string) => string | null; now?: () => number; graceMs?: number }) {
+  constructor(opts: { sessions: () => SessionInfo[]; output: (id: string) => string | null; now?: () => number; graceMs?: number; log?: (line: string) => void }) {
     this.sessions = opts.sessions;
     this.output = opts.output;
     this.now = opts.now ?? Date.now;
-    this.graceMs = opts.graceMs ?? 30_000;
+    this.graceMs = opts.graceMs ?? 2_000;
+    this.log = opts.log;
   }
 
-  /** O que falar agora. Fica pendente ate `markWarned`, e some sozinho se o usuario responder na tela. */
-  pending(): { id: string; text: string }[] {
-    const out: { id: string; text: string }[] = [];
+  /**
+   * Fala o que puder agora. `say` devolve falso quando o Jarvis esta ocupado: o aviso fica para a
+   * proxima chamada, e some sozinho se o usuario responder na tela.
+   */
+  deliver(say: (text: string) => boolean): void {
     for (const s of this.sessions()) {
-      if (!s.alive || s.agent !== 'claude' || this.warned.has(s.id) || !waitingForTrust(this.output(s.id) ?? '')) {
+      const screen = s.alive && s.agent !== 'shell' ? (this.output(s.id) ?? '') : '';
+      if (!waitingForDecision(screen)) {
         this.since.delete(s.id);
+        this.warned.delete(s.id);
         continue;
       }
+      if (this.warned.has(s.id)) continue;
       const since = this.since.get(s.id) ?? this.now();
       this.since.set(s.id, since);
-      if (this.now() - since >= this.graceMs) {
-        out.push({ id: s.id, text: `A sessão "${s.title}" ainda não começou: está parada esperando você confirmar, no terminal dela, que confia na pasta.` });
-      }
+      if (this.now() - since < this.graceMs || !say(decisionNotice(s.title, screen))) continue;
+      this.warned.add(s.id);
+      this.log?.(`aviso de decisão de "${s.title}": falado ${((this.now() - since) / 1000).toFixed(1)} s depois de aparecer`);
     }
-    return out;
-  }
-
-  markWarned(id: string): void {
-    this.warned.add(id);
-    this.since.delete(id);
   }
 }
 
@@ -271,7 +310,8 @@ export class SessionWatcher {
         continue;
       }
       // O indicador de trabalho anima a tela: parada e sem ele, a tarefa acabou. Sem ter visto o indicador, so o tempo diz.
-      if (this.now() - w.changedAt < (w.sawWorking ? this.idleMs : this.quietMs) || looksBusy(output)) continue;
+      // Parada num dialogo nao terminou: quem avisa e o DecisionWatcher, e a tela muda quando o usuario responder.
+      if (this.now() - w.changedAt < (w.sawWorking ? this.idleMs : this.quietMs) || looksBusy(output) || waitingForDecision(output)) continue;
       const error = findError(output);
       report(error ? 'error' : 'done', error ?? undefined, w.changedAt);
     }
