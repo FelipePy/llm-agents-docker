@@ -7,8 +7,8 @@ funcionalidade nova nele mesmo (`aplicar_evolucao`). Textos para o usuário são
 
 | Pasta | O que é |
 | --- | --- |
-| `llm-agent`, `install.sh`, `Dockerfile`, `docker-compose.yml` | CLI que roda Claude Code / Codex num container por projeto. |
-| `app/ui.sh` | `llm-agent ui`: sobe, reaproveita e para o servidor da interface (porta 7777, `~/.config/llm-agent/ui`). |
+| `jarvis`, `install.sh`, `Dockerfile`, `docker-compose.yml` | CLI que roda Claude Code / Codex num container por projeto. |
+| `app/ui.sh` | `jarvis ui`: sobe, reaproveita e para o servidor da interface (porta 7777, `~/.config/llm-agent/ui`). |
 | `app/restart.sh` | Reinício verificado depois de uma evolução, com volta à versão anterior se falhar. |
 | `app/server` | Servidor Node 24 (TypeScript executado direto, sem build): API, terminais (PTY), voz e evolução. |
 | `app/web` | Interface React + Three.js (Vite): cartões, gaveta de terminais, globo do Jarvis, configurações. |
@@ -46,6 +46,7 @@ npm --prefix app/web run build
 python3 -m unittest discover -s app/voice/tests -t app/voice   # se mexer no worker (usa o .venv de app/voice)
 bash tests/ui.test.sh && bash tests/restart.test.sh             # se mexer em app/ui.sh ou app/restart.sh
 bash tests/voice-setup.test.sh                                  # se mexer em app/voice/setup.sh
+bash tests/install.test.sh                                      # se mexer em install.sh
 ```
 
 ## Fluxo de trabalho

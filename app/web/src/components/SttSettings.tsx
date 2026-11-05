@@ -25,7 +25,7 @@ export function SttSettings({ api }: { api: Api }) {
   };
 
   useEffect(() => {
-    api.voiceSettings().then(apply, () => setNotice({ kind: 'error', text: 'Não consegui ler as configurações da voz (servidor antigo? reinicie o llm-agent ui).' }));
+    api.voiceSettings().then(apply, () => setNotice({ kind: 'error', text: 'Não consegui ler as configurações da voz (servidor antigo? reinicie o jarvis ui).' }));
   }, [api]);
 
   const save = async (input: VoiceSettingsInput, done: string) => {
