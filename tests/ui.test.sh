@@ -61,4 +61,21 @@ rm -f "$state/server.json"
 "$repo/llm-agent" ui --stop >/dev/null
 check "--stop encerra o servidor orfao" "parado" "$(curl -fsS --max-time 1 "$base/api/health" >/dev/null 2>&1 && echo rodando || echo parado)"
 
+# Sem servidor: --stop avisa, sai com sucesso e permite "--stop && ui".
+out="$("$repo/llm-agent" ui --stop 2>&1)"
+check "--stop sem servidor sai com sucesso" "0" "$?"
+check "--stop sem servidor avisa" "O servidor nao esta rodando." "$out"
+
+# Servidor travado (processo vivo, porta sem resposta): --stop encerra pelo pid.
+sleep 300 &
+stuck=$!
+echo "{\"pid\":$stuck,\"port\":$LLM_AGENT_UI_PORT}" >"$state/server.json"
+out="$("$repo/llm-agent" ui --stop 2>&1)"
+check "--stop com servidor travado sai com sucesso" "0" "$?"
+check "--stop com servidor travado avisa" "Servidor encerrado." "$out"
+check "--stop encerra o servidor travado" "parado" "$(kill -0 "$stuck" 2>/dev/null && echo rodando || echo parado)"
+check "--stop travado remove o server.json" "nao" "$([ -e "$state/server.json" ] && echo sim || echo nao)"
+kill "$stuck" 2>/dev/null
+wait "$stuck" 2>/dev/null
+
 [ "$failures" -eq 0 ] && echo "todos os testes passaram" || { echo "$failures falha(s)"; exit 1; }

@@ -58,7 +58,8 @@ warn_outdated() {
 
 if [ "${1:-}" = "--stop" ]; then
   # O do server.json e, se ele se perdeu, o que responde na porta (servidor orfao).
-  pids="$(running_pid || true) $(health_field "$(json_field port || echo "$port")" pid) $(health_field "$port" pid)"
+  # Porta sem resposta nao e erro: nao ha servidor, ou ele esta travado e sai pelo pid.
+  pids="$(running_pid || true) $(health_field "$(json_field port || echo "$port")" pid || true) $(health_field "$port" pid || true)"
   stopped=""
   for pid in $(printf '%s\n' $pids | sort -u); do
     stop_pid "$pid"
