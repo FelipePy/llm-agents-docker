@@ -25,3 +25,8 @@ Quando o terminal termina uma tarefa, o Jarvis lê só a última linha exibida n
 Aprimorar a frase que informa quantas tarefas estão rodando em background (ex.: x tarefas rodando). Ela deve valer tanto quando uma tarefa está rodando na própria sessão quanto quando a sessão do Claude deixa uma tarefa rodando em background. Já existe a frase; o pedido é melhorá-la para cobrir esses dois casos.
 
 **Situação:** pendente.
+
+### 7. Avisar mais rápido quando a sessão precisa de decisão do usuário
+Estender ao aviso de decisão a melhoria recente de tempo de resposta feita para quando a tarefa termina na sessão (hoje cerca de 2 a 3 segundos, antes cerca de 30). Quando o terminal pede uma resposta ou decisão do usuário, como confirmar se pode confiar no diretório ou aceitar uma sugestão que está aguardando, o Jarvis hoje demora muito para avisar. Deve avisar com a mesma rapidez.
+
+**Situação:** pendente.
