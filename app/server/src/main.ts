@@ -163,7 +163,7 @@ const app = createApp({
     restart: restartVerified,
     voicePython: join(repo, 'app', 'voice', '.venv', 'bin', 'python'),
   },
-  issues: { repoDir: repo, run },
+  issues: { repoDir: repo },
   selfCheck: { brain: brainCheck },
   memory,
   newsHistory,

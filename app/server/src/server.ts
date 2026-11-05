@@ -77,7 +77,7 @@ export interface AppOptions {
    * do /api/self-check que o app/restart.sh chama depois de reiniciar.
    */
   evolution?: Omit<EvolutionDeps, 'openSession' | 'sessions' | 'sessionOutput' | 'closeSession'>;
-  /** Issues pedidas por voz: repositorio do ISSUES.md e como rodar o git. */
+  /** Issues pedidas por voz: repositorio onde fica o ISSUES.md. */
   issues?: IssueDeps;
   /** Verificacoes extras do /api/self-check (o cerebro responde?). */
   selfCheck?: { brain?: () => Promise<void> };

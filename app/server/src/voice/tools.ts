@@ -56,7 +56,7 @@ export interface JarvisContext {
   evolution?: EvolutionApi;
   /** Quantas falas do usuario ja foram respondidas (o "pode comecar" vem depois do resumo). */
   userTurn?(): number;
-  /** Grava uma issue no ISSUES.md do repositorio do Jarvis, com commit; devolve o numero. */
+  /** Grava uma issue no ISSUES.md local do repositorio do Jarvis; devolve o numero. */
   createIssue?(title: string, description: string): Promise<number>;
 }
 
@@ -576,7 +576,7 @@ export function jarvisHandlers(ctx: JarvisContext) {
       const failed = (why: string) => `A issue NÃO foi gravada: ${why}. Avise o usuário.`;
       if (!ctx.createIssue) return failed('o registro de issues não está disponível neste servidor');
       try {
-        return `Issue número ${await ctx.createIssue(titulo, descricao)} gravada no ISSUES.md, com commit.`;
+        return `Issue número ${await ctx.createIssue(titulo, descricao)} gravada no ISSUES.md.`;
       } catch (err) {
         return failed((err as Error).message);
       }
@@ -766,7 +766,7 @@ export function createJarvisServer(ctx: JarvisContext) {
       tool('descartar_evolucao', 'Descarta a funcionalidade nova (proposta, desenvolvimento ou pronta, ainda não aplicada).', {}, run(h.descartar_evolucao)),
       tool(
         'criar_issue',
-        'Registra uma issue (tarefa para depois) deste app, o Jarvis, no ISSUES.md do repositório, com commit. Só registra: não implementa. Use quando o usuário pedir para criar, abrir ou anotar uma issue. A resposta diz se gravou ou não.',
+        'Registra uma issue (tarefa para depois) deste app, o Jarvis, no ISSUES.md local do repositório. Só registra: não implementa. Use quando o usuário pedir para criar, abrir ou anotar uma issue. A resposta diz se gravou ou não.',
         {
           titulo: z.string().describe('Título curto da issue.'),
           descricao: z.string().describe('O que o usuário pediu, fiel ao que ele disse, em uma ou mais frases.'),
