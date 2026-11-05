@@ -301,7 +301,7 @@ export function createApp(opts: AppOptions): App {
     }
     const m = /^\/api\/projects\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
     if (m) {
-      const detail = await projectDetail(opts.home, projectPathFromId(m[1]), await scanConversations(opts.home), hidden);
+      const detail = await projectDetail(opts.home, projectPathFromId(m[1]), await scanConversations(opts.home), hidden, opts.projectsDir);
       return detail ? send(res, 200, detail) : send(res, 404, { error: 'projeto não encontrado' });
     }
     send(res, 404, { error: 'rota desconhecida' });
@@ -347,7 +347,7 @@ export function createApp(opts: AppOptions): App {
     if (typeof name !== 'string' || !PROJECT_NAME.test(name)) {
       throw new Error('nome de projeto inválido: use letras, números, ".", "_" ou "-"');
     }
-    const projects = await listProjects(opts.home, await scanConversations(opts.home), hidden);
+    const projects = await listProjects(opts.home, await scanConversations(opts.home), hidden, opts.projectsDir);
     const path = join(projectsBase(opts.home, projects, opts.projectsDir), name);
     if (await exists(path)) throw new Error(`já existe uma pasta em ${path}`);
     await mkdir(path, { recursive: true });
@@ -357,8 +357,8 @@ export function createApp(opts: AppOptions): App {
   // Ferramentas do Jarvis (etapa 3b): as mesmas acoes da interface, sem shell livre.
   let voiceUi: ((m: VoiceServerMessage) => void) | undefined;
   const jarvis: JarvisContext = {
-    projects: async () => listProjects(opts.home, await scanConversations(opts.home), hidden),
-    projectDetail: async (path) => projectDetail(opts.home, path, await scanConversations(opts.home), hidden),
+    projects: async () => listProjects(opts.home, await scanConversations(opts.home), hidden, opts.projectsDir),
+    projectDetail: async (path) => projectDetail(opts.home, path, await scanConversations(opts.home), hidden, opts.projectsDir),
     gitLog: (path) => gitLines(path, ['log', '-5', '--format=%h %ar %s']),
     gitChanges: (path) => gitLines(path, ['status', '--porcelain']),
     sessions: () => terminals.list(),
@@ -534,7 +534,7 @@ export function createApp(opts: AppOptions): App {
       case 'open': {
         if (!AGENTS.includes(msg.agent)) return reply({ type: 'error', message: 'agente inválido' });
         const convs = await scanConversations(opts.home);
-        const projects = await listProjects(opts.home, convs, hidden);
+        const projects = await listProjects(opts.home, convs, hidden, opts.projectsDir);
         const isWorkspace = msg.projectPath === workspace && msg.resume === undefined;
         if (!isWorkspace && !projects.some((p) => p.path === msg.projectPath)) {
           return reply({ type: 'error', message: `projeto desconhecido: ${msg.projectPath}` });

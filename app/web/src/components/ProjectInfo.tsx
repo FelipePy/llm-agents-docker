@@ -10,7 +10,7 @@ export function ProjectInfo({ detail }: { detail: ProjectDetail }) {
       </p>
       <ul className="facts">
         <li>
-          <span className="muted">Agentes</span> {detail.agents.map((a) => LABEL[a]).join(' e ')}
+          <span className="muted">Agentes</span> {detail.agents.map((a) => LABEL[a]).join(' e ') || 'nenhum ainda'}
         </li>
         <li>
           <span className="muted">Conversas</span> {detail.conversationList.length}
