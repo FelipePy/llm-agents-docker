@@ -191,6 +191,15 @@ export function waveLabel(holding: boolean, listening: boolean, hotkey: string):
   return listening ? 'Microfone ligado' : null;
 }
 
+export type WavePlace = '' | 'beside-panel' | 'over-modal';
+
+/** Onde a onda fica para nao cobrir a leitura; modal e painel flutuante so existem no modo 3D. */
+export function wavePlace(use3d: boolean, modal: boolean, panel: boolean): WavePlace {
+  if (!use3d) return '';
+  if (modal) return 'over-modal';
+  return panel ? 'beside-panel' : '';
+}
+
 const MIN_BAR = 0.06;
 
 /** Altura de cada barra da onda (de MIN_BAR a 1): mais alta no meio; `reduced`: sem o movimento proprio. */

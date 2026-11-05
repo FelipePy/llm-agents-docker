@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { waveBars } from '../voice/hold.ts';
+import { waveBars, type WavePlace } from '../voice/hold.ts';
 
 const BARS = 31;
 /** Sobe rapido com a voz e desce devagar (o volume so muda a cada quadro de 80 ms). */
@@ -7,7 +7,7 @@ const RISE = 0.5;
 const FALL = 0.14;
 
 /** Onda sonora ao segurar o atalho ou na escuta continua; acompanha o volume captado. */
-export function HoldWave({ level, reduced, label }: { level: () => number; reduced: boolean; label: string }) {
+export function HoldWave({ level, reduced, label, place }: { level: () => number; reduced: boolean; label: string; place: WavePlace }) {
   const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export function HoldWave({ level, reduced, label }: { level: () => number; reduc
   }, [level, reduced]);
 
   return (
-    <div className="hold-wave" ref={root} role="status" aria-label={label}>
+    <div className={`hold-wave ${place}`.trim()} ref={root} role="status" aria-label={label}>
       {Array.from({ length: BARS }, (_, i) => (
         <span key={i} />
       ))}
