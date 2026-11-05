@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { HoldGate, HoldKeys, frameRms, waveBars, waveLevel } from '../src/voice/hold.ts';
+import { HoldGate, HoldKeys, frameRms, waveBars, waveLabel, waveLevel, wavePlace } from '../src/voice/hold.ts';
 import { DEFAULT_GLOBE_HOTKEY, DEFAULT_HOTKEY, MOUSE_MIDDLE, type Hotkey } from '../src/voice/hotkey.ts';
 
 const key = (code: string, k: string, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean } = {}) => ({
@@ -387,6 +387,19 @@ describe('HoldGate', () => {
 });
 
 describe('onda', () => {
+  it('aparece ao segurar o atalho e sempre na escuta continua; desligada, some', () => {
+    expect(waveLabel(true, false, 'F9')).toBe('Ouvindo; solte F9 para o Jarvis responder');
+    expect(waveLabel(false, true, 'F9')).toBe('Microfone ligado');
+    expect(waveLabel(false, false, 'F9')).toBeNull();
+  });
+
+  it('sai da frente do painel e do modal do modo 3D; no modo lista, fica no canto', () => {
+    expect(wavePlace(true, false, false)).toBe('');
+    expect(wavePlace(true, false, true)).toBe('beside-panel');
+    expect(wavePlace(true, true, true)).toBe('over-modal');
+    expect(wavePlace(false, true, true)).toBe('');
+  });
+
   it('o volume do quadro vai de 0 a 1', () => {
     expect(frameRms(new Int16Array(0))).toBe(0);
     expect(frameRms(new Int16Array(10))).toBe(0);

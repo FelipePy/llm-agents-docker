@@ -141,8 +141,8 @@ export class VoiceClient {
         this.outPeak = Math.max(this.outPeak, this.player?.outputRms() ?? 0);
       }, 20);
       this.stopCapture = await startCapture((pcm) => {
+        this.micVolume = frameRms(pcm);
         if (this.hold) {
-          this.micVolume = frameRms(pcm);
           // Gravando o cadastro da voz, o aperto nao comeca (ver holdStart).
           this.gate.frame(pcm);
           return;
@@ -192,9 +192,10 @@ export class VoiceClient {
     this.onView({ holding: false });
   }
 
-  /** Volume captado para a onda do atalho (0 a 1). */
+  /** Volume captado para a onda (0 a 1): no atalho, so durante o aperto; gravando o cadastro, o Jarvis nao ouve. */
   micLevel(): number {
-    return this.gate.holding ? waveLevel(this.micVolume) : 0;
+    if (this.hold ? !this.gate.holding : micHeld()) return 0;
+    return waveLevel(this.micVolume);
   }
 
   /** Conversa direta: envia o ditado, apaga o ditado, ou sai sem enviar. */
@@ -287,6 +288,7 @@ export class VoiceClient {
 
   private cleanup(): void {
     this.gate.cancel();
+    this.micVolume = 0;
     clearInterval(this.outTimer);
     this.outTimer = undefined;
     this.stopCapture?.();

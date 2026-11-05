@@ -18,15 +18,15 @@
 .top-action { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: none; outline: none; background: transparent; color: var(--sys-soft); line-height: 1; filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.9)); transition: color 0.15s, transform 0.15s; }
 .top-action.gear { font-size: 22px; }
 .top-action:hover, .top-action:focus-visible { color: var(--sys-hot); transform: scale(1.12); }
-/* Onda do atalho de falar: logo abaixo da trilha, no meio da pagina e por cima do modal. */
-.app > .hold-wave { position: fixed; top: 56px; left: 50%; z-index: 13; pointer-events: none; }
-.content > .hold-wave { position: fixed; top: 12px; left: calc(50% + 140px); z-index: 5; pointer-events: none; }
+/* Onda da voz (atalho de falar ou escuta continua): na altura da frase das tarefas em background, no canto esquerdo do conteudo.
+   Nao cobre a leitura: fica ao lado do painel aberto e, com modal, na faixa livre acima dele (o padding do overlay). */
 .hold-wave {
-  display: flex; align-items: center; gap: 2px; height: 44px; padding: 0 14px; border-radius: 22px;
-  transform: translateX(-50%);
-  background: rgba(10, 14, 26, 0.7); border: 1px solid rgba(var(--sys-rgb), 0.25);
+  grid-column: -2 / -1; grid-row: 1; align-self: end; justify-self: start; position: relative; z-index: 6; margin: 0 16px 6px;
+  display: flex; align-items: center; gap: 2px; height: 24px; pointer-events: none;
 }
-.hold-wave span { width: 3px; height: 32px; border-radius: 2px; background: var(--sys-main); transform: scaleY(0.06); }
+.hold-wave.beside-panel { margin-left: calc(min(440px, 34%) + 32px); }
+.hold-wave.over-modal { position: fixed; top: 2px; left: 50%; z-index: 13; height: 20px; margin: 0; transform: translateX(-50%); }
+.hold-wave span { width: 3px; height: 100%; border-radius: 2px; background: var(--sys-main); transform: scaleY(0.06); }
 .core-caption { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); z-index: 2; color: var(--sys-dim); font-size: 12px; letter-spacing: 0.25em; text-transform: uppercase; pointer-events: none; }
 
 .ring { position: absolute; inset: 0; z-index: 2; pointer-events: none; }

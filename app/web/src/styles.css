@@ -28,7 +28,7 @@ code { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size: 12p
 
 /* minmax(0, ...): sem isso, a largura somada das abas alargaria a coluna e geraria scroll na pagina. */
 .app { display: grid; grid-template-columns: 280px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; height: 100vh; height: 100dvh; }
-.sidebar { grid-row: 1; display: flex; flex-direction: column; gap: 4px; padding: 16px 12px; border-right: 1px solid var(--line); background: rgba(12, 15, 24, 0.85); overflow: auto; }
+.sidebar { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; gap: 4px; padding: 16px 12px; border-right: 1px solid var(--line); background: rgba(12, 15, 24, 0.85); overflow: auto; }
 .brand { font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; }
 .nav { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: transparent; border-color: transparent; }
 .nav.active { background: #141c33; border-color: var(--line); }
@@ -39,7 +39,7 @@ code { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size: 12p
 .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--codex); box-shadow: 0 0 8px var(--codex); animation: pulse 1.6s infinite; }
 @keyframes pulse { 50% { opacity: 0.3; } }
 
-.content { grid-row: 1; overflow: auto; padding: 24px 32px; position: relative; }
+.content { grid-column: 2; grid-row: 1; overflow: auto; padding: 24px 32px; position: relative; }
 .panel h1 { margin: 0 0 4px; font-weight: 600; }
 .panel h2 { margin: 28px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
 .muted { color: var(--muted); }
