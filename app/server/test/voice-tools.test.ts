@@ -140,9 +140,9 @@ test('criar_issue confirma com o numero so depois de gravar; se falhar, diz que 
   const ok = ctx({ createIssue: async (title, description) => (created.push([title, description]), 7) });
   assert.match(await ok.h.criar_issue({ titulo: 'Modo escuro', descricao: 'Tema escuro.' }), /número 7 gravada/);
   assert.deepEqual(created, [['Modo escuro', 'Tema escuro.']]);
-  const failing = ctx({ createIssue: async () => { throw new Error('o commit falhou (sem identidade)'); } });
+  const failing = ctx({ createIssue: async () => { throw new Error('não consegui gravar o ISSUES.md'); } });
   const out = await failing.h.criar_issue({ titulo: 'x', descricao: 'y' });
-  assert.match(out, /NÃO foi gravada: o commit falhou \(sem identidade\)/);
+  assert.match(out, /NÃO foi gravada: não consegui gravar o ISSUES\.md/);
   assert.doesNotMatch(out, /número/);
   assert.match(await ctx().h.criar_issue({ titulo: 'x', descricao: 'y' }), /NÃO foi gravada/);
 });

@@ -123,9 +123,8 @@ test('com issues configurado, o Jarvis grava no ISSUES.md daquele repositorio', 
   writeFileSync(join(repoDir, 'ISSUES.md'), '# Issues\n\n## Pendentes\n');
   const worker = new FakeWorker();
   let ctx: import('../src/voice/tools.ts').JarvisContext | undefined;
-  const commits: string[][] = [];
   const { app, port } = await startApp(tempHome(), {
-    issues: { repoDir, run: async (_cmd, args) => (commits.push(args), { code: 0, out: '' }) },
+    issues: { repoDir },
     voice: { worker, brain: (c) => ((ctx = c), brain) },
   });
   try {
@@ -133,7 +132,6 @@ test('com issues configurado, o Jarvis grava no ISSUES.md daquele repositorio', 
     await a.ready;
     assert.equal(await ctx!.createIssue!('Nova', 'Texto.'), 1);
     assert.match(readFileSync(join(repoDir, 'ISSUES.md'), 'utf8'), /### 1\. Nova/);
-    assert.equal(commits.length, 1);
     a.ws.close();
   } finally {
     await app.close();

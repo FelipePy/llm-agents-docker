@@ -21,7 +21,7 @@ funcionalidade nova nele mesmo (`aplicar_evolucao`). Textos para o usuário são
 - `voice/session.ts`: a conversa por voz (estados, interrupção, continuação, ditado). `voice/brain.ts`: o cérebro (Claude
   Haiku pelo Agent SDK) e o `JARVIS_PROMPT`. `voice/tools.ts`: as ferramentas do Jarvis (servidor MCP em processo).
   `voice/commands.ts`: a lista de comandos de voz mostrada na interface. `voice/memory.ts`: memória entre sessões.
-  `voice/issues.ts`: issues pedidas por voz (grava no `ISSUES.md`, com commit).
+  `voice/issues.ts`: issues pedidas por voz (grava no `ISSUES.md` local, sem commit).
 - `evolution.ts`: funcionalidades novas para o próprio Jarvis (definição, dois OKs, clone, aplicação).
 - O Jarvis **não tem shell nem escrita livre**: ele só age pelas ferramentas de `voice/tools.ts`.
 
@@ -50,10 +50,10 @@ bash tests/install.test.sh                                      # se mexer em in
 ```
 
 ## Fluxo de trabalho
-- **Pedido para criar uma issue:** só registra em `ISSUES.md` (seção Pendentes). Não implementa nem cria branch.
+- **Pedido para criar uma issue:** só registra em `ISSUES.md` (seção Pendentes), sem commit. Não implementa nem cria branch.
 - **Pedido direto:** não cria issue. Abre uma branch a partir da `main`, faz o trabalho e roda as verificações.
 - **Merge e push:** só com a aprovação do usuário: `merge --no-ff` na `main` e push para o `origin`, nunca para o `upstream`.
-- **Issue concluída:** apagada do `ISSUES.md` na própria branch, para sair da lista junto com o merge.
+- **Issue concluída:** apagada do `ISSUES.md`, sem commit.
 - **Depois do merge:** apaga a branch local (`git branch -d`) e, se foi enviada, a remota (`git push origin --delete`).
 
 ## Regras
@@ -63,4 +63,4 @@ bash tests/install.test.sh                                      # se mexer em in
 - Siga os padrões do código ao redor; comentários em português sem acento, como no resto do código.
 - Nada de chaves, tokens ou dados pessoais em arquivos versionados.
 - Não mexa em `app/desktop` sem necessidade (exige instalador novo) e avise no resumo quando mexer.
-- Pastas `.jarvis/` (resumo e especificação da evolução) não são versionadas.
+- Pastas `.jarvis/` (resumo e especificação da evolução) e o `ISSUES.md` (só local) não são versionados.

@@ -1,18 +1,17 @@
-// Issues pedidas por voz: entram na secao Pendentes do ISSUES.md do repositorio do
-// Jarvis, com commit so desse arquivo (alteracoes nao salvas impedem aplicar uma evolucao).
+// Issues pedidas por voz: entram na secao Pendentes do ISSUES.md na pasta do repositorio
+// do Jarvis. O arquivo e local (fora do git): gravar nao gera commit nem impede aplicar uma evolucao.
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { RunResult } from '../evolution.ts';
 
 export interface IssueDeps {
   /** Repositorio do Jarvis, onde fica o ISSUES.md. */
   repoDir: string;
-  run(cmd: string, args: string[], opts: { cwd: string; timeoutMs?: number }): Promise<RunResult>;
 }
 
 const FILE = 'ISSUES.md';
-const COMMIT_TIMEOUT_MS = 30_000;
+/** Um clone novo nao traz o arquivo: a primeira issue o cria. */
+const EMPTY = '# Issues\n\nTarefas do projeto, só neste arquivo local (fora do Git). Uma issue concluída é apagada desta lista.\n\n## Pendentes\n';
 
 /** O texto com a issue nova no fim de Pendentes, sob o proximo numero. Texto ditado nao cria titulos no arquivo. */
 export function appendIssue(markdown: string, title: string, description: string): { number: number; title: string; markdown: string } {
@@ -43,7 +42,7 @@ export class IssueLog {
     this.deps = deps;
   }
 
-  /** Grava e faz o commit; devolve o numero. Se o commit falhar, o arquivo volta ao que era e o erro sobe. */
+  /** Grava no arquivo e devolve o numero. Se nao conseguir, o erro sobe. */
   create(title: string, description: string): Promise<number> {
     const job = this.queue.then(() => this.record(title, description));
     this.queue = job.catch(() => {});
@@ -51,22 +50,15 @@ export class IssueLog {
   }
 
   private async record(title: string, description: string): Promise<number> {
-    const { repoDir, run } = this.deps;
-    const file = join(repoDir, FILE);
-    const before = await readFile(file, 'utf8').catch(() => {
-      throw new Error(`não encontrei o ${FILE}`);
+    const file = join(this.deps.repoDir, FILE);
+    const before = await readFile(file, 'utf8').catch((err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') return EMPTY;
+      throw new Error(`não consegui ler o ${FILE}`);
     });
     const issue = appendIssue(before, title, description);
-    await writeFile(file, issue.markdown);
-    // Com o caminho no fim, o commit leva so este arquivo, mesmo com outros no stage.
-    const commit = await run('git', ['commit', '--quiet', '-m', `docs: add issue ${issue.number}: ${issue.title}`, '--', FILE], {
-      cwd: repoDir,
-      timeoutMs: COMMIT_TIMEOUT_MS,
+    await writeFile(file, issue.markdown).catch(() => {
+      throw new Error(`não consegui gravar o ${FILE}`);
     });
-    if (commit.code !== 0) {
-      await writeFile(file, before);
-      throw new Error(`o commit falhou (${commit.out.trim().split('\n').slice(-3).join(' ') || `código ${commit.code}`})`);
-    }
     return issue.number;
   }
 }

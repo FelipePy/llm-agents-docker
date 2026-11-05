@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tempHome } from './helpers.ts';
 import { appendIssue, IssueLog } from '../src/voice/issues.ts';
@@ -21,10 +21,11 @@ async function repo(issues: string | null = BASE) {
   const git = async (...args: string[]) => (await exec('git', args, { cwd: dir })).out.trim();
   await git('init', '-q', '-b', 'main');
   writeFileSync(join(dir, 'README.md'), '# App\n');
+  writeFileSync(join(dir, '.gitignore'), 'ISSUES.md\n');
   if (issues !== null) writeFileSync(join(dir, 'ISSUES.md'), issues);
   await git('add', '.');
   await git('commit', '-q', '-m', 'inicio');
-  return { dir, git, log: new IssueLog({ repoDir: dir, run: exec }), read: () => readFileSync(join(dir, 'ISSUES.md'), 'utf8') };
+  return { dir, git, log: new IssueLog({ repoDir: dir }), read: () => readFileSync(join(dir, 'ISSUES.md'), 'utf8') };
 }
 
 test('appendIssue: entra no fim de Pendentes, com o proximo numero e a situacao', () => {
@@ -53,22 +54,22 @@ test('appendIssue: recusa texto vazio e arquivo sem Pendentes', () => {
   assert.throws(() => appendIssue('# Issues\n', 'x', 'y'), /Pendentes/);
 });
 
-test('create: grava, faz o commit e deixa o repositorio pronto para aplicar uma evolucao', async () => {
+test('create: grava no arquivo, sem commit, e deixa o repositorio pronto para aplicar uma evolucao', async () => {
   const { log, git, read } = await repo();
   assert.equal(await log.create('Modo escuro', 'Tema escuro no painel.'), 3);
   assert.match(read(), /### 3\. Modo escuro/);
-  assert.equal(await git('log', '-1', '--format=%s'), 'docs: add issue 3: Modo escuro');
+  assert.equal(await git('log', '--format=%s'), 'inicio');
   // A mesma conferencia de EvolutionManager.apply.
   assert.equal(await git('status', '--porcelain', '--untracked-files=no'), '');
 });
 
-test('create: o commit leva so o ISSUES.md; o que o usuario tinha no stage continua la', async () => {
+test('create: o que o usuario tinha no stage continua la, e o arquivo fica fora do git', async () => {
   const { dir, log, git } = await repo();
   writeFileSync(join(dir, 'README.md'), '# App novo\n');
   await git('add', 'README.md');
   await log.create('Nova', 'Texto.');
-  assert.equal(await git('show', '--name-only', '--format=', 'HEAD'), 'ISSUES.md');
   assert.equal(await git('status', '--porcelain'), 'M  README.md');
+  assert.equal(await git('ls-files', 'ISSUES.md'), '');
 });
 
 test('create: pedidos ao mesmo tempo ganham numeros diferentes', async () => {
@@ -77,37 +78,25 @@ test('create: pedidos ao mesmo tempo ganham numeros diferentes', async () => {
   assert.match(read(), /### 3\. A[\s\S]*### 4\. B[\s\S]*### 5\. C/);
 });
 
-test('create: commit recusado devolve o arquivo ao que era e avisa; o proximo pedido funciona', async () => {
-  const { dir, log, git, read } = await repo();
-  const hook = join(dir, '.git', 'hooks', 'pre-commit');
-  writeFileSync(hook, '#!/bin/sh\necho hook recusou >&2\nexit 1\n');
-  chmodSync(hook, 0o755);
-  await assert.rejects(log.create('Nova', 'Texto.'), /o commit falhou.*hook recusou/);
-  assert.equal(read(), BASE);
-  assert.equal(await git('status', '--porcelain', '--untracked-files=no'), '');
-  assert.equal(await git('log', '--format=%s'), 'inicio');
-  writeFileSync(hook, '#!/bin/sh\nexit 0\n');
-  assert.equal(await log.create('Nova', 'Texto.'), 3);
+test('create: sem o ISSUES.md (clone novo), cria o arquivo com a secao Pendentes', async () => {
+  const { dir, log, git, read } = await repo(null);
+  assert.equal(existsSync(join(dir, 'ISSUES.md')), false);
+  assert.equal(await log.create('Nova', 'Texto.'), 1);
+  assert.match(read(), /^# Issues\n[\s\S]*## Pendentes\n\n### 1\. Nova\nTexto\./);
+  assert.equal(await git('status', '--porcelain'), '');
 });
 
-test('create: commit no meio de um merge falha sem deixar o arquivo alterado', async () => {
-  const { dir, log, git, read } = await repo();
-  await git('switch', '-q', '-c', 'outra');
-  writeFileSync(join(dir, 'README.md'), '# Outra\n');
-  await git('commit', '-q', '-am', 'outra');
-  await git('switch', '-q', 'main');
-  writeFileSync(join(dir, 'README.md'), '# Main\n');
-  await git('commit', '-q', '-am', 'main');
-  await git('merge', 'outra');
-  await assert.rejects(log.create('Nova', 'Texto.'), /o commit falhou/);
-  assert.equal(read(), BASE);
-});
-
-test('create: sem o ISSUES.md ou sem Pendentes, nada e criado', async () => {
-  const missing = await repo(null);
-  await assert.rejects(missing.log.create('Nova', 'Texto.'), /não encontrei o ISSUES.md/);
-  assert.equal(await missing.git('status', '--porcelain'), '');
+test('create: arquivo sem Pendentes fica como estava', async () => {
   const noSection = await repo('# Issues\n');
   await assert.rejects(noSection.log.create('Nova', 'Texto.'), /Pendentes/);
   assert.equal(noSection.read(), '# Issues\n');
+});
+
+test('create: arquivo ilegivel avisa e o proximo pedido funciona', async () => {
+  const dir = tempHome();
+  const log = new IssueLog({ repoDir: dir });
+  mkdirSync(join(dir, 'ISSUES.md'));
+  await assert.rejects(log.create('Nova', 'Texto.'), /não consegui ler o ISSUES\.md/);
+  rmdirSync(join(dir, 'ISSUES.md'));
+  assert.equal(await log.create('Nova', 'Texto.'), 1);
 });
