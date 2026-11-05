@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Testa o "llm-agent ui": sobe o servidor, reaproveita, protege a API e encerra.
+# Testa o "jarvis ui": sobe o servidor, reaproveita, protege a API e encerra.
 # Requer Node >= 22.18 e "npm ci" ja executado em app/server.
 set -uo pipefail
 
@@ -17,7 +17,7 @@ mkdir -p "$HOME"
 state="$XDG_CONFIG_HOME/llm-agent/ui"
 base="http://127.0.0.1:$LLM_AGENT_UI_PORT"
 cleanup() {
-  "$repo/llm-agent" ui --stop >/dev/null 2>&1
+  "$repo/jarvis" ui --stop >/dev/null 2>&1
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -35,7 +35,7 @@ check() { # descricao esperado obtido
 }
 server_pid() { grep -o '"pid":[0-9]*' "$state/server.json" 2>/dev/null | cut -d: -f2; }
 
-url="$("$repo/llm-agent" ui | tail -n 1)"
+url="$("$repo/jarvis" ui | tail -n 1)"
 token="$(cat "$state/token" 2>/dev/null)"
 check "imprime a URL com o token" "$base/#token=$token" "$url"
 check "token tem permissao 600" "600" "$(stat -c %a "$state/token" 2>/dev/null)"
@@ -44,21 +44,38 @@ check "API sem token: 401" "401" "$(curl -s -o /dev/null -w '%{http_code}' "$bas
 check "API com token: 200" "200" "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "$base/api/overview")"
 
 pid1="$(server_pid)"
-"$repo/llm-agent" ui >/dev/null
+"$repo/jarvis" ui >/dev/null
 check "reaproveita o servidor" "$pid1" "$(server_pid)"
 
-"$repo/llm-agent" ui --stop >/dev/null
+"$repo/jarvis" ui --stop >/dev/null
 check "--stop encerra" "parado" "$(curl -fsS --max-time 1 "$base/api/health" >/dev/null 2>&1 && echo rodando || echo parado)"
 check "--stop remove o server.json" "nao" "$([ -e "$state/server.json" ] && echo sim || echo nao)"
 
 # Servidor orfao (server.json perdido): "ui" volta a registra-lo e "--stop" o encerra.
-"$repo/llm-agent" ui >/dev/null
+"$repo/jarvis" ui >/dev/null
 pid2="$(server_pid)"
 rm -f "$state/server.json"
-"$repo/llm-agent" ui >/dev/null 2>&1
+"$repo/jarvis" ui >/dev/null 2>&1
 check "reaproveita um servidor sem server.json" "$pid2" "$(server_pid)"
 rm -f "$state/server.json"
-"$repo/llm-agent" ui --stop >/dev/null
+"$repo/jarvis" ui --stop >/dev/null
 check "--stop encerra o servidor orfao" "parado" "$(curl -fsS --max-time 1 "$base/api/health" >/dev/null 2>&1 && echo rodando || echo parado)"
+
+# Sem servidor: --stop avisa, sai com sucesso e permite "--stop && ui".
+out="$("$repo/jarvis" ui --stop 2>&1)"
+check "--stop sem servidor sai com sucesso" "0" "$?"
+check "--stop sem servidor avisa" "O servidor nao esta rodando." "$out"
+
+# Servidor travado (processo vivo, porta sem resposta): --stop encerra pelo pid.
+sleep 300 &
+stuck=$!
+echo "{\"pid\":$stuck,\"port\":$LLM_AGENT_UI_PORT}" >"$state/server.json"
+out="$("$repo/jarvis" ui --stop 2>&1)"
+check "--stop com servidor travado sai com sucesso" "0" "$?"
+check "--stop com servidor travado avisa" "Servidor encerrado." "$out"
+check "--stop encerra o servidor travado" "parado" "$(kill -0 "$stuck" 2>/dev/null && echo rodando || echo parado)"
+check "--stop travado remove o server.json" "nao" "$([ -e "$state/server.json" ] && echo sim || echo nao)"
+kill "$stuck" 2>/dev/null
+wait "$stuck" 2>/dev/null
 
 [ "$failures" -eq 0 ] && echo "todos os testes passaram" || { echo "$failures falha(s)"; exit 1; }

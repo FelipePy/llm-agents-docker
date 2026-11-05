@@ -3,12 +3,12 @@
 # apenas o projeto atual.
 #
 # Uso:
-#   llm-agent                 menu para escolher o agente
-#   llm-agent claude [args]   abre o Claude Code (com Remote Control)
-#   llm-agent codex [args]    abre o Codex
-#   llm-agent zsh             abre um shell no container
-#   llm-agent ui [--stop]     abre a interface (imprime a URL) ou a encerra
-#   llm-agent --build         (re)constroi a imagem
+#   jarvis                 menu para escolher o agente
+#   jarvis claude [args]   abre o Claude Code (com Remote Control)
+#   jarvis codex [args]    abre o Codex
+#   jarvis zsh             abre um shell no container
+#   jarvis ui [--stop]     abre a interface (imprime a URL) ou a encerra
+#   jarvis --build         (re)constroi a imagem
 #
 # Variaveis:
 #   AGENT_WORKDIR             projeto a montar (padrao: diretorio atual)
@@ -53,7 +53,7 @@ fi
 AGENT_WORKDIR="$(cd "${AGENT_WORKDIR:-$PWD}" && pwd -P)"
 case "$AGENT_WORKDIR" in
   / | "$(cd "$HOME" && pwd -P)")
-    echo "llm-agent: execute dentro de um projeto, nao em '$AGENT_WORKDIR'" >&2
+    echo "jarvis: execute dentro de um projeto, nao em '$AGENT_WORKDIR'" >&2
     echo "(montar a home ou a raiz exporia todos os seus arquivos ao agente)." >&2
     exit 1
     ;;
@@ -101,7 +101,7 @@ if [ $# -eq 0 ] && [ -t 0 ]; then
     1) set -- claude --dangerously-skip-permissions ;;
     2) set -- codex --dangerously-bypass-approvals-and-sandbox ;;
     3) set -- zsh ;;
-    *) echo "llm-agent: opcao invalida: '$choice'" >&2; exit 1 ;;
+    *) echo "jarvis: opcao invalida: '$choice'" >&2; exit 1 ;;
   esac
 fi
 
@@ -146,7 +146,7 @@ check_update() { # label pacote-npm variavel-de-versao nome
   if (printf -v "$3" '%s' "$latest"; build_image); then
     echo "$4 atualizado para $latest."
   else
-    echo "llm-agent: falha ao atualizar; seguindo com a versao $current." >&2
+    echo "jarvis: falha ao atualizar; seguindo com a versao $current." >&2
   fi
 }
 

@@ -55,7 +55,7 @@ export interface JarvisMemoryView { facts: JarvisFact[]; conversations: { at: st
 const TOKEN_KEY = 'llm-agent-token';
 
 /**
- * Token vindo de "#token=..." (impresso pelo llm-agent ui). Fica no
+ * Token vindo de "#token=..." (impresso pelo jarvis ui). Fica no
  * sessionStorage e sai da barra de enderecos.
  */
 export function takeToken(
