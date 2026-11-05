@@ -20,3 +20,8 @@ Quando uma sessão de agente pedir uma decisão do usuário, o Jarvis deve avisa
 Quando o terminal termina uma tarefa, o Jarvis lê só a última linha exibida no terminal e a fala. O comportamento esperado é trazer um resumo do que foi feito na sessão.
 
 **Situação:** pendente.
+
+### 6. Frase de tarefas em background para sessões e subtarefas do Claude
+Aprimorar a frase que informa quantas tarefas estão rodando em background (ex.: x tarefas rodando). Ela deve valer tanto quando uma tarefa está rodando na própria sessão quanto quando a sessão do Claude deixa uma tarefa rodando em background. Já existe a frase; o pedido é melhorá-la para cobrir esses dois casos.
+
+**Situação:** pendente.
