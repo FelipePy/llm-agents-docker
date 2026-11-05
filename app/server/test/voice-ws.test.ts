@@ -94,6 +94,30 @@ test('as ferramentas do Jarvis chegam a interface pelo /ws/voice e abrem sessoes
   }
 });
 
+test('sessao parada numa pergunta: o Jarvis avisa por voz em poucos segundos, sem ninguem perguntar', async () => {
+  const { buildFixture } = await import('./fixture.ts');
+  const fx = buildFixture();
+  const agent = join(tempHome(), 'agente');
+  writeFileSync(agent, `#!/bin/sh\nprintf ' Do you want to proceed?\\r\\n ❯ 1. Yes\\r\\n   2. No\\r\\n'\nsleep 30\n`, { mode: 0o755 });
+  const worker = new FakeWorker();
+  let ctx: import('../src/voice/tools.ts').JarvisContext | undefined;
+  const { app, port } = await startApp(fx.home, { bin: agent, voice: { worker, brain: (c) => ((ctx = c), brain) } });
+  try {
+    const a = open(port);
+    await a.ready;
+    a.ws.send(JSON.stringify({ type: 'start' }));
+    await waitFor(() => a.messages.some((m) => m.type === 'state' && m.state === 'sleeping'));
+    ctx!.openSession(fx.p1, 'claude', 'corrigir os testes');
+    const notice = () => a.messages.find((m) => m.type === 'caption' && /esperando uma decisão/.test(m.text));
+    // Bem abaixo dos 30 s de antes, com folga para a maquina lenta do CI (o normal e 2 a 3 s).
+    await waitFor(() => notice() !== undefined, 8_000);
+    assert.equal(notice().text, 'Senhor, a sessão "corrigir os testes" está esperando uma decisão sua no terminal.');
+    a.ws.close();
+  } finally {
+    await app.close();
+  }
+});
+
 test('com issues configurado, o Jarvis grava no ISSUES.md daquele repositorio', async () => {
   const repoDir = tempHome();
   writeFileSync(join(repoDir, 'ISSUES.md'), '# Issues\n\n## Pendentes\n');
