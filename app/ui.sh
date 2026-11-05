@@ -98,7 +98,7 @@ else
     }
     deps_stale server && install_deps server "Instalando as dependencias do servidor..."
     dist="$app_dir/web/dist/index.html"
-    if [ ! -f "$dist" ] || [ -n "$(find "$app_dir/web/src" "$app_dir/web/index.html" "$app_dir/web/package.json" -newer "$dist" -print -quit 2>/dev/null)" ]; then
+    if [ ! -f "$dist" ] || [ -n "$(find "$app_dir/web/src" "$app_dir/web/index.html" "$app_dir/web/public" "$app_dir/web/package.json" -newer "$dist" -print -quit 2>/dev/null)" ]; then
       # Primeira vez, ou o codigo da interface mudou (git pull, branch nova): reconstroi antes de subir.
       deps_stale web && install_deps web "Instalando as dependencias da interface..."
       echo "Construindo a interface..." >&2

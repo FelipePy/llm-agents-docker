@@ -112,7 +112,7 @@ export function DayPanel({ api, voiceStatus }: Props) {
 
   return (
     <aside className="day">
-      <div className="brand">llm-agent</div>
+      <div className="brand">Jarvis</div>
       <div className="clock">
         <div className="time">
           {time}

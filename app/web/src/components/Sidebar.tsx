@@ -20,7 +20,7 @@ export function Sidebar({ overview, view, sessions, settings, toggles, onSelect 
   const cls = (active: boolean) => (active ? 'nav active' : 'nav');
   return (
     <nav className="sidebar">
-      <div className="brand">llm-agent</div>
+      <div className="brand">Jarvis</div>
       <button className={cls(view.kind === 'profile')} onClick={() => onSelect({ kind: 'profile' })}>
         Você
       </button>

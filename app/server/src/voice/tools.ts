@@ -766,7 +766,7 @@ export function createJarvisServer(ctx: JarvisContext) {
       tool('descartar_evolucao', 'Descarta a funcionalidade nova (proposta, desenvolvimento ou pronta, ainda não aplicada).', {}, run(h.descartar_evolucao)),
       tool(
         'criar_issue',
-        'Registra uma issue (tarefa para depois) deste app, o llm-agent, no ISSUES.md do repositório, com commit. Só registra: não implementa. Use quando o usuário pedir para criar, abrir ou anotar uma issue. A resposta diz se gravou ou não.',
+        'Registra uma issue (tarefa para depois) deste app, o Jarvis, no ISSUES.md do repositório, com commit. Só registra: não implementa. Use quando o usuário pedir para criar, abrir ou anotar uma issue. A resposta diz se gravou ou não.',
         {
           titulo: z.string().describe('Título curto da issue.'),
           descricao: z.string().describe('O que o usuário pediu, fiel ao que ele disse, em uma ou mais frases.'),
@@ -776,7 +776,7 @@ export function createJarvisServer(ctx: JarvisContext) {
       tool('data_e_hora', 'Data e hora atuais do usuário. Use sempre que precisar saber que dia ou que horas são.', {}, run(h.data_e_hora)),
       tool(
         'manual_do_app',
-        'Procura no manual do llm-agent (o app em que você vive: interface, buraco negro, cartões, planetas, painel do dia, terminais, voz, botões "+", atalhos, configurações) como fazer algo ou para que serve algo. Consulte antes de responder dúvidas sobre o app.',
+        'Procura no manual do Jarvis (o app em que você vive: interface, buraco negro, cartões, planetas, painel do dia, terminais, voz, botões "+", atalhos, configurações) como fazer algo ou para que serve algo. Consulte antes de responder dúvidas sobre o app.',
         { assunto: z.string().optional().describe('Assunto da dúvida, com palavras-chave.') },
         run(h.manual_do_app),
       ),

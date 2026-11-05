@@ -1,4 +1,4 @@
-# llm-agents-docker + Jarvis
+# Jarvis
 
 Guia para agentes trabalhando neste repositório, inclusive a sessão que o próprio Jarvis abre para desenvolver uma
 funcionalidade nova nele mesmo (`aplicar_evolucao`). Textos para o usuário são sempre em **português do Brasil**.
