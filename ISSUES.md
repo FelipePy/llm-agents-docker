@@ -30,3 +30,8 @@ Aprimorar a frase que informa quantas tarefas estão rodando em background (ex.:
 Estender ao aviso de decisão a melhoria recente de tempo de resposta feita para quando a tarefa termina na sessão (hoje cerca de 2 a 3 segundos, antes cerca de 30). Quando o terminal pede uma resposta ou decisão do usuário, como confirmar se pode confiar no diretório ou aceitar uma sugestão que está aguardando, o Jarvis hoje demora muito para avisar. Deve avisar com a mesma rapidez.
 
 **Situação:** pendente.
+
+### 8. Remover margem do efeito sonoro de fala e manter o som no modo direto
+Remover a margem que existe no efeito sonoro tocado ao pressionar para falar. Quando o usuário configurar a fala direta nas configurações, sem definir tecla de atalho, o efeito sonoro deve ficar sempre aparente.
+
+**Situação:** pendente.
