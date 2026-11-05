@@ -30,6 +30,7 @@ import { backgroundLabel } from './format.ts';
 import { OFF_VIEW, VoiceClient, VoiceConnectionError, timingText, voiceStatus, type VoiceView } from './voice/client.ts';
 import { floatSupported, openFloatingOrb, type FloatingOrb } from './voice/float.ts';
 import { useHoldKeys } from './voice/useHoldKeys.ts';
+import { waveLabel } from './voice/hold.ts';
 import { DEFAULT_GLOBE_HOTKEY, MIDDLE_BUTTON, matchesHotkey, sameHotkey } from './voice/hotkey.ts';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { setAutostart, useDesktop } from './desktop.ts';
@@ -204,7 +205,8 @@ function Connected({ token }: { token: string }) {
   const globeShortcutOn = use3d && !hotkeyCapturing && !(holdKey && sameHotkey(hotkey, globeHotkey));
   useHoldKeys(globeShortcutOn ? globeHotkey : null, () => setGlobeStyle(nextGlobeStyle(globeStyle)));
   const holdLevel = useCallback(() => voiceRef.current?.micLevel() ?? 0, []);
-  const holdWave = voice.holding ? <HoldWave level={holdLevel} reduced={reduceMotion} hotkey={hotkey.label} /> : null;
+  const waveText = waveLabel(!!voice.holding, settings.voice, hotkey.label);
+  const holdWave = waveText ? <HoldWave level={holdLevel} reduced={reduceMotion} label={waveText} /> : null;
 
   // Legendas somem 8 s depois que a conversa volta a esperar "Hey Jarvis".
   useEffect(() => {

@@ -185,6 +185,12 @@ export function waveLevel(rms: number): number {
   return Math.min(1, Math.max(0, (Math.sqrt(rms) - 0.08) * 2.2));
 }
 
+/** Descricao da onda para leitores de tela; null: ela nao aparece (na escuta continua, fica sempre na tela). */
+export function waveLabel(holding: boolean, listening: boolean, hotkey: string): string | null {
+  if (holding) return `Ouvindo; solte ${hotkey} para o Jarvis responder`;
+  return listening ? 'Microfone ligado' : null;
+}
+
 const MIN_BAR = 0.06;
 
 /** Altura de cada barra da onda (de MIN_BAR a 1): mais alta no meio; `reduced`: sem o movimento proprio. */
