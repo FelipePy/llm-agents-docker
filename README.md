@@ -149,7 +149,7 @@ A interface mostra:
 
 - **Você:** o `CLAUDE.md` e o `AGENTS.md` globais e as memórias que o Claude Code e o Codex guardaram sobre você.
 - **Skills:** as skills do Claude Code, dos plugins e do Codex.
-- **Projetos:** todos os projetos em que você já usou o Claude Code ou o Codex, com conversas, memória, instruções e branch do git.
+- **Projetos:** todos os projetos em que você já usou o Claude Code ou o Codex, com conversas, memória, instruções e branch do git. Os repositórios git da pasta de projetos também aparecem, mesmo sem conversas, inclusive os que estão um nível abaixo (como `trabalho/api`). A pasta de projetos é a de `LLM_AGENT_PROJECTS_DIR` ou, sem ela, a pasta-mãe mais comum entre os projetos com conversas.
 
 Em cada projeto, os botões **+ Claude**, **+ Codex** e **+ Shell** abrem uma sessão nova, e **Retomar** reabre uma conversa. As sessões rodam no `jarvis` de sempre, dentro do container, em abas na parte de baixo da tela. Elas continuam rodando se você fechar a página; ao reabrir, as abas voltam com o conteúdo. As abas se ajustam à barra, sem barra de rolagem: quanto mais abas, mais estreitas, até cerca de oito caracteres do nome. O nome que não couber termina em reticências e aparece inteiro ao passar o mouse, e só a aba ativa mostra a bolinha ao lado do nome. Se abrir mais abas do que cabem nessa largura, as que sobrarem ficam fora da vista, mas continuam acessíveis pelos atalhos.
 
