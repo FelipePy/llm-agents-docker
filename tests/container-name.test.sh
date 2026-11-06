@@ -45,7 +45,7 @@ run() {
   (cd "$proj" && env -u SSH_AUTH_SOCK -u LLM_AGENT_NO_REMOTE_CONTROL \
     HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
     LLM_AGENT_DOCKER="$fake" LLM_AGENT_NO_UPDATE_CHECK=1 FAKE_STATE="$state" \
-    "$repo/jarvis" "$@" </dev/null)
+    "$repo/llm-agent" "$@" </dev/null)
 }
 
 failures=0

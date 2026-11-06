@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Testa os argumentos que o jarvis passa ao container, usando um "docker"
+# Testa os argumentos que o llm-agent passa ao container, usando um "docker"
 # falso (LLM_AGENT_DOCKER) que imprime o que viria depois de "compose ... run".
 set -uo pipefail
 
@@ -23,14 +23,14 @@ printf '%s\n' "$*"
 EOF
 chmod +x "$fake"
 
-# run [VAR=valor ...] [args do jarvis]
+# run [VAR=valor ...] [args do llm-agent]
 run() {
   local vars=()
   while [ $# -gt 0 ] && [[ "$1" == *=* ]]; do vars+=("$1"); shift; done
   (cd "$proj" && env -u SSH_AUTH_SOCK -u LLM_AGENT_NO_REMOTE_CONTROL \
     HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
     LLM_AGENT_DOCKER="$fake" LLM_AGENT_NO_UPDATE_CHECK=1 \
-    "${vars[@]}" "$repo/jarvis" "$@" </dev/null)
+    "${vars[@]}" "$repo/llm-agent" "$@" </dev/null)
 }
 
 failures=0

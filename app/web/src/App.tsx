@@ -48,7 +48,7 @@ export function App() {
   if (!token) {
     return (
       <div className="fatal">
-        Abra a interface pela URL impressa por <code>jarvis ui</code>.
+        Abra a interface pela URL impressa por <code>llm-agent ui</code>.
       </div>
     );
   }

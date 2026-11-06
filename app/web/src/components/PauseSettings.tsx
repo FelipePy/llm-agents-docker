@@ -21,7 +21,7 @@ export function PauseSettings({ api }: { api: Api }) {
         setSaved({ pauses: s.pauses, defaults: s.pauseDefaults });
         setDraft(toDraft(s.pauses));
       },
-      () => setNotice({ kind: 'error', text: 'Não consegui ler as pausas da voz (servidor antigo? reinicie o jarvis ui).' }),
+      () => setNotice({ kind: 'error', text: 'Não consegui ler as pausas da voz (servidor antigo? reinicie o llm-agent ui).' }),
     );
   }, [api]);
 

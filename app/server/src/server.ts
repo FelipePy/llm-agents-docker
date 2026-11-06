@@ -36,7 +36,7 @@ export interface AppOptions {
   port: number;
   token: string;
   webDir: string;
-  /** Caminho do jarvis executado pelos terminais. */
+  /** Caminho do llm-agent executado pelos terminais. */
   bin: string;
   extraOrigins: string[];
   /** Pasta das sessoes de tarefa ("+ Nova skill", "+ Sobre mim"); fica fora da lista de projetos. */
@@ -328,7 +328,7 @@ export function createApp(opts: AppOptions): App {
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
-      // pid e inicio: o "jarvis ui" acha (e encerra) este servidor mesmo sem o server.json.
+      // pid e inicio: o "llm-agent ui" acha (e encerra) este servidor mesmo sem o server.json.
       if (url.pathname === '/api/health') return send(res, 200, { ok: true, app: 'llm-agent-ui', pid: process.pid, startedAt: STARTED_AT });
       if (url.pathname.startsWith('/api/')) {
         if (!originAllowed(req.headers.origin, port, opts.extraOrigins)) return send(res, 403, { error: 'origem não permitida' });

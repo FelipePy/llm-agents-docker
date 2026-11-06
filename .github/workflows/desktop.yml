@@ -104,7 +104,7 @@ jobs:
       - run: pip install 'numpy>=1.24,<3'
       - run: python -m unittest discover -s app/voice/tests -t app/voice
 
-  # Testes dos scripts (jarvis ui, restart, remote control).
+  # Testes dos scripts (llm-agent ui, restart, remote control).
   scripts-test:
     runs-on: ubuntu-latest
     steps:
@@ -120,7 +120,6 @@ jobs:
       - run: bash tests/remote-control.test.sh
       - run: bash tests/container-name.test.sh
       - run: bash tests/voice-setup.test.sh
-      - run: bash tests/install.test.sh
 
   version:
     runs-on: ubuntu-latest

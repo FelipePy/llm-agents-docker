@@ -13,7 +13,7 @@ Agentes como esses costumam ser usados em modo autônomo (`--dangerously-skip-pe
 - Usuário do container com o mesmo UID/GID do seu usuário, então os arquivos criados pertencem a você.
 - Repassa, se existirem no host: SSH agent, `~/.ssh`, `gh`, `~/.gitconfig`, `~/.zshrc`/oh-my-zsh, nvm, pyenv, bun e `~/.local/bin`.
 - Container sem capabilities (`cap_drop: ALL`) e com `no-new-privileges`.
-- **Interface gráfica** (`jarvis ui`): perfil, skills, projetos e conversas de todos os seus projetos, com terminais embutidos para abrir, retomar e alternar sessões do Claude Code, do Codex e do shell.
+- **Interface gráfica** (`llm-agent ui`): perfil, skills, projetos e conversas de todos os seus projetos, com terminais embutidos para abrir, retomar e alternar sessões do Claude Code, do Codex e do shell.
 
 ## Requisitos
 
@@ -31,7 +31,7 @@ cd llm-agents-docker
 O instalador:
 
 1. verifica se o Docker e o `docker compose` estão disponíveis;
-2. cria o comando `jarvis` (e `llm-agent`, o nome antigo, que o app desktop usa) em `~/.local/bin` (um link para o script deste repositório; use `LLM_AGENT_BIN_DIR` para outro destino);
+2. cria o comando `llm-agent` em `~/.local/bin` (um link para o script deste repositório; use `LLM_AGENT_BIN_DIR` para outro destino);
 3. constrói a imagem com o seu UID/GID;
 4. avisa se `~/.local/bin` não estiver no seu `PATH`.
 
@@ -56,11 +56,11 @@ Também funciona com `--docker "sudo docker"`. Para trocar o comando, rode o `./
 
 ## Uso
 
-Entre na pasta do projeto e rode `jarvis`. Um menu pergunta qual agente abrir:
+Entre na pasta do projeto e rode `llm-agent`. Um menu pergunta qual agente abrir:
 
 ```console
 $ cd ~/projetos/meu-app
-$ jarvis
+$ llm-agent
 Qual agente abrir em /home/voce/projetos/meu-app?
   1) Claude Code
   2) Codex
@@ -73,18 +73,18 @@ Pelo menu, os agentes abrem em **modo autônomo** (`claude --dangerously-skip-pe
 Também dá para chamar o agente direto, com os argumentos que quiser:
 
 ```sh
-jarvis claude                                  # Claude Code pedindo permissões
-jarvis claude --dangerously-skip-permissions   # Claude Code autônomo
-jarvis codex                                   # Codex com aprovações normais
-jarvis claude --model opus                     # Claude Code com outro modelo
-jarvis zsh                                     # shell dentro do container
-jarvis --help                                  # ajuda
+llm-agent claude                                  # Claude Code pedindo permissões
+llm-agent claude --dangerously-skip-permissions   # Claude Code autônomo
+llm-agent codex                                   # Codex com aprovações normais
+llm-agent claude --model opus                     # Claude Code com outro modelo
+llm-agent zsh                                     # shell dentro do container
+llm-agent --help                                  # ajuda
 ```
 
-Tudo que vem depois de `jarvis` é executado dentro do container, então os argumentos de cada CLI (como `--model`) funcionam normalmente. Para usar outro diretório sem entrar nele:
+Tudo que vem depois de `llm-agent` é executado dentro do container, então os argumentos de cada CLI (como `--model`) funcionam normalmente. Para usar outro diretório sem entrar nele:
 
 ```sh
-AGENT_WORKDIR=~/projetos/meu-app jarvis claude
+AGENT_WORKDIR=~/projetos/meu-app llm-agent claude
 ```
 
 Por segurança, o script se recusa a rodar na sua home ou em `/`, pois isso exporia todos os seus arquivos ao agente.
@@ -98,31 +98,31 @@ Se você ainda não fez login, faça uma vez (no host ou no container) — o log
 O projeto é montado no **mesmo caminho absoluto** do host, então o Claude Code usa a mesma pasta de histórico (`~/.claude/projects/<caminho-do-projeto>`) dentro e fora do container:
 
 ```sh
-jarvis claude --continue   # retoma o último chat deste projeto
-jarvis claude --resume     # escolhe entre os chats deste projeto
+llm-agent claude --continue   # retoma o último chat deste projeto
+llm-agent claude --resume     # escolhe entre os chats deste projeto
 ```
 
 Evite continuar o mesmo chat no host e no container ao mesmo tempo.
 
 ### Usando pelo celular (Remote Control)
 
-Ao abrir o Claude Code, o `jarvis` liga o Remote Control: a sessão aparece no app Claude do celular e em [claude.ai/code](https://claude.ai/code), e você pode continuar a conversa por lá enquanto o agente roda no seu computador.
+Ao abrir o Claude Code, o `llm-agent` liga o Remote Control: a sessão aparece no app Claude do celular e em [claude.ai/code](https://claude.ai/code), e você pode continuar a conversa por lá enquanto o agente roda no seu computador.
 
 A sessão recebe o nome do container sem o prefixo `llm-agent-`, como `claude-meu-app` (ou `claude-meu-app-2` numa segunda sessão no mesmo projeto). Sessões abertas ao mesmo tempo recebem números diferentes: cada nome é reservado com um lock em `~/.config/llm-agent/locks` enquanto a sessão estiver aberta.
 
 ```sh
-jarvis claude --remote-control outro-nome   # escolhe outro nome
-LLM_AGENT_NO_REMOTE_CONTROL=1 jarvis claude # abre sem Remote Control
+llm-agent claude --remote-control outro-nome   # escolhe outro nome
+LLM_AGENT_NO_REMOTE_CONTROL=1 llm-agent claude # abre sem Remote Control
 ```
 
 O Remote Control exige login com uma conta claude.ai; ele não funciona com API key. Se não conseguir ligar, o Claude Code mostra o aviso e a sessão local continua funcionando.
 
 ### Atualizando os agentes
 
-Sempre que você abre o Claude Code ou o Codex, o `jarvis` consulta a última versão publicada no npm. Se houver uma mais nova, ele pergunta antes de atualizar:
+Sempre que você abre o Claude Code ou o Codex, o `llm-agent` consulta a última versão publicada no npm. Se houver uma mais nova, ele pergunta antes de atualizar:
 
 ```console
-$ jarvis claude
+$ llm-agent claude
 Nova versao do Claude Code: 2.1.285 -> 2.1.296. Atualizar agora? [s/N]
 ```
 
@@ -131,16 +131,16 @@ Ao aceitar, a imagem é reconstruída só com a nova versão desse agente; o out
 Também dá para escolher as versões manualmente:
 
 ```sh
-CLAUDE_CODE_VERSION=2.1.296 CODEX_VERSION=0.162.1 jarvis --build
+CLAUDE_CODE_VERSION=2.1.296 CODEX_VERSION=0.162.1 llm-agent --build
 ```
 
-Sem essas variáveis, o `jarvis --build` mantém as versões já instaladas na imagem. O atualizador interno do Claude Code fica desativado no container, porque as versões são gerenciadas pela imagem.
+Sem essas variáveis, o `llm-agent --build` mantém as versões já instaladas na imagem. O atualizador interno do Claude Code fica desativado no container, porque as versões são gerenciadas pela imagem.
 
 ## Interface
 
 ```sh
-jarvis ui          # sobe a interface e imprime a URL
-jarvis ui --stop   # encerra a interface e as sessões abertas nela
+llm-agent ui          # sobe a interface e imprime a URL
+llm-agent ui --stop   # encerra a interface e as sessões abertas nela
 ```
 
 Abra a URL impressa no navegador. No WSL2, ela funciona direto no navegador do Windows. Na primeira execução, o comando instala as dependências e constrói a interface (precisa de Node.js 22.18 ou mais novo no host).
@@ -151,13 +151,13 @@ A interface mostra:
 - **Skills:** as skills do Claude Code, dos plugins e do Codex.
 - **Projetos:** todos os projetos em que você já usou o Claude Code ou o Codex, com conversas, memória, instruções e branch do git. Os repositórios git da pasta de projetos também aparecem, mesmo sem conversas, inclusive os que estão um nível abaixo (como `trabalho/api`). A pasta de projetos é a de `LLM_AGENT_PROJECTS_DIR` ou, sem ela, a pasta-mãe mais comum entre os projetos com conversas.
 
-Em cada projeto, os botões **+ Claude**, **+ Codex** e **+ Shell** abrem uma sessão nova, e **Retomar** reabre uma conversa. As sessões rodam no `jarvis` de sempre, dentro do container, em abas na parte de baixo da tela. Elas continuam rodando se você fechar a página; ao reabrir, as abas voltam com o conteúdo. As abas se ajustam à barra, sem barra de rolagem: quanto mais abas, mais estreitas, até cerca de oito caracteres do nome. O nome que não couber termina em reticências e aparece inteiro ao passar o mouse, e só a aba ativa mostra a bolinha ao lado do nome. Se abrir mais abas do que cabem nessa largura, as que sobrarem ficam fora da vista, mas continuam acessíveis pelos atalhos.
+Em cada projeto, os botões **+ Claude**, **+ Codex** e **+ Shell** abrem uma sessão nova, e **Retomar** reabre uma conversa. As sessões rodam no `llm-agent` de sempre, dentro do container, em abas na parte de baixo da tela. Elas continuam rodando se você fechar a página; ao reabrir, as abas voltam com o conteúdo. As abas se ajustam à barra, sem barra de rolagem: quanto mais abas, mais estreitas, até cerca de oito caracteres do nome. O nome que não couber termina em reticências e aparece inteiro ao passar o mouse, e só a aba ativa mostra a bolinha ao lado do nome. Se abrir mais abas do que cabem nessa largura, as que sobrarem ficam fora da vista, mas continuam acessíveis pelos atalhos.
 
 No modo 3D, o centro é um globo holográfico: ele é a voz do Jarvis. Em volta do núcleo, milhares de fragmentos (traços, arcos e pequenos painéis) giram em faixas inclinadas, cada uma no seu sentido. Parado, o globo só deriva; ouvindo, ele pulsa; pensando, gira mais rápido; falando, acompanha o volume da voz: as camadas se expandem, os fragmentos crescem, tremem e brilham mais a cada sílaba (ligue **Demonstração de voz** para ver sem microfone). Em **Estilo do Jarvis**, nas configurações, o globo troca de desenho na hora: **Holográfico** (o padrão, descrito aqui), **Partículas** (uma nuvem de pontos em duas cascas) ou **Órbitas** (arcos e contas girando em planos diferentes, em volta de um núcleo maior); todos reagem à voz do mesmo jeito. Em **Cor do Jarvis** (dourado, ciano, branco, vermelho, verde ou roxo), a escolha vale na hora para o globo e para tudo o que é dourado na interface, inclusive a janela flutuante: trilha, ícones do topo, bordas, legendas e destaques. Os textos em cinza, os avisos e o terminal não mudam. Clicar no globo abre **Você**. À direita, de cima para baixo, ficam os cartões da área em que você está: Você, Projetos, Skills e Sessões abertas no início; dentro de um projeto, Sobre o projeto, Conversas, Memória, Instruções, git e os botões de nova sessão. Clicar num cartão abre os detalhes ou entra no nível seguinte; a trilha no topo mostra onde você está, e `Esc` volta.
 
 Os botões **+ Sobre mim**, **+ Nova skill** e **+ Novo projeto** abrem uma sessão do Claude já instruída para a tarefa: registrar uma informação sobre você, criar uma skill ou preparar um projeto novo. As duas primeiras rodam numa pasta de trabalho própria (`~/.local/share/llm-agent/workspace`); o projeto novo é criado ao lado dos seus outros projetos (ou em `LLM_AGENT_PROJECTS_DIR`).
 
-O espaço ocupa a tela toda. No canto superior direito ficam, nesta ordem, o campo de filtro (nos níveis que têm o que filtrar), o botão de notícias (ícone de jornal) e o de configurações (⚙). O botão de notícias abre o painel do dia (hora, data, clima e notícias) num modal centralizado na tela; `Esc`, o × ou um clique fora do modal fecham. O clima vem do [Open-Meteo](https://open-meteo.com/) (sem cadastro), usando a localização do navegador; para usar uma cidade fixa, defina `LLM_AGENT_UI_CITY` (por exemplo, `LLM_AGENT_UI_CITY="São Paulo" jarvis ui`). As notícias vêm do RSS do Google Notícias; `LLM_AGENT_UI_NEWS_RSS` troca a fonte. As coordenadas são enviadas ao Open-Meteo para buscar a previsão.
+O espaço ocupa a tela toda. No canto superior direito ficam, nesta ordem, o campo de filtro (nos níveis que têm o que filtrar), o botão de notícias (ícone de jornal) e o de configurações (⚙). O botão de notícias abre o painel do dia (hora, data, clima e notícias) num modal centralizado na tela; `Esc`, o × ou um clique fora do modal fecham. O clima vem do [Open-Meteo](https://open-meteo.com/) (sem cadastro), usando a localização do navegador; para usar uma cidade fixa, defina `LLM_AGENT_UI_CITY` (por exemplo, `LLM_AGENT_UI_CITY="São Paulo" llm-agent ui`). As notícias vêm do RSS do Google Notícias; `LLM_AGENT_UI_NEWS_RSS` troca a fonte. As coordenadas são enviadas ao Open-Meteo para buscar a previsão.
 
 O botão ⚙ abre as configurações, no mesmo tipo de modal e agrupadas por assunto. Os blocos de cada grupo começam recolhidos sempre que o modal abre; clicar no título de um bloco o expande ou recolhe. Em **Voz**: **Como falar** (escuta ativa, **Falar com Ctrl+Espaço**, cujo nome acompanha o atalho escolhido, e **Atalho para falar**), **Sua voz**, **Transcrição da fala** e **Pausas da fala**. Em **Aparência e som**, no bloco **Visual e sons**: **Modo 3D** (troca para a interface em lista), **Estilo do Jarvis**, **Atalho para trocar o estilo**, **Cor do Jarvis**, **Reduzir movimento**, **Demonstração de voz** e **Sons de clique**. Em **Sistema**, no app desktop, **Iniciar com o sistema**. No navegador, **Sistema** traz **Abrir janela flutuante**: uma janelinha do Jarvis por cima das outras abas e programas (o navegador só a abre com um clique). Em GPUs mais fracas, a cena reduz a qualidade sozinha.
 
@@ -255,7 +255,7 @@ npm run build     # instaladores em src-tauri/target/release/bundle/
 | `~/.zshrc`, `~/.oh-my-zsh`, `~/.nvm`, `~/.pyenv`, `~/.local/bin` | `/home/agent/...` | somente leitura | se existirem |
 | `~/.agents`, `~/.bun` | `/home/agent/...` | leitura e escrita | se existirem |
 
-Os mounts obrigatórios estão em [`docker-compose.yml`](docker-compose.yml); os opcionais são adicionados pelo script [`jarvis`](jarvis). Para remover algum (por exemplo, não expor `~/.ssh`), apague a linha `add_mount` correspondente no script.
+Os mounts obrigatórios estão em [`docker-compose.yml`](docker-compose.yml); os opcionais são adicionados pelo script [`llm-agent`](llm-agent). Para remover algum (por exemplo, não expor `~/.ssh`), apague a linha `add_mount` correspondente no script.
 
 ## Segurança: o que o container **não** protege
 
@@ -279,13 +279,13 @@ rmdir ~/.claude.json && echo '{}' > ~/.claude.json && chmod 600 ~/.claude.json
 ```
 
 **Arquivos criados pelo agente pertencem a outro usuário.**
-A imagem foi construída com outro UID/GID. Rode `jarvis --build` com o seu usuário.
+A imagem foi construída com outro UID/GID. Rode `llm-agent --build` com o seu usuário.
 
 **`permission denied` ao ler o `docker-compose.yml` ou o `Dockerfile` (com `--docker "sudo -u ..."`).**
 O usuário do Docker não consegue ler a pasta do repositório. Mova o clone para um lugar acessível (por exemplo, `/opt/llm-agents-docker`) e rode o `./install.sh` de novo a partir de lá.
 
 **`the input device is not a TTY`.**
-O `jarvis` precisa de um terminal interativo; não o chame a partir de pipes ou scripts sem TTY.
+O `llm-agent` precisa de um terminal interativo; não o chame a partir de pipes ou scripts sem TTY.
 
 ## Desenvolvimento
 
@@ -303,7 +303,7 @@ python3 -m unittest discover -s app/voice/tests -t app/voice   # worker de voz
 Para mexer na interface com recarga automática:
 
 ```sh
-LLM_AGENT_UI_ORIGINS=http://localhost:5173 jarvis ui   # copie o token da URL
+LLM_AGENT_UI_ORIGINS=http://localhost:5173 llm-agent ui   # copie o token da URL
 npm --prefix app/web run dev                              # abra http://localhost:5173/#token=<token>
 ```
 

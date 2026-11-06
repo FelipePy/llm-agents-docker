@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Instala o comando jarvis e constroi a imagem com o seu UID/GID.
+# Instala o comando llm-agent e constroi a imagem com o seu UID/GID.
 #
 # Uso:
 #   ./install.sh                 instala em ~/.local/bin (ou $LLM_AGENT_BIN_DIR)
@@ -14,9 +14,7 @@ set -euo pipefail
 
 repo_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 bin_dir="${LLM_AGENT_BIN_DIR:-$HOME/.local/bin}"
-target="$bin_dir/jarvis"
-# Nome antigo: o app desktop ja instalado chama este comando.
-legacy="$bin_dir/llm-agent"
+target="$bin_dir/llm-agent"
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/llm-agent"
 config_file="$config_dir/config"
 
@@ -38,14 +36,12 @@ while [ $# -gt 0 ]; do
 done
 
 if $uninstall; then
-  for link in "$target" "$legacy"; do
-    if [ "$(readlink -f "$link" 2>/dev/null)" = "$repo_dir/jarvis" ]; then
-      rm -f "$link"
-      echo "Removido: $link"
-    else
-      echo "Nada a remover: $link nao aponta para este repositorio."
-    fi
-  done
+  if [ "$(readlink -f "$target" 2>/dev/null)" = "$repo_dir/llm-agent" ]; then
+    rm -f "$target"
+    echo "Removido: $target"
+  else
+    echo "Nada a remover: $target nao aponta para este repositorio."
+  fi
   if [ -f "$config_file" ]; then
     rm -f "$config_file"
     rmdir "$config_dir" 2>/dev/null || true
@@ -81,27 +77,21 @@ if ! "${docker_cmd[@]}" info >/dev/null 2>&1; then
 fi
 
 mkdir -p "$bin_dir"
-for link in "$target" "$legacy"; do
-  if [ -L "$link" ] && [ ! -e "$link" ]; then
-    # Link quebrado (por exemplo, a pasta do repositorio mudou de nome): refaz.
-    rm -f "$link"
+if [ -e "$target" ] || [ -L "$target" ]; then
+  if [ "$(readlink -f "$target")" != "$repo_dir/llm-agent" ]; then
+    echo "Erro: $target ja existe e nao e deste repositorio. Remova-o e rode de novo." >&2
+    exit 1
   fi
-  if [ -e "$link" ]; then
-    if [ "$(readlink -f "$link")" != "$repo_dir/jarvis" ]; then
-      echo "Erro: $link ja existe e nao e deste repositorio. Remova-o e rode de novo." >&2
-      exit 1
-    fi
-  else
-    ln -s "$repo_dir/jarvis" "$link"
-  fi
-done
+else
+  ln -s "$repo_dir/llm-agent" "$target"
+fi
 echo "Comando instalado: $target"
 
 echo "Construindo a imagem (pode levar alguns minutos)..."
-"$repo_dir/jarvis" --build
+"$repo_dir/llm-agent" --build
 
 echo
-echo "Pronto! Entre em um projeto e rode: jarvis"
+echo "Pronto! Entre em um projeto e rode: llm-agent"
 case ":$PATH:" in
   *":$bin_dir:"*) ;;
   *)

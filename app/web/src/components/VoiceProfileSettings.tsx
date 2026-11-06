@@ -98,7 +98,7 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
   const [codeSent, setCodeSent] = useState(false);
 
   useEffect(() => {
-    api.voiceProfile().then(setProfile, () => setNotice({ kind: 'error', text: 'Não consegui ler a voz cadastrada (servidor antigo? reinicie o jarvis ui).' }));
+    api.voiceProfile().then(setProfile, () => setNotice({ kind: 'error', text: 'Não consegui ler a voz cadastrada (servidor antigo? reinicie o llm-agent ui).' }));
   }, [api]);
 
   const open = (next: Mode) => {

@@ -1,4 +1,4 @@
-// Processo do servidor da interface. Normalmente iniciado por "jarvis ui".
+// Processo do servidor da interface. Normalmente iniciado por "llm-agent ui".
 import { mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFile, spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
@@ -18,7 +18,7 @@ import { DEFAULT_THRESHOLD, type Mailer } from './voice/speaker.ts';
 
 const home = process.env.HOME;
 if (!home) {
-  console.error('jarvis ui: HOME nao definido');
+  console.error('llm-agent ui: HOME nao definido');
   process.exit(1);
 }
 
@@ -127,7 +127,7 @@ const app = createApp({
   port: Number(process.env.LLM_AGENT_UI_PORT ?? 7777),
   token,
   webDir: join(repo, 'app', 'web', 'dist'),
-  bin: process.env.LLM_AGENT_BIN ?? join(repo, 'jarvis'),
+  bin: process.env.LLM_AGENT_BIN ?? join(repo, 'llm-agent'),
   extraOrigins: (process.env.LLM_AGENT_UI_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
   workspaceDir,
   projectsDir: process.env.LLM_AGENT_PROJECTS_DIR || undefined,
@@ -183,7 +183,7 @@ const stopWatching = watchPaths(
   ],
   () => app.broadcast({ type: 'changed' }),
 );
-console.log(`jarvis ui ouvindo em http://127.0.0.1:${port}`);
+console.log(`llm-agent ui ouvindo em http://127.0.0.1:${port}`);
 
 /** Apaga o server.json so se ele for deste processo (outro servidor pode ter subido depois). */
 function removeServerJson(): void {

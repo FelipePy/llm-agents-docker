@@ -22,11 +22,11 @@ services:
       LC_ALL: C.UTF-8
       SHELL: /usr/bin/zsh
       TERM: "${TERM:-xterm-256color}"
-      # As versoes dos CLIs sao gerenciadas pela imagem (jarvis oferece a
+      # As versoes dos CLIs sao gerenciadas pela imagem (llm-agent oferece a
       # atualizacao); o npm global do container nao e gravavel pelo agente.
       DISABLE_AUTOUPDATER: "1"
     # Aqui ficam so os mounts obrigatorios. Os opcionais (ssh, gh, git, zsh,
-    # toolchains) sao adicionados pelo script jarvis apenas se existirem no host.
+    # toolchains) sao adicionados pelo script llm-agent apenas se existirem no host.
     volumes:
       # --- unico caminho gravavel e visivel do host: o projeto ---
       # Montado no mesmo caminho absoluto do host, para que host e container

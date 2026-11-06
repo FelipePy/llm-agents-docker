@@ -5,7 +5,7 @@
 #
 #   app/restart.sh <commit-anterior>
 #
-# 1. Para o servidor e sobe o novo (jarvis ui).
+# 1. Para o servidor e sobe o novo (llm-agent ui).
 # 2. Chama /api/self-check?record=1: o servidor novo confere projetos,
 #    ferramentas, interface, voz e cerebro, e grava o resultado no update.json.
 # 3. Se ele nao subir ou uma verificacao essencial falhar: marca o update.json
@@ -70,6 +70,6 @@ fi
 if "$ui" >/dev/null; then
   log "versão anterior de volta"
 else
-  log "a versão anterior também não subiu; rode jarvis ui para ver o erro"
+  log "a versão anterior também não subiu; rode llm-agent ui para ver o erro"
   exit 1
 fi

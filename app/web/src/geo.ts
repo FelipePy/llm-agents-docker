@@ -9,7 +9,7 @@ export interface GeoSituation {
 }
 
 export function geoProblem(g: GeoSituation): string | null {
-  if (!g.secure) return 'O navegador só libera a localização em http://127.0.0.1, localhost ou https. Abra a interface pela URL do “jarvis ui”.';
+  if (!g.secure) return 'O navegador só libera a localização em http://127.0.0.1, localhost ou https. Abra a interface pela URL do “llm-agent ui”.';
   if (!g.supported) return 'Este navegador não oferece localização.';
   switch (g.errorCode) {
     case undefined:
