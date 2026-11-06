@@ -34,6 +34,7 @@ import { waveLabel, wavePlace } from './voice/hold.ts';
 import { DEFAULT_GLOBE_HOTKEY, MIDDLE_BUTTON, matchesHotkey, sameHotkey } from './voice/hotkey.ts';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { CopySection } from './components/CopySection.tsx';
+import { afterReply, applySetting, type SettingCommand } from './voiceSetting.ts';
 import { setAutostart, useDesktop } from './desktop.ts';
 
 // A cena 3D (three.js) so e baixada quando o modo 3D esta ligado.
@@ -405,7 +406,36 @@ function Connected({ token }: { token: string }) {
     floating?.setColor(globeColor);
   }, [floating, globeColor]);
 
+  // Configuracoes mudadas por voz; escuta e atalho esperam a resposta terminar (reiniciam a voz).
+  const settingSetters = {
+    captionUser: setCaptionUser,
+    captionJarvis: setCaptionJarvis,
+    voiceOn: setVoiceOn,
+    holdKey: setHoldKey,
+    mode3d: setMode3d,
+    reduceMotion: setReduceMotion,
+    voiceDemo: setVoiceDemo,
+    sounds: setSounds,
+    globeColor: setGlobeColor,
+    globeStyle: setGlobeStyle,
+  };
+  const pendingSettings = useRef<SettingCommand[]>([]);
+  const replyBusy = voice.state === 'thinking' || voice.state === 'speaking';
+  useEffect(() => {
+    if (replyBusy || !pendingSettings.current.length) return;
+    const list = pendingSettings.current;
+    pendingSettings.current = [];
+    for (const c of list) applySetting(c, settingSetters);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replyBusy]);
+
   onUiRef.current = (command: UiCommand) => {
+    // Configuracao: muda sem fechar nada (o usuario pode estar olhando as configuracoes).
+    if (command.kind === 'setting') {
+      if (afterReply(command) && replyBusy) pendingSettings.current.push(command);
+      else applySetting(command, settingSetters);
+      return;
+    }
     // O modal cobre a tela: o que o Jarvis abrir precisa ficar a vista.
     setModal(null);
     if (command.kind === 'back') return dispatch({ type: 'back' });
