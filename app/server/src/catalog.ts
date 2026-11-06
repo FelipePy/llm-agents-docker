@@ -4,7 +4,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { Agent, Conversation, Overview, Profile, ProjectDetail, ProjectSummary, Skill, TextFile } from './types.ts';
 import { scanConversations } from './conversations.ts';
-import { isDir, listDir, parseFrontmatter, readTextFile } from './files.ts';
+import { isDir, listDir, mtimeIso, parseFrontmatter, readTextFile } from './files.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -34,19 +34,58 @@ function summarize(path: string, list: Conversation[]): ProjectSummary {
   return { id: projectId(path), name: basename(path), path, updatedAt, conversations: list.length, agents };
 }
 
-export async function listProjects(home: string, convs: Conversation[], hidden: string[] = []): Promise<ProjectSummary[]> {
+/** Repositorios git na pasta de projetos: filhos diretos e um nivel abaixo (ex.: trabalho/api). */
+async function discoverRepos(home: string, base: string, hidden: string[]): Promise<string[]> {
+  // Na home ou na raiz, a busca sairia pelos arquivos pessoais: o projeto precisa de uma pasta propria.
+  if (base === resolve(home) || base === '/') return [];
+  const inside = hidden.map((h) => resolve(h));
+  const children = async (dir: string): Promise<string[]> => {
+    const names = (await listDir(dir)).filter((n) => !n.startsWith('.') && n !== 'node_modules');
+    const paths = names.map((n) => join(dir, n)).filter((p) => !inside.some((h) => p === h || p.startsWith(h + '/')));
+    const dirs = await Promise.all(paths.map(async (p) => ((await isDir(p)) ? p : null)));
+    return dirs.filter(present);
+  };
+  const isRepo = async (dir: string) => (await mtimeIso(join(dir, '.git'))) !== null;
+  const found = await Promise.all(
+    (await children(base)).map(async (dir) => {
+      if (await isRepo(dir)) return [dir];
+      const nested = await children(dir);
+      const repos = await Promise.all(nested.map(async (p) => ((await isRepo(p)) ? p : null)));
+      return repos.filter(present);
+    }),
+  );
+  return found.flat();
+}
+
+export async function listProjects(
+  home: string,
+  convs: Conversation[],
+  hidden: string[] = [],
+  projectsDir?: string,
+): Promise<ProjectSummary[]> {
   const out: ProjectSummary[] = [];
   for (const [path, list] of groupByProject(home, convs, hidden)) {
     if (await isDir(path)) out.push(summarize(path, list));
   }
+  const known = new Set(out.map((p) => p.path));
+  for (const path of await discoverRepos(home, projectsBase(home, out, projectsDir), hidden)) {
+    if (known.has(path)) continue;
+    // Sem conversas: a ultima atividade conhecida e a do repositorio.
+    out.push({ ...summarize(path, []), updatedAt: (await mtimeIso(join(path, '.git'))) ?? '' });
+  }
   return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-/** Pasta onde "+ Novo projeto" cria pastas: a configurada ou a pasta-mae mais comum. */
+/**
+ * Pasta onde "+ Novo projeto" cria pastas: a configurada ou a pasta-mae mais comum. So contam os
+ * projetos com conversas: os repositorios achados nao mudam a pasta (e ela nao muda a propria busca).
+ */
 export function projectsBase(home: string, projects: ProjectSummary[], configured?: string): string {
   if (configured) return resolve(configured);
   const counts = new Map<string, number>();
-  for (const p of projects) counts.set(dirname(p.path), (counts.get(dirname(p.path)) ?? 0) + 1);
+  for (const p of projects) {
+    if (p.conversations > 0) counts.set(dirname(p.path), (counts.get(dirname(p.path)) ?? 0) + 1);
+  }
   let best = '';
   let most = 0;
   for (const [dir, n] of counts) {
@@ -89,13 +128,15 @@ export async function projectDetail(
   path: string,
   convs: Conversation[],
   hidden: string[] = [],
+  projectsDir?: string,
 ): Promise<ProjectDetail | null> {
-  const list = groupByProject(home, convs, hidden).get(path);
-  if (!list || !(await isDir(path))) return null;
+  const summary = (await listProjects(home, convs, hidden, projectsDir)).find((p) => p.path === path);
+  if (!summary) return null;
+  const list = groupByProject(home, convs, hidden).get(path) ?? [];
   const claudeDirs = [...new Set(list.map((c) => c.claudeDir).filter((d): d is string => !!d))];
   const memory = (await Promise.all(claudeDirs.map((d) => markdownFiles(join(d, 'memory'))))).flat();
   const instructions = (await Promise.all(['CLAUDE.md', 'AGENTS.md'].map((n) => readTextFile(join(path, n))))).filter(present);
-  return { ...summarize(path, list), git: await gitInfo(path), instructions, memory, conversationList: list };
+  return { ...summary, git: await gitInfo(path), instructions, memory, conversationList: list };
 }
 
 export async function readProfile(home: string): Promise<Profile> {
@@ -154,7 +195,7 @@ export async function buildOverview(home: string, opts: { hidden?: string[]; pro
   const [profile, skills, projects] = await Promise.all([
     readProfile(home),
     listSkills(home),
-    listProjects(home, all, opts.hidden),
+    listProjects(home, all, opts.hidden, opts.projectsDir),
   ]);
   const known = new Set(projects.map((p) => p.path));
   return {

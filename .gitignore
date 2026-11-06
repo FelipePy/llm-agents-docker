@@ -4,6 +4,7 @@ app/desktop/src-tauri/target/
 app/desktop/src-tauri/gen/
 app/desktop/src-tauri/icons/
 .jarvis/
+ISSUES.md
 
 # Pacote embutido no instalador (scripts/build-payload.sh)
 app/desktop/src-tauri/payload/*

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Api, PauseSettings as Pauses } from '../api.ts';
 import { fromDraft, parseWords, sameDraft, toDraft, type PauseDraft } from '../pauses.ts';
+import { SettingsCard } from './SettingsCard.tsx';
 
 type Notice = { kind: 'ok' | 'error' | 'busy'; text: string } | null;
 
@@ -55,8 +56,7 @@ export function PauseSettings({ api }: { api: Api }) {
   };
 
   return (
-    <div className="stt-settings pause-settings">
-      <div className="stt-title">Pausas da fala</div>
+    <SettingsCard title="Pausas da fala">
       <label className="field" title="Quanto tempo calado encerra a sua fala e o Jarvis responde">
         <span>Silêncio até responder (segundos)</span>
         <input inputMode="decimal" value={draft.silence} onChange={edit('silence')} />
@@ -86,6 +86,6 @@ export function PauseSettings({ api }: { api: Api }) {
       </div>
       {dirty && !notice && <p className="muted">Alterações não salvas: só valem depois de Salvar.</p>}
       {notice && <p className={`stt-notice ${notice.kind}`}>{notice.text}</p>}
-    </div>
+    </SettingsCard>
   );
 }

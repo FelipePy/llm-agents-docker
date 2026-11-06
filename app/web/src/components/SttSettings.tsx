@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Api, GroqModel, SttProvider, VoiceSettings, VoiceSettingsInput } from '../api.ts';
+import { SettingsCard } from './SettingsCard.tsx';
 
 const MODELS: { id: GroqModel; label: string }[] = [
   { id: 'whisper-large-v3-turbo', label: 'Whisper Large v3 Turbo (rápido, US$ 0,04/h)' },
@@ -48,8 +49,7 @@ export function SttSettings({ api }: { api: Api }) {
   };
 
   return (
-    <div className="stt-settings">
-      <div className="stt-title">Transcrição da fala</div>
+    <SettingsCard title="Transcrição da fala">
       <label title="Whisper rodando no seu PC: nada sai da máquina">
         <input type="radio" name="stt" checked={provider === 'local'} onChange={() => setProvider('local')} />
         Local (no seu PC)
@@ -106,6 +106,6 @@ export function SttSettings({ api }: { api: Api }) {
         )}
       </div>
       {notice && <p className={`stt-notice ${notice.kind}`}>{notice.text}</p>}
-    </div>
+    </SettingsCard>
   );
 }

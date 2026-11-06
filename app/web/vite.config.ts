@@ -29,5 +29,6 @@ export default defineConfig({
       },
     },
   },
-  test: { environment: 'node', include: ['test/**/*.test.ts'] },
+  // css: sem isto o vitest entrega o CSS vazio, e o teste das cores (?raw) nao veria nada.
+  test: { environment: 'node', include: ['test/**/*.test.ts'], css: true },
 });

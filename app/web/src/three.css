@@ -6,19 +6,35 @@
 
 .navbar { position: absolute; top: 16px; left: 16px; right: 16px; z-index: 4; display: flex; align-items: center; gap: 12px; pointer-events: none; }
 .navbar > * { pointer-events: auto; }
-.crumbs { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-.crumbs button { background: rgba(10, 14, 26, 0.7); }
-.crumbs .current { border-color: #ffc94a; color: #ffc94a; }
+/* Flutuantes: so os nomes sobre a cena. A sombra garante a leitura sobre o globo, e o foco pelo teclado aparece na cor. */
+.crumbs { display: flex; align-items: center; gap: 6px; font-size: 13px; filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.9)); }
+.crumbs button { padding: 4px 2px; border: none; outline: none; background: transparent; transition: color 0.15s; }
+.crumbs .current { color: var(--sys-main); }
+.crumbs button:hover, .crumbs button:focus-visible { color: var(--sys-hot); }
 .crumbs .sep { color: var(--muted); }
-.navbar input { margin-left: auto; width: 220px; background: rgba(10, 14, 26, 0.7); }
-.core-caption { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); z-index: 2; color: #e8c877; font-size: 12px; letter-spacing: 0.25em; text-transform: uppercase; pointer-events: none; }
+.top-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.top-actions input { width: 220px; margin-right: 6px; background: rgba(10, 14, 26, 0.7); }
+/* Flutuantes: so o icone sobre a cena. O foco pelo teclado aparece na cor, ja que nao ha contorno. */
+.top-action { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: none; outline: none; background: transparent; color: var(--sys-soft); line-height: 1; filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.9)); transition: color 0.15s, transform 0.15s; }
+.top-action.gear { font-size: 22px; }
+.top-action:hover, .top-action:focus-visible { color: var(--sys-hot); transform: scale(1.12); }
+/* Onda da voz (atalho de falar ou escuta continua): na altura da frase das tarefas em background, no canto esquerdo do conteudo.
+   Nao cobre a leitura: fica ao lado do painel aberto e, com modal, na faixa livre acima dele (o padding do overlay). */
+.hold-wave {
+  grid-column: -2 / -1; grid-row: 1; align-self: end; justify-self: start; position: relative; z-index: 6; margin: 0 16px 6px;
+  display: flex; align-items: center; gap: 2px; height: 24px; pointer-events: none;
+}
+.hold-wave.beside-panel { margin-left: calc(min(440px, 34%) + 32px); }
+.hold-wave.over-modal { position: fixed; top: 2px; left: 50%; z-index: 13; height: 20px; margin: 0; transform: translateX(-50%); }
+.hold-wave span { width: 3px; height: 100%; border-radius: 2px; background: var(--sys-main); transform: scaleY(0.06); }
+.core-caption { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); z-index: 2; color: var(--sys-dim); font-size: 12px; letter-spacing: 0.25em; text-transform: uppercase; pointer-events: none; }
 
 .ring { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .ring-card {
   position: absolute; top: 50%; max-width: 260px; height: 32px;
   display: flex; align-items: center; gap: 9px; padding: 0 12px; text-align: left;
   background: rgba(12, 12, 18, 0.72); backdrop-filter: blur(6px);
-  border: 1px solid rgba(255, 209, 102, 0.14); border-radius: 16px; pointer-events: auto;
+  border: 1px solid rgba(var(--sys-rgb), 0.14); border-radius: 16px; pointer-events: auto;
   transform: translate(var(--x), calc(var(--y) - 50%));
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
   animation: ring-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
@@ -34,13 +50,13 @@
 }
 .tone-claude { --c: var(--claude); }
 .tone-codex { --c: var(--codex); }
-.tone-both { --c: #ffc94a; }
+.tone-both { --c: var(--sys-main); }
 .tone-shell { --c: var(--shell); }
 .tone-plugin { --c: #9fc2ff; }
-.tone-accent { --c: #ffe08a; }
+.tone-accent { --c: var(--sys-light); }
 .tone-warn { --c: var(--warn); }
 .tone-muted { --c: var(--muted); }
-.tone-add { --c: #ffc94a; border-style: dashed; color: #ffd98a; }
+.tone-add { --c: var(--sys-main); border-style: dashed; color: var(--sys-light); }
 .card-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--c); box-shadow: 0 0 6px var(--c); }
 .tone-add .card-dot { display: none; }
 .card-dot.live { animation: pulse 1.6s infinite; }
@@ -54,35 +70,38 @@
   position: absolute; top: 64px; left: 16px; bottom: 16px; z-index: 6;
   width: min(440px, 34%); overflow: auto; padding: 20px 24px;
   background: rgba(10, 10, 16, 0.9); backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 209, 102, 0.18); border-radius: 12px;
+  border: 1px solid rgba(var(--sys-rgb), 0.18); border-radius: 12px;
 }
 .panel-close { position: sticky; top: 0; float: right; border: none; background: transparent; font-size: 18px; }
 .facts { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .facts .muted { display: inline-block; width: 130px; }
 
 .day { grid-row: 1; display: flex; flex-direction: column; gap: 18px; padding: 20px 18px; border-right: 1px solid var(--line); background: rgba(10, 10, 16, 0.85); overflow: auto; }
-.day .brand { color: #ffc94a; }
+.day .brand { color: var(--sys-main); }
 .clock .time { font-size: 44px; font-weight: 300; letter-spacing: 0.02em; line-height: 1; }
 .clock .seconds { font-size: 16px; color: var(--muted); margin-left: 6px; }
 .clock .date { margin-top: 6px; color: var(--muted); text-transform: capitalize; }
 .weather { display: flex; align-items: center; gap: 14px; }
-.weather .temp { font-size: 38px; font-weight: 300; color: #ffd36b; }
+.weather .temp { font-size: 38px; font-weight: 300; color: var(--sys-soft); }
 .weather .desc { text-transform: capitalize; }
-.news h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+.news-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.news h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+.news-auto { flex: none; padding: 2px 8px; font-size: 11px; }
+.news-off { margin: 0 0 8px; font-size: 12px; }
 .news ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .news li { display: flex; flex-direction: column; gap: 2px; font-size: 13px; line-height: 1.35; }
 .news a { color: var(--text); text-decoration: none; }
-.news a:hover { color: #ffd36b; }
+.news a:hover { color: var(--sys-soft); }
 .news small { color: var(--muted); }
 .day .settings, .sidebar .settings { margin-top: auto; }
 .settings { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
 .settings label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .day .hint, .sidebar .hint { margin-top: 0; }
-.voice-status { margin: -2px 0 4px 24px; color: #ffd36b; white-space: pre-line; line-height: 1.5; }
+.voice-status { margin: -2px 0 4px 24px; color: var(--sys-soft); white-space: pre-line; line-height: 1.5; }
 .captions { position: absolute; left: 50%; bottom: 48px; transform: translateX(-50%); z-index: 3; width: min(560px, 60%); text-align: center; pointer-events: none; }
 .captions p { margin: 4px 0; line-height: 1.4; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9); }
 .captions .you { color: var(--muted); font-size: 13px; }
-.captions .jarvis { color: #ffe7a3; font-size: 15px; }
+.captions .jarvis { color: var(--sys-pale); font-size: 15px; }
 .label {
   display: flex; flex-direction: column; gap: 2px; padding: 4px 8px;
   background: rgba(8, 10, 18, 0.85); border: 1px solid var(--line); border-radius: 6px;
@@ -91,45 +110,46 @@
 .label span { color: var(--muted); }
 .commands { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .commands li { display: flex; flex-direction: column; gap: 3px; }
-.commands .example { color: #ffd98a; font-size: 13px; }
+.commands .example { color: var(--sys-light); font-size: 13px; }
 .weather .geo { margin-top: 6px; font-size: 12px; }
 
-/* Modo 3D: sem coluna fixa; o painel do dia vira uma gaveta a esquerda. */
-.app.full { grid-template-columns: 1fr; }
+/* Modo 3D: sem coluna fixa; o painel do dia e as configuracoes abrem em modais. */
+.app.full { grid-template-columns: minmax(0, 1fr); }
 .app.full .content { grid-column: 1; }
-.day-drawer {
-  position: fixed; top: 0; bottom: 0; left: 0; z-index: 8; width: 320px;
-  transform: translateX(-100%); transition: transform 0.25s ease;
+/* Acima do terminal (o xterm usa z-index ate 11 por dentro). O overlay e leve, para a tela continuar visivel; o modal quase nao deixa ver o que ha atras. */
+.modal-overlay { position: fixed; inset: 0; z-index: 12; display: flex; align-items: center; justify-content: center; padding: 24px 16px; background: rgba(0, 0, 0, 0.4); }
+.modal-overlay[hidden] { display: none; }
+.modal { position: relative; display: flex; flex-direction: column; width: min(560px, 100%); max-height: 100%; background: rgba(10, 10, 16, 0.95); border: 1px solid rgba(var(--sys-rgb), 0.18); border-radius: 14px; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6); outline: none; }
+.modal.wide { width: min(940px, 100%); }
+.modal .day { flex: 1; min-height: 0; padding: 24px 28px; border: none; background: transparent; }
+.modal-close { position: absolute; top: 14px; right: 18px; z-index: 1; width: 28px; height: 28px; padding: 0; border: none; border-radius: 50%; background: rgba(10, 10, 16, 0.85); color: var(--muted); font-size: 20px; line-height: 1; }
+.modal-close:hover, .modal-close:focus-visible { color: var(--text); outline: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .modal { animation: modal-in 0.18s ease-out; }
 }
-.day-drawer.open { transform: none; box-shadow: 8px 0 30px rgba(0, 0, 0, 0.5); }
-.day-drawer .day { height: 100%; border-right: 1px solid rgba(255, 209, 102, 0.18); background: rgba(10, 10, 16, 0.94); backdrop-filter: blur(8px); }
-.day-toggle {
-  position: absolute; top: 50%; left: 100%; transform: translateY(-50%);
-  width: 26px; height: 64px; padding: 0; border-radius: 0 10px 10px 0; border-left: none;
-  background: rgba(10, 10, 16, 0.85); color: #ffd36b; font-size: 18px;
-}
-.app.full .navbar { left: 40px; }
+@keyframes modal-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
 .dictation {
   position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); z-index: 4;
   width: min(620px, 70%); padding: 12px 14px; border-radius: 12px;
-  background: rgba(10, 10, 16, 0.9); border: 1px solid rgba(255, 209, 102, 0.35);
+  background: rgba(10, 10, 16, 0.9); border: 1px solid rgba(var(--sys-rgb), 0.35);
 }
-.dictation-head { font-size: 12px; color: #ffd36b; letter-spacing: 0.08em; text-transform: uppercase; }
+.dictation-head { font-size: 12px; color: var(--sys-soft); letter-spacing: 0.08em; text-transform: uppercase; }
 .dictation-text { margin: 8px 0 10px; font-size: 15px; line-height: 1.4; color: var(--text); min-height: 1.4em; }
 .dictation-actions { display: flex; gap: 8px; }
-.dictation-actions .send { background: #ffc94a; color: #05060a; border-color: #ffc94a; font-weight: 600; }
+.dictation-actions .send { background: var(--sys-main); color: #05060a; border-color: var(--sys-main); font-weight: 600; }
 .dictation-actions button:disabled { opacity: 0.45; cursor: default; }
-.settings-toggle {
-  position: absolute; top: calc(50% + 44px); left: 100%;
-  width: 26px; height: 40px; padding: 0; border-radius: 0 10px 10px 0; border-left: none;
-  background: rgba(10, 10, 16, 0.85); color: #ffd36b; font-size: 15px;
-}
 .settings-panel section { display: flex; flex-direction: column; gap: 8px; }
 .settings-panel h2 { margin: 0 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+.settings-toggle { display: flex; align-items: center; gap: 6px; width: 100%; padding: 2px 0; border: none; border-radius: 4px; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer; }
+.settings-toggle:hover { color: var(--text); }
 .settings-panel label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; }
 .settings-panel p { margin: 0; font-size: 12px; }
-.stt-settings { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
-.stt-title { font-size: 13px; }
+.settings-column { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.settings-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, 0.02); }
+.settings-button { align-self: flex-start; }
+.settings-card-title { margin: 0; font-size: 13px; font-weight: 500; }
+.settings-card-body { display: flex; flex-direction: column; gap: 8px; }
+.settings-card-body[hidden] { display: none; }
 .stt-groq { display: flex; flex-direction: column; gap: 8px; padding-left: 22px; }
 .settings-panel .field { flex-direction: column; align-items: stretch; gap: 4px; cursor: default; }
 .settings-panel .field span { font-size: 12px; color: var(--muted); }
@@ -139,6 +159,14 @@
 .settings-panel .field textarea { resize: vertical; line-height: 1.4; }
 .stt-actions { display: flex; gap: 10px; align-items: center; }
 .stt-actions .link { background: none; border: none; padding: 0; color: var(--muted); text-decoration: underline; cursor: pointer; }
+.hotkey-field { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.hotkey-row { display: flex; gap: 8px; align-items: center; }
+.hotkey-current { flex: 1; min-width: 0; padding: 6px 8px; font: inherit; font-size: 12px; color: inherit; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); border-radius: 6px; overflow-wrap: anywhere; }
+.hotkey-current.capturing { color: var(--muted); border-style: dashed; }
+.hotkey-hint { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.hotkey-refused { color: #ff8a80; }
+.hotkey-field .link { align-self: flex-start; background: none; border: none; padding: 0; font-size: 12px; color: var(--muted); text-decoration: underline; cursor: pointer; }
+.hotkey-field .link:disabled { opacity: 0.5; text-decoration: none; cursor: default; }
 .stt-notice { font-size: 12px; }
 .voice-phrase { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .voice-phrase > span:first-child { flex: 1; }

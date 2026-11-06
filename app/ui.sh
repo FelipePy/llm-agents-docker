@@ -58,7 +58,8 @@ warn_outdated() {
 
 if [ "${1:-}" = "--stop" ]; then
   # O do server.json e, se ele se perdeu, o que responde na porta (servidor orfao).
-  pids="$(running_pid || true) $(health_field "$(json_field port || echo "$port")" pid) $(health_field "$port" pid)"
+  # Porta sem resposta nao e erro: nao ha servidor, ou ele esta travado e sai pelo pid.
+  pids="$(running_pid || true) $(health_field "$(json_field port || echo "$port")" pid || true) $(health_field "$port" pid || true)"
   stopped=""
   for pid in $(printf '%s\n' $pids | sort -u); do
     stop_pid "$pid"
@@ -100,7 +101,7 @@ else
     # Na instalacao do app desktop a interface ja vem construida, sem o codigo dela.
     if [ ! -d "$app_dir/web/src" ]; then
       [ -f "$dist" ] || { echo "A interface construida (app/web/dist) nao esta no pacote." >&2; exit 1; }
-    elif [ ! -f "$dist" ] || [ -n "$(find "$app_dir/web/src" "$app_dir/web/index.html" "$app_dir/web/package.json" -newer "$dist" -print -quit 2>/dev/null)" ]; then
+    elif [ ! -f "$dist" ] || [ -n "$(find "$app_dir/web/src" "$app_dir/web/index.html" "$app_dir/web/public" "$app_dir/web/package.json" -newer "$dist" -print -quit 2>/dev/null)" ]; then
       # Primeira vez, ou o codigo da interface mudou (git pull, branch nova): reconstroi antes de subir.
       deps_stale web && install_deps web "Instalando as dependencias da interface..."
       echo "Construindo a interface..." >&2

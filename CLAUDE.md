@@ -1,4 +1,4 @@
-# llm-agents-docker + Jarvis
+# Jarvis
 
 Guia para agentes trabalhando neste repositório, inclusive a sessão que o próprio Jarvis abre para desenvolver uma
 funcionalidade nova nele mesmo (`aplicar_evolucao`). Textos para o usuário são sempre em **português do Brasil**.
@@ -22,6 +22,7 @@ funcionalidade nova nele mesmo (`aplicar_evolucao`). Textos para o usuário são
 - `voice/session.ts`: a conversa por voz (estados, interrupção, continuação, ditado). `voice/brain.ts`: o cérebro (Claude
   Haiku pelo Agent SDK) e o `JARVIS_PROMPT`. `voice/tools.ts`: as ferramentas do Jarvis (servidor MCP em processo).
   `voice/commands.ts`: a lista de comandos de voz mostrada na interface. `voice/memory.ts`: memória entre sessões.
+  `voice/issues.ts`: issues pedidas por voz (grava no `ISSUES.md` local, sem commit).
 - `evolution.ts`: funcionalidades novas para o próprio Jarvis (definição, dois OKs, clone, aplicação).
 - O Jarvis **não tem shell nem escrita livre**: ele só age pelas ferramentas de `voice/tools.ts`.
 
@@ -46,11 +47,21 @@ npm --prefix app/web run build
 python3 -m unittest discover -s app/voice/tests -t app/voice   # se mexer no worker (usa o .venv de app/voice)
 bash tests/ui.test.sh && bash tests/restart.test.sh             # se mexer em app/ui.sh ou app/restart.sh
 bash tests/setup.test.sh && bash tests/setup-deps.test.sh      # se mexer em app/setup.sh ou app/restart.sh
+bash tests/voice-setup.test.sh                                  # se mexer em app/voice/setup.sh
 ```
 
+## Fluxo de trabalho
+- **Pedido para criar uma issue:** só registra em `ISSUES.md` (seção Pendentes), sem commit. Não implementa nem cria branch.
+- **Pedido direto:** não cria issue. Abre uma branch a partir da `main`, faz o trabalho e roda as verificações.
+- **Merge e push:** só com a aprovação do usuário: `merge --no-ff` na `main` e push para o `origin`, nunca para o `upstream`.
+- **Issue concluída:** apagada do `ISSUES.md`, sem commit.
+- **Depois do merge:** apaga a branch local (`git branch -d`) e, se foi enviada, a remota (`git push origin --delete`).
+
 ## Regras
-- Commits pequenos, com testes, mensagem em inglês no imperativo. Sem push (quem aplica é o usuário, pelo Jarvis).
+- Um push roda só as verificações no CI. Os instaladores e o release (workflow `desktop`) só saem quando o usuário pede.
+- Commits pequenos, com testes, mensagem em inglês no imperativo.
+- Na sessão de evolução do Jarvis (`aplicar_evolucao`), sem merge e sem push: quem aplica é o usuário, pelo Jarvis.
 - Siga os padrões do código ao redor; comentários em português sem acento, como no resto do código.
 - Nada de chaves, tokens ou dados pessoais em arquivos versionados.
 - Não mexa em `app/desktop` sem necessidade (exige instalador novo) e avise no resumo quando mexer.
-- Pastas `.jarvis/` (resumo e especificação da evolução) não são versionadas.
+- Pastas `.jarvis/` (resumo e especificação da evolução) e o `ISSUES.md` (só local) não são versionados.

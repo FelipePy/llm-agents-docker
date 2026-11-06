@@ -1,6 +1,6 @@
 import unittest
 
-from jarvis_voice.segmenter import Segmenter, end_ms_from
+from jarvis_voice.segmenter import HoldBuffer, Segmenter, end_ms_from
 
 LOUD, QUIET = 0.9, 0.1
 
@@ -86,6 +86,26 @@ class EndMsFromTest(unittest.TestCase):
         self.assertEqual(end_ms_from(99_999, 1000), 5000)
         self.assertEqual(end_ms_from(None, 1200), 1200)
         self.assertEqual(end_ms_from("x", 1200), 1200)
+
+
+class HoldBufferTest(unittest.TestCase):
+    def test_keeps_everything_between_press_and_release_even_silence(self):
+        hold = HoldBuffer()
+        for n, score in enumerate([QUIET, LOUD, LOUD, QUIET, QUIET, QUIET]):
+            hold.feed(frame(n), score)
+        self.assertEqual(hold.finish(), b"".join(frame(n) for n in range(6)))
+
+    def test_press_without_voice_gives_nothing(self):
+        hold = HoldBuffer()
+        for n, score in enumerate([QUIET, LOUD, QUIET]):
+            hold.feed(frame(n), score)
+        self.assertIsNone(hold.finish())
+
+    def test_stops_keeping_audio_at_the_limit(self):
+        hold = HoldBuffer(max_ms=160)
+        for n in range(5):
+            hold.feed(frame(n), LOUD)
+        self.assertEqual(hold.finish(), frame(0) + frame(1))
 
 
 if __name__ == "__main__":

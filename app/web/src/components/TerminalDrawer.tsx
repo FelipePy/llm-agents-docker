@@ -2,7 +2,8 @@ import { useState, type MouseEvent as ReactMouseEvent } from 'react';
 import type { LiveSocket } from '../api.ts';
 import type { ProjectSummary, SessionInfo } from '../types.ts';
 import type { TabsState } from '../tabs.ts';
-import { LABEL } from '../format.ts';
+import { Chevron } from './Chevron.tsx';
+import { TabStrip } from './TabStrip.tsx';
 import { TerminalView } from './TerminalView.tsx';
 
 interface Props {
@@ -20,8 +21,10 @@ interface Props {
 export function TerminalDrawer(props: Props) {
   const { tabs, sessions, projects, socket, collapsed, onCollapsedChange, onActivate, onClose, onReopen } = props;
   const [height, setHeight] = useState(340);
+  const [focusKey, setFocusKey] = useState(0);
   const byId = new Map(sessions.map((s) => [s.id, s]));
   const names = new Map(projects.map((p) => [p.path, p.name]));
+  const openSessions = tabs.order.flatMap((id) => byId.get(id) ?? []);
   if (!tabs.order.length || !socket) return null;
 
   const startDrag = (e: ReactMouseEvent) => {
@@ -41,38 +44,19 @@ export function TerminalDrawer(props: Props) {
     <section className="drawer" style={{ height: collapsed ? undefined : height }}>
       {!collapsed && <div className="drag" onMouseDown={startDrag} />}
       <div className="tabs">
-        {tabs.order.map((id, i) => {
-          const s = byId.get(id);
-          if (!s) return null;
-          return (
-            <div
-              key={id}
-              className={id === tabs.active ? 'tab active' : 'tab'}
-              title={s.projectPath}
-              onClick={() => {
-                onActivate(id);
-                onCollapsedChange(false);
-              }}
-            >
-              <span className={`dot ${s.agent}`} />
-              {i < 9 && <kbd>{i + 1}</kbd>}
-              {names.get(s.projectPath) ?? s.projectPath} · {LABEL[s.agent]} · {s.title}
-              {!s.alive && ' (encerrada)'}
-              <button
-                className="x"
-                aria-label="Fechar"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClose(id);
-                }}
-              >
-                ×
-              </button>
-            </div>
-          );
-        })}
-        <button className="collapse" onClick={() => onCollapsedChange(!collapsed)} aria-label="Recolher">
-          {collapsed ? '▲' : '▼'}
+        <TabStrip
+          tabs={tabs}
+          sessions={openSessions}
+          projectNames={names}
+          onActivate={(id) => {
+            onActivate(id);
+            onCollapsedChange(false);
+          }}
+          onClose={onClose}
+          onPickerClosed={() => setFocusKey((k) => k + 1)}
+        />
+        <button className="collapse" onClick={() => onCollapsedChange(!collapsed)} aria-label={collapsed ? 'Expandir' : 'Recolher'}>
+          <Chevron direction={collapsed ? 'up' : 'down'} />
         </button>
       </div>
       {/* Recolher so esconde: desmontar perderia o conteudo dos terminais. */}
@@ -82,7 +66,7 @@ export function TerminalDrawer(props: Props) {
           if (!s) return null;
           return (
             <div key={id} className="term-wrap" style={{ display: id === tabs.active ? 'block' : 'none' }}>
-              <TerminalView id={id} active={id === tabs.active && !collapsed} socket={socket} />
+              <TerminalView id={id} active={id === tabs.active && !collapsed} focusKey={focusKey} socket={socket} />
               {!s.alive && (
                 <div className="ended">
                   Sessão encerrada{s.exitCode !== undefined && ` (código ${s.exitCode})`}.{' '}

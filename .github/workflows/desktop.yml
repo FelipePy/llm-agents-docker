@@ -1,14 +1,13 @@
 name: desktop
 
-# Verificacoes (testes, tipos, build da web) em jobs paralelos e, so depois
-# que todas passam, os instaladores do Jarvis para Windows e Linux (Tauri).
-# - push em qualquer branch: instaladores como artefatos da execucao (um por tipo);
-#   so quando o push muda o que vai dentro deles: o app desktop e o pacote do
-#   llm-agents-docker embutido (app/, llm-agent, Dockerfile, docker-compose.yml),
-#   VERSION ou este workflow (as verificacoes rodam sempre; workflow_dispatch
-#   sempre constroi);
-# - push na main: tambem publica um release do projeto (vX.Y.Z) com cada
-#   instalador como um arquivo separado, com a versao no nome.
+# Verificacoes (testes, tipos, build da web) em jobs paralelos, a cada push.
+# Os instaladores do Jarvis para Windows e Linux (Tauri) e o release so saem
+# quando pedidos (aba Actions ou "gh workflow run desktop --ref <branch>"), e
+# so depois que todas as verificacoes passam. Eles trazem embutido o pacote do
+# llm-agents-docker (app/, llm-agent, Dockerfile, docker-compose.yml):
+# - em qualquer branch: instaladores como artefatos da execucao (um por tipo);
+# - na main: tambem publica um release do projeto (vX.Y.Z) com cada instalador
+#   como um arquivo separado, com a versao no nome.
 #
 # Versao: o arquivo VERSION da raiz e a base. O primeiro release dela sai com
 # esse numero; os seguintes, na mesma major.minor, sobem o patch sozinhos
@@ -20,9 +19,8 @@ on:
 
 permissions:
   contents: write
-  actions: read # achar o ultimo build desktop que deu certo (job version)
 
-# Dois pushes seguidos na main nao podem calcular a mesma versao.
+# Duas execucoes seguidas na main nao podem calcular a mesma versao.
 concurrency:
   group: desktop-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -123,69 +121,18 @@ jobs:
       - run: bash tests/remote-control.test.sh
       - run: bash tests/setup.test.sh
       - run: bash tests/setup-deps.test.sh
+      - run: bash tests/container-name.test.sh
+      - run: bash tests/voice-setup.test.sh
 
   version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
       release: ${{ steps.v.outputs.release }}
-      desktop: ${{ steps.changes.outputs.desktop }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      # O build desktop so roda se mudou o que vai no instalador, o VERSION ou
-      # este workflow desde o ultimo build desktop que deu certo nesta branch
-      # (assim, depois de um build que falhou ou foi pulado, o push seguinte
-      # ainda gera os instaladores). Sem esse build (branch nova, API fora do
-      # ar), compara com o push anterior ou com a main; sem base nenhuma, constroi.
-      - id: changes
-        env:
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-          BRANCH: ${{ github.ref_name }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ "$EVENT" != "push" ]; then
-            echo "desktop=true" >>"$GITHUB_OUTPUT"
-            exit 0
-          fi
-          base=""
-          # Execucoes que deram certo, da mais nova para a mais antiga; vale a primeira
-          # em que um job de build rodou (nas outras ele foi pulado).
-          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/desktop.yml/runs?branch=$BRANCH&status=success&per_page=10" \
-            --jq '.workflow_runs[] | "\(.id) \(.head_sha)"' 2>/dev/null || true)"
-          while read -r run sha; do
-            [ -n "$run" ] || continue
-            built="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=50" \
-              --jq '[.jobs[] | select((.name | startswith("build")) and .conclusion == "success")] | length' 2>/dev/null || echo 0)"
-            if [ "${built:-0}" -gt 0 ] && git cat-file -e "$sha^{commit}" 2>/dev/null; then
-              base="$sha"
-              echo "Comparando com o último build desktop que deu certo: ${sha:0:7} (execução $run)." >>"$GITHUB_STEP_SUMMARY"
-              break
-            fi
-          done <<<"$runs"
-          if [ -n "$base" ]; then
-            :
-          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
-             && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            base="$BEFORE"
-          elif [ "$GITHUB_REF" != "refs/heads/main" ]; then
-            base="$(git merge-base origin/main HEAD 2>/dev/null || true)"
-          fi
-          if [ -z "$base" ]; then
-            echo "desktop=true" >>"$GITHUB_OUTPUT"
-            echo "Sem base para comparar: build desktop roda." >>"$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          changed="$(git diff --name-only "$base" HEAD | grep -E '^(app/|llm-agent$|Dockerfile$|docker-compose\.yml$|VERSION$|\.github/workflows/desktop\.yml$)' || true)"
-          if [ -n "$changed" ]; then
-            echo "desktop=true" >>"$GITHUB_OUTPUT"
-            { echo "Build desktop roda por causa de:"; echo "$changed" | sed 's/^/- /'; } >>"$GITHUB_STEP_SUMMARY"
-          else
-            echo "desktop=false" >>"$GITHUB_OUTPUT"
-            echo "Nada no app, VERSION ou no workflow: build desktop pulado." >>"$GITHUB_STEP_SUMMARY"
-          fi
       - id: v
         run: |
           base="$(tr -d '[:space:]' < VERSION)"
@@ -213,7 +160,7 @@ jobs:
   # tambem o que roda no WSL). Montado uma vez, no Linux, para os dois sistemas.
   payload:
     needs: [version, server-test, web-test, typecheck, web-build, voice-test, scripts-test]
-    if: needs.version.outputs.desktop == 'true'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -232,11 +179,10 @@ jobs:
           compression-level: 0
           retention-days: 3
 
-  # Os instaladores so saem com todas as verificacoes verdes e se o que vai neles
-  # mudou. Pulado o build, o release (que depende dele) tambem e pulado.
+  # Os instaladores so saem a pedido e com todas as verificacoes verdes. Sem eles, nao ha release.
   build:
     needs: [version, payload]
-    if: needs.version.outputs.desktop == 'true'
+    if: github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:

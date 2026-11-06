@@ -1,7 +1,7 @@
 import { query, type McpServerConfig, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { COMMANDS } from './commands.ts';
 import { JARVIS_TOOL_NAMES } from './tools.ts';
-import { plainReport, type WatchReport, type WatchSummarizer } from './session-watch.ts';
+import type { WatchReport, WatchSummarizer } from './session-watch.ts';
 
 /** Responde a uma fala do usuario, em pedacos de texto (streaming). */
 /** Avisos do cerebro durante uma resposta (para medir a latencia). */
@@ -27,7 +27,7 @@ export const JARVIS_PROMPT = [
   'Se souber o nome do usuário, use de vez em quando, sem exagero. Lembre do que já foi dito nesta conversa.',
   'Suas respostas viram fala: frases curtas, a menos que peçam mais. Não use markdown, listas, tabelas, emojis nem código; escreva números e siglas do jeito que se fala.',
   // Conhecimento e ferramentas.
-  'Você vive dentro do llm-agent, o app do usuário para conversar com agentes de código e acompanhar os projetos dele. Quando ele perguntar como fazer algo no app ou para que serve alguma parte dele, consulte a ferramenta manual_do_app e responda com base nela; não invente funcionalidades.',
+  'Você vive dentro do app Jarvis, o app do usuário para conversar com agentes de código e acompanhar os projetos dele. Quando ele perguntar como fazer algo no app ou para que serve alguma parte dele, consulte a ferramenta manual_do_app e responda com base nela; não invente funcionalidades.',
   'Cada fala do usuário chega com a data e a hora atuais entre colchetes no fim; use-as direto, sem ferramenta. Para clima e notícias, use clima_agora e noticias_do_dia; nunca diga que não sabe sem consultá-las antes.',
   'Notícias: noticias_do_dia já traz só as manchetes que você ainda não apresentou; para mais, chame de novo. Nunca repita uma manchete já dita, nem tirada da conversa; se não houver novas, diga isso.',
   'Para qualquer outra coisa que dependa da web ou que possa ter mudado (fatos recentes, preços, resultados, pessoas, lugares), ou quando o usuário pedir para pesquisar, use pesquisar_na_web em vez de responder de memória ou de abrir uma sessão; responda com os pontos principais, dizendo de onde veio.',
@@ -44,6 +44,7 @@ export const JARVIS_PROMPT = [
   'Memória: guarde com lembrar, sem anunciar, o que for duradouro e útil depois (nome, preferências, rotina, pessoas, metas, decisões, stack e prazos dos projetos); não guarde o passageiro (clima, hora, pedidos únicos). Se ele pedir para você lembrar de algo, guarde e confirme só com "Anotado.". Se um fato guardado mudou, use substitui com o id dele em vez de duplicar.',
   'Use o que você lembra com naturalidade, quando ajudar (ex.: retomar o que ficou da última conversa), sem recitar a lista. Ao encerrar a conversa, passe em resumo uma frase do que foi feito.',
   'Funcionalidades novas para você mesmo: quando o usuário quiser que você aprenda algo ou mude algo em você ou no app, conduza uma definição curta, uma pergunta por vez (no máximo 4 ou 5: o que dispara, o que você faz ou diz, onde aparece na tela, casos especiais), e guarde a proposta completa com rascunhar_evolucao a cada resposta. Quando ele disser que está tudo certo, chame resumir_evolucao e leia o resumo perguntando se pode começar; só chame iniciar_evolucao depois que ele aprovar, numa fala seguinte. O desenvolvimento roda em background: siga conversando normalmente. Aplique (aplicar_evolucao) só quando ele pedir ou aceitar seu aviso de que terminou.',
+  'Issues: quando o usuário pedir uma issue deste app, chame criar_issue e só confirme depois que ela responder que gravou, dizendo o número; se ela responder que não gravou, diga isso e o motivo em poucas palavras. Nunca diga que anotou uma issue sem ter chamado a ferramenta, e não use lembrar para isso. Issue só registra: não abra sessão nem comece a implementar. Ela não grava issues de outros projetos; nesse caso, avise o usuário.',
   `Comandos disponíveis: ${COMMANDS.map((c) => `${c.title} (ex.: "${c.examples[0]}")`).join('; ')}.`,
 ].join(' ');
 
@@ -332,7 +333,7 @@ export const WATCH_PROMPT = [
   'Você recebe as últimas linhas do terminal de uma sessão de um agente de programação que o usuário pediu para acompanhar.',
   'Se a tarefa terminou: diga em uma ou duas frases curtas o resultado (o que foi feito, testes, commits, pendências, ou se o agente está esperando uma resposta) e termine perguntando se o usuário quer que você conte mais.',
   'Se deu erro: diga em uma ou duas frases curtas qual foi o erro, em palavras simples.',
-  'Comece com "Senhor," e diga de qual sessão se trata. Texto para falar: sem markdown, listas, caminhos longos ou códigos.',
+  'O usuário já ouviu que a sessão terminou ou deu erro: não repita isso, não comece com "Senhor" e vá direto ao resultado, dizendo de qual sessão se trata. Texto para falar: sem markdown, listas, caminhos longos ou códigos.',
   'Responda só com o aviso.',
 ].join(' ');
 
@@ -345,16 +346,17 @@ export function claudeWatchSummary(opts: { model: string; cwd: string; query?: Q
       r.outcome === 'error' ? `Situação: deu erro (${r.error ?? 'veja o terminal'}).` : 'Situação: a tarefa terminou (o terminal parou).',
       `Últimas linhas do terminal:\n${r.tail || '(vazio)'}`,
     ].join('\n');
-    const signal = AbortSignal.timeout(opts.timeoutMs ?? 30_000);
+    // O aviso curto ja saiu: passado este tempo, vale mais o texto simples do que a espera.
+    const signal = AbortSignal.timeout(opts.timeoutMs ?? 8_000);
     let out = '';
     try {
       for await (const d of brain.reply(prompt, signal)) out += d;
     } catch {
-      return plainReport(r);
+      return '';
     } finally {
       brain.close();
     }
-    // Cortado pela demora: aviso pela metade nao serve.
-    return (!signal.aborted && out.trim()) || plainReport(r);
+    // Cortado pela demora: aviso pela metade nao serve. Vazio: quem chamou usa o texto simples.
+    return signal.aborted ? '' : out.trim();
   };
 }
