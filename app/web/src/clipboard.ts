@@ -45,3 +45,22 @@ export function selectionIn(root: Node | null, sel: Selection | null): string {
   if (!sel.anchorNode || !sel.focusNode || !root.contains(sel.anchorNode) || !root.contains(sel.focusNode)) return '';
   return sel.toString().trim() ? sel.toString() : '';
 }
+
+type Key = { type: string; key: string; code?: string; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean };
+
+/** Ctrl+Shift+C: copiar no terminal. Pelo codigo da tecla tambem, para valer em outro layout. */
+export function isCopyShortcut(e: Key): boolean {
+  return e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && (e.key.toLowerCase() === 'c' || e.code === 'KeyC');
+}
+
+/**
+ * Trata o atalho de copiar antes do xterm. Devolve true se a tecla foi tratada aqui (o xterm nao
+ * a processa). Ctrl+C sem Shift nao entra: continua sendo o ^C que interrompe o programa.
+ * Sem selecao, Ctrl+Shift+C so e engolido, para nao abrir o inspetor do navegador.
+ */
+export function handleCopyKey(e: Key & { preventDefault(): void }, selection: string, copy: (text: string) => void): boolean {
+  if (!isCopyShortcut(e)) return false;
+  e.preventDefault();
+  if (e.type === 'keydown' && selection) copy(selection);
+  return true;
+}

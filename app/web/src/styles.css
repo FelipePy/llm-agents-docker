@@ -128,3 +128,6 @@ code { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size: 12p
 .copy-selection.copied { color: var(--sys-soft); }
 .copy-selection.failed { color: var(--warn); }
 .panel-overlay .copy-selection { right: 28px; }
+/* No terminal: acima do texto (com fundo, para ler), longe da barra de rolagem do xterm. */
+.term-wrap > .copy-selection { top: 6px; right: 20px; z-index: 4; padding: 4px 6px; border-radius: 6px; background: #0c0f18; }
+.term-wrap > .copy-selection:hover { background: #141c33; }

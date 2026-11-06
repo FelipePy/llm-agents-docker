@@ -1,9 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import type { LiveSocket } from '../api.ts';
 import { bus } from '../bus.ts';
 import { shortcut } from '../tabs.ts';
+import { handleCopyKey } from '../clipboard.ts';
+import { CopyButton, useCopyFeedback } from './CopySection.tsx';
 
 /**
  * Ajusta o terminal ao espaco. Ao encolher, o xterm deixa as ultimas linhas fora da tela: quem
@@ -28,6 +30,11 @@ function fitTerminal(term: Terminal, fit: FitAddon): void {
 export function TerminalView({ id, active, focusKey, socket }: { id: string; active: boolean; focusKey?: number; socket: LiveSocket }) {
   const ref = useRef<HTMLDivElement>(null);
   const fitRef = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
+  // A selecao do xterm e dele (desenhada no canvas): o DOM nao a ve, entao vem do onSelectionChange.
+  const [selected, setSelected] = useState('');
+  const [feedback, copy] = useCopyFeedback();
+  const copyRef = useRef(copy);
+  copyRef.current = copy;
 
   useEffect(() => {
     const el = ref.current!;
@@ -40,8 +47,12 @@ export function TerminalView({ id, active, focusKey, socket }: { id: string; act
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(el);
-    // Atalhos das abas passam direto para a janela.
-    term.attachCustomKeyEventHandler((e) => shortcut(e) === null);
+    // Ctrl+Shift+C copia a selecao; Ctrl+C segue como ^C. Atalhos das abas passam direto para a janela.
+    term.attachCustomKeyEventHandler((e) => {
+      if (handleCopyKey(e, term.getSelection(), (text) => void copyRef.current(text))) return false;
+      return shortcut(e) === null;
+    });
+    const selection = term.onSelectionChange(() => setSelected(term.hasSelection() ? term.getSelection() : ''));
     const input = term.onData((data) => socket.send({ type: 'input', id, data }));
     const resize = term.onResize(({ cols, rows }) => socket.send({ type: 'resize', id, cols, rows }));
     const off = bus.on(id, (data, reset) => {
@@ -58,6 +69,7 @@ export function TerminalView({ id, active, focusKey, socket }: { id: string; act
       off();
       input.dispose();
       resize.dispose();
+      selection.dispose();
       term.dispose();
     };
   }, [id, socket]);
@@ -68,5 +80,12 @@ export function TerminalView({ id, active, focusKey, socket }: { id: string; act
     fitRef.current.term.focus();
   }, [active, focusKey]);
 
-  return <div className="terminal" ref={ref} />;
+  return (
+    <>
+      <div className="terminal" ref={ref} />
+      {(selected || feedback) && (
+        <CopyButton feedback={feedback} hint="Ctrl+Shift+C" onCopy={() => void copy(fitRef.current?.term.getSelection() || selected)} />
+      )}
+    </>
+  );
 }
