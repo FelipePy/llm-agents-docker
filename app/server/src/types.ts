@@ -1,5 +1,6 @@
 // Tipos compartilhados entre o servidor e a UI (app/web importa este arquivo).
 
+import type { UiSettingKey } from './voice/config.ts';
 export type Agent = 'claude' | 'codex';
 export type SessionAgent = Agent | 'shell';
 export type TaskName = 'new-skill' | 'about-me';
@@ -165,4 +166,6 @@ export type UiCommand =
   | { kind: 'nav'; node: NavNode }
   | { kind: 'back' }
   | { kind: 'focus-session'; id: string }
-  | { kind: 'commands' };
+  | { kind: 'commands' }
+  /** Muda uma opcao das configuracoes guardada na interface (ver voice/config.ts). */
+  | { kind: 'setting'; key: UiSettingKey; value: boolean | string };

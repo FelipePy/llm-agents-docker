@@ -1,9 +1,10 @@
 import type { ProjectDetail } from '../types.ts';
 import { LABEL, formatDate } from '../format.ts';
+import { CopySection } from './CopySection.tsx';
 
 export function ProjectInfo({ detail }: { detail: ProjectDetail }) {
   return (
-    <section className="panel">
+    <CopySection>
       <h1>{detail.name}</h1>
       <p>
         <code>{detail.path}</code>
@@ -30,6 +31,6 @@ export function ProjectInfo({ detail }: { detail: ProjectDetail }) {
           {detail.instructions.length ? detail.instructions.map((f) => f.path.split('/').pop()).join(', ') : 'nenhuma'}
         </li>
       </ul>
-    </section>
+    </CopySection>
   );
 }

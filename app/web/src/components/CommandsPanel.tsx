@@ -1,9 +1,10 @@
 import { COMMANDS } from '../../../server/src/voice/commands.ts';
+import { CopySection } from './CopySection.tsx';
 
 /** Lista dos comandos de voz, gerada da mesma lista que o Jarvis usa. */
 export function CommandsPanel() {
   return (
-    <section className="panel">
+    <CopySection>
       <h1>Comandos de voz</h1>
       <p className="muted">
         Diga “Hey Jarvis” e peça com suas palavras; não precisa decorar as frases. Alguns exemplos:
@@ -20,6 +21,6 @@ export function CommandsPanel() {
           </li>
         ))}
       </ul>
-    </section>
+    </CopySection>
   );
 }

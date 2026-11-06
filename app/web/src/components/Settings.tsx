@@ -19,6 +19,9 @@ export interface SettingsState {
   /** Combinacao do atalho que troca o estilo do globo. */
   globeHotkey: Hotkey;
   sounds: boolean;
+  /** Legenda da fala do usuario e da fala do Jarvis (independentes). */
+  captionUser: boolean;
+  captionJarvis: boolean;
 }
 
 export interface SettingsToggles {
@@ -33,6 +36,8 @@ export interface SettingsToggles {
   onGlobeStyle: (s: GlobeStyle) => void;
   onGlobeHotkey: (h: Hotkey) => void;
   onSounds: () => void;
+  onCaptionUser: () => void;
+  onCaptionJarvis: () => void;
 }
 
 export function Settings({ settings, toggles, voiceStatus }: { settings: SettingsState; toggles: SettingsToggles; voiceStatus?: string }) {

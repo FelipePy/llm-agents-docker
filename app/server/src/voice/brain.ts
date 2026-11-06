@@ -45,6 +45,7 @@ export const JARVIS_PROMPT = [
   'Use o que você lembra com naturalidade, quando ajudar (ex.: retomar o que ficou da última conversa), sem recitar a lista. Ao encerrar a conversa, passe em resumo uma frase do que foi feito.',
   'Funcionalidades novas para você mesmo: quando o usuário quiser que você aprenda algo ou mude algo em você ou no app, conduza uma definição curta, uma pergunta por vez (no máximo 4 ou 5: o que dispara, o que você faz ou diz, onde aparece na tela, casos especiais), e guarde a proposta completa com rascunhar_evolucao a cada resposta. Quando ele disser que está tudo certo, chame resumir_evolucao e leia o resumo perguntando se pode começar; só chame iniciar_evolucao depois que ele aprovar, numa fala seguinte. O desenvolvimento roda em background: siga conversando normalmente. Aplique (aplicar_evolucao) só quando ele pedir ou aceitar seu aviso de que terminou.',
   'Issues: quando o usuário pedir uma issue deste app, chame criar_issue e só confirme depois que ela responder que gravou, dizendo o número; se ela responder que não gravou, diga isso e o motivo em poucas palavras. Nunca diga que anotou uma issue sem ter chamado a ferramenta, e não use lembrar para isso. Issue só registra: não abra sessão nem comece a implementar. Ela não grava issues de outros projetos; nesse caso, avise o usuário.',
+  'Configurações: para ligar, desligar ou trocar uma opção do app, use mudar_configuracao com a opção e o valor como o usuário falou. Opção simples muda direto; se a ferramenta mandar confirmar, pergunte ao usuário e só chame de novo com confirmado depois do sim; se ela disser que ficou ambíguo ou que a opção não existe, pergunte em vez de adivinhar. Depois de mudar, confirme em poucas palavras.',
   `Comandos disponíveis: ${COMMANDS.map((c) => `${c.title} (ex.: "${c.examples[0]}")`).join('; ')}.`,
 ].join(' ');
 
@@ -142,7 +143,7 @@ class MessageQueue<T> implements AsyncIterable<T> {
  */
 export class ClaudeBrain implements Brain {
   private sessionId: string | undefined;
-  private readonly model: string;
+  private model: string;
   private readonly cwd: string;
   private readonly run: QueryFn;
   private readonly mcp: (() => McpServerConfig) | undefined;
@@ -216,6 +217,13 @@ export class ClaudeBrain implements Brain {
       this.opening = undefined;
     });
     return this.opening;
+  }
+
+  /** Troca o modelo: a proxima fala reabre a sessao com ele, retomando a conversa. */
+  setModel(model: string): void {
+    if (model === this.model) return;
+    this.model = model;
+    this.close();
   }
 
   /** Fecha a sessao; a proxima fala abre outra, retomando a conversa. */

@@ -33,6 +33,8 @@ import { useHoldKeys } from './voice/useHoldKeys.ts';
 import { waveLabel, wavePlace } from './voice/hold.ts';
 import { DEFAULT_GLOBE_HOTKEY, MIDDLE_BUTTON, matchesHotkey, sameHotkey } from './voice/hotkey.ts';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
+import { CopySection } from './components/CopySection.tsx';
+import { afterReply, applySetting, type SettingCommand } from './voiceSetting.ts';
 import { setAutostart, useDesktop } from './desktop.ts';
 
 // A cena 3D (three.js) so e baixada quando o modo 3D esta ligado.
@@ -80,12 +82,15 @@ function Connected({ token }: { token: string }) {
   const [globeStyle, setGlobeStyle] = useChoice<GlobeStyle>('llm-agent-globe-style', 'holografico', isGlobeStyle);
   const [globeHotkey, setGlobeHotkey] = useSavedHotkey('llm-agent-globe-hotkey', DEFAULT_GLOBE_HOTKEY);
   const [sounds, setSounds] = usePref('llm-agent-sounds', true);
+  // Legendas da conversa: a da fala do usuario e a do Jarvis, cada uma por si (desligadas por padrao).
+  const [captionUser, setCaptionUser] = usePref('llm-agent-caption-user', false);
+  const [captionJarvis, setCaptionJarvis] = usePref('llm-agent-caption-jarvis', false);
   const [voice, setVoice] = useState<VoiceView>(OFF_VIEW);
   const voiceRef = useRef<VoiceClient | null>(null);
   // Ordens do Jarvis para a interface; atualizada a cada render (ver mais abaixo).
   const onUiRef = useRef<(command: UiCommand) => void>(() => {});
   const use3d = webgl && mode3d;
-  const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn && !holdKey, holdKey, hotkey, globeColor, globeStyle, globeHotkey, sounds };
+  const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn && !holdKey, holdKey, hotkey, globeColor, globeStyle, globeHotkey, sounds, captionUser, captionJarvis };
   const toggles = {
     on3d: () => setMode3d(!mode3d),
     onReduceMotion: () => setReduceMotion(!reduceMotion),
@@ -98,6 +103,8 @@ function Connected({ token }: { token: string }) {
     onGlobeStyle: (s: GlobeStyle) => setGlobeStyle(s),
     onGlobeHotkey: setGlobeHotkey,
     onSounds: () => setSounds(!sounds),
+    onCaptionUser: () => setCaptionUser(!captionUser),
+    onCaptionJarvis: () => setCaptionJarvis(!captionJarvis),
   };
 
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -393,13 +400,42 @@ function Connected({ token }: { token: string }) {
     );
   }, [floating, globeColor]);
   useEffect(() => {
-    floating?.update(coreMode, voice.jarvis || voice.user);
-  }, [floating, coreMode, voice.jarvis, voice.user]);
+    floating?.update(coreMode, (captionJarvis && voice.jarvis) || (captionUser && voice.user) || '');
+  }, [floating, coreMode, voice.jarvis, voice.user, captionJarvis, captionUser]);
   useEffect(() => {
     floating?.setColor(globeColor);
   }, [floating, globeColor]);
 
+  // Configuracoes mudadas por voz; escuta e atalho esperam a resposta terminar (reiniciam a voz).
+  const settingSetters = {
+    captionUser: setCaptionUser,
+    captionJarvis: setCaptionJarvis,
+    voiceOn: setVoiceOn,
+    holdKey: setHoldKey,
+    mode3d: setMode3d,
+    reduceMotion: setReduceMotion,
+    voiceDemo: setVoiceDemo,
+    sounds: setSounds,
+    globeColor: setGlobeColor,
+    globeStyle: setGlobeStyle,
+  };
+  const pendingSettings = useRef<SettingCommand[]>([]);
+  const replyBusy = voice.state === 'thinking' || voice.state === 'speaking';
+  useEffect(() => {
+    if (replyBusy || !pendingSettings.current.length) return;
+    const list = pendingSettings.current;
+    pendingSettings.current = [];
+    for (const c of list) applySetting(c, settingSetters);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replyBusy]);
+
   onUiRef.current = (command: UiCommand) => {
+    // Configuracao: muda sem fechar nada (o usuario pode estar olhando as configuracoes).
+    if (command.kind === 'setting') {
+      if (afterReply(command) && replyBusy) pendingSettings.current.push(command);
+      else applySetting(command, settingSetters);
+      return;
+    }
     // O modal cobre a tela: o que o Jarvis abrir precisa ficar a vista.
     setModal(null);
     if (command.kind === 'back') return dispatch({ type: 'back' });
@@ -483,12 +519,12 @@ function Connected({ token }: { token: string }) {
     ) : panel?.kind === 'new-project' ? (
       <NewProjectPanel base={overview?.projectsDir ?? ''} onCreate={createProject} />
     ) : panel?.kind === 'files' ? (
-      <section className="panel">
+      <CopySection>
         <h1>{panel.title}</h1>
         {panel.files.map((f, i) => (
           <FileCard key={f.path} file={f} open={i === 0} />
         ))}
-      </section>
+      </CopySection>
     ) : null;
 
   return (
@@ -571,10 +607,10 @@ function Connected({ token }: { token: string }) {
                 </div>
               </div>
             )}
-            {(voice.user || voice.jarvis) ? (
+            {(captionUser && voice.user) || (captionJarvis && voice.jarvis) ? (
               <div className="captions">
-                {voice.user && <p className="you">você: {voice.user}</p>}
-                {voice.jarvis && <p className="jarvis">{voice.jarvis}</p>}
+                {captionUser && voice.user && <p className="you">você: {voice.user}</p>}
+                {captionJarvis && voice.jarvis && <p className="jarvis">{voice.jarvis}</p>}
               </div>
             ) : (
               coreMode !== 'idle' && <div className="core-caption">{MODE_LABEL[coreMode]}</div>

@@ -5,7 +5,10 @@ import { join, resolve } from 'node:path';
 import { createApp } from './server.ts';
 import { loadOrCreateToken } from './auth.ts';
 import { watchPaths } from './watch.ts';
-import { ClaudeBrain, claudeJudge, claudeWatchSummary, claudeWebSearch } from './voice/brain.ts';
+import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { ClaudeBrain, brainEnv, claudeJudge, claudeWatchSummary, claudeWebSearch } from './voice/brain.ts';
+import { CodexBrain } from './voice/codex-brain.ts';
+import { BrainChoiceStore, SwitchingBrain, claudeModels, codexModels, type BrainChoice, type BrainModel, type BrainProvider } from './voice/brain-choice.ts';
 import { createJarvisServer } from './voice/tools.ts';
 import { readProfile } from './catalog.ts';
 import { WorkerProcess } from './voice/worker.ts';
@@ -69,32 +72,70 @@ if (process.env.LLM_AGENT_SMTP_URL) {
   }
 }
 const speakerThreshold = Number(process.env.LLM_AGENT_VOICE_SPEAKER_THRESHOLD) || DEFAULT_THRESHOLD;
-let brain: ClaudeBrain | undefined;
 const voiceModel = process.env.LLM_AGENT_VOICE_MODEL || 'haiku';
-const makeBrain = (ctx: Parameters<typeof createJarvisServer>[0]) =>
-  (brain = new ClaudeBrain({
-    model: voiceModel,
-    cwd: workspaceDir,
-    mcp: () => createJarvisServer(ctx),
-    // Memorias "sobre o usuario" que os agentes ja guardaram (nome, preferencias...).
-    about: async () => {
-      const memories = (await readProfile(home)).memories
-        .map((f) => f.content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim())
-        .filter(Boolean)
-        .join('\n\n')
-        .slice(0, 3000);
-      const projects = (await ctx.projects()).map((p) => p.name).join(', ');
-      const remembered = memory.render();
-      return [
-        memories,
-        remembered && `O que você (Jarvis) guardou nas conversas anteriores (ids entre colchetes):\n${remembered}`,
-        `Projetos do usuário (nomes exatos): ${projects || 'nenhum ainda'}.`,
-      ]
-        .filter(Boolean)
-        .join('\n\n')
-        .trim();
-    },
-  }));
+let port = 0;
+
+/** Modelos do Claude no plano, pelo Agent SDK (uma sessao vazia, so para perguntar). */
+async function listClaudeModels(): Promise<BrainModel[]> {
+  async function* idle(): AsyncGenerator<SDKUserMessage> {
+    await new Promise(() => {});
+  }
+  const q = query({ prompt: idle(), options: { tools: [], settingSources: [], mcpServers: {}, strictMcpConfig: true, cwd: workspaceDir, env: brainEnv() } });
+  try {
+    return claudeModels(await Promise.race([q.supportedModels(), new Promise<never>((_, no) => setTimeout(() => no(new Error('sem resposta do Claude')), 20_000))]));
+  } finally {
+    q.close();
+  }
+}
+
+/** Modelos do Codex no plano: o catalogo do proprio CLI. */
+const listCodexModels = (): Promise<BrainModel[]> =>
+  new Promise((ok, no) =>
+    execFile('codex', ['debug', 'models'], { cwd: workspaceDir, timeout: 20_000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
+      if (err) return no(new Error((err as NodeJS.ErrnoException).code === 'ENOENT' ? 'Codex não instalado' : 'o Codex não respondeu (falta login?)'));
+      try {
+        ok(codexModels(stdout));
+      } catch {
+        no(new Error('lista de modelos do Codex ilegível'));
+      }
+    }),
+  );
+
+const brainChoice = new BrainChoiceStore(join(stateDir, 'voice-brain.json'), {
+  list: (p: BrainProvider) => (p === 'claude' ? listClaudeModels() : listCodexModels()),
+  fallback: { provider: 'claude', model: voiceModel },
+  onChange: (c) => brain?.choose(c),
+});
+
+let brain: SwitchingBrain | undefined;
+const makeBrain = (ctx: Parameters<typeof createJarvisServer>[0]) => {
+  // Memorias "sobre o usuario" que os agentes ja guardaram (nome, preferencias...).
+  const about = async () => {
+    const memories = (await readProfile(home)).memories
+      .map((f) => f.content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim())
+      .filter(Boolean)
+      .join('\n\n')
+      .slice(0, 3000);
+    const projects = (await ctx.projects()).map((p) => p.name).join(', ');
+    const remembered = memory.render();
+    return [
+      memories,
+      remembered && `O que você (Jarvis) guardou nas conversas anteriores (ids entre colchetes):\n${remembered}`,
+      `Projetos do usuário (nomes exatos): ${projects || 'nenhum ainda'}.`,
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+      .trim();
+  };
+  // O cerebro escolhido nas configuracoes (Claude ou Codex); a troca vale na proxima fala.
+  const make = (c: BrainChoice) =>
+    c.provider === 'codex'
+      ? new CodexBrain({ model: c.model, cwd: workspaceDir, mcpUrl: () => `http://127.0.0.1:${port}/mcp/jarvis`, token, about })
+      : new ClaudeBrain({ model: c.model, cwd: workspaceDir, mcp: () => createJarvisServer(ctx), about });
+  // Outro modelo do Claude: a mesma conversa continua com ele.
+  const retarget = (b: unknown, c: BrainChoice) => b instanceof ClaudeBrain && (b.setModel(c.model), true);
+  return (brain = new SwitchingBrain(brainChoice.get(), make, retarget));
+};
 
 /** Comando com saida (stdout + stderr) e codigo, sem lancar erro. */
 const run = (cmd: string, args: string[], o: { cwd: string; timeoutMs?: number }) =>
@@ -146,6 +187,7 @@ const app = createApp({
         ? undefined
         : { newsEveryMin: Math.max(15, Number(process.env.LLM_AGENT_VOICE_NEWS_EVERY_MIN) || 90) },
     settings: voiceSettings,
+    brainChoice,
     // Fala por cima da resposta que nao e clara: um segundo Claude decide se muda a resposta.
     judge: process.env.LLM_AGENT_VOICE_JUDGE === '0' ? undefined : claudeJudge({ model: voiceModel, cwd: workspaceDir }),
     // Aviso de sessao acompanhada que terminou ou deu erro, resumido por um Claude a parte.
@@ -170,7 +212,7 @@ const app = createApp({
   autoNews: new AutoNewsSetting(join(stateDir, 'jarvis-news-auto.json')),
 });
 
-const port = await app.listen();
+port = await app.listen();
 const serverJson = join(stateDir, 'server.json');
 writeFileSync(serverJson, JSON.stringify({ pid: process.pid, port }) + '\n', { mode: 0o600 });
 

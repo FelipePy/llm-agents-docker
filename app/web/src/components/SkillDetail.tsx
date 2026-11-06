@@ -1,8 +1,9 @@
 import type { Skill } from '../types.ts';
+import { CopySection } from './CopySection.tsx';
 
 export function SkillDetail({ skill }: { skill: Skill }) {
   return (
-    <section className="panel">
+    <CopySection>
       <h1>{skill.name}</h1>
       <p>
         <span className="tag">{skill.origin}</span>
@@ -11,6 +12,6 @@ export function SkillDetail({ skill }: { skill: Skill }) {
       <p>
         <code>{skill.path}</code>
       </p>
-    </section>
+    </CopySection>
   );
 }

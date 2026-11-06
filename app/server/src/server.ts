@@ -28,6 +28,8 @@ import { IssueLog, type IssueDeps } from './voice/issues.ts';
 import { JarvisMemory } from './voice/memory.ts';
 import { NewsHistory } from './voice/news-history.ts';
 import { AutoNewsSetting } from './voice/news-auto.ts';
+import type { BrainChoiceApi } from './voice/brain-choice.ts';
+import { mcpHttpHandler } from './voice/mcp-http.ts';
 import type { SessionInfo, VoiceClientMessage, VoiceServerMessage } from './types.ts';
 
 export interface AppOptions {
@@ -61,6 +63,8 @@ export interface AppOptions {
     judge?: InterruptJudge;
     /** Configuracoes feitas pela tela (transcricao local ou Groq). */
     settings?: VoiceSettingsStore;
+    /** Quem responde por voz (provedor e modelo), escolhido nas configuracoes. */
+    brainChoice?: BrainChoiceApi;
     /** Escreve o aviso falado de uma sessao acompanhada (sem ele, um texto simples). */
     watchSummary?: WatchSummarizer;
     /** Tempo sem saida nova para considerar terminada uma sessao acompanhada. */
@@ -275,6 +279,22 @@ export function createApp(opts: AppOptions): App {
       const result = await store.update(input);
       return 'error' in result ? send(res, 400, result) : send(res, 200, result.view);
     }
+    if (url.pathname === '/api/voice/brain') {
+      const choice = opts.voice?.brainChoice;
+      if (!choice) return send(res, 404, { error: 'escolha do cérebro indisponível neste servidor' });
+      // A lista de modelos e consultada a cada abertura da tela.
+      if (req.method === 'GET') return send(res, 200, await choice.view());
+      if (req.method !== 'PUT') return send(res, 405, { error: 'use GET ou PUT' });
+      let input: unknown;
+      try {
+        input = await readJson(req);
+      } catch {
+        return send(res, 400, { error: 'JSON inválido' });
+      }
+      if (!input || typeof input !== 'object') return send(res, 400, { error: 'JSON inválido' });
+      const result = await choice.set(input as { provider?: unknown; model?: unknown });
+      return 'error' in result ? send(res, 400, result) : send(res, 200, result.choice);
+    }
     if (url.pathname === '/api/news/auto') {
       if (req.method === 'GET') return send(res, 200, { enabled: autoNews.enabled() });
       if (req.method !== 'PUT') return send(res, 405, { error: 'use GET ou PUT' });
@@ -331,6 +351,12 @@ export function createApp(opts: AppOptions): App {
       const url = new URL(req.url ?? '/', 'http://localhost');
       // pid e inicio: o "llm-agent ui" acha (e encerra) este servidor mesmo sem o server.json.
       if (url.pathname === '/api/health') return send(res, 200, { ok: true, app: 'llm-agent-ui', pid: process.pid, startedAt: STARTED_AT });
+      // Ferramentas do Jarvis para o cerebro do Codex (outro processo): so com o token, sem pagina.
+      if (url.pathname === '/mcp/jarvis') {
+        if (req.headers.origin) return send(res, 403, { error: 'origem não permitida' });
+        if (!tokenMatches(bearer(req.headers.authorization), opts.token)) return send(res, 401, { error: 'token inválido' });
+        return await jarvisMcp(req, res);
+      }
       if (url.pathname.startsWith('/api/')) {
         if (!originAllowed(req.headers.origin, port, opts.extraOrigins)) return send(res, 403, { error: 'origem não permitida' });
         if (!tokenMatches(bearer(req.headers.authorization), opts.token)) return send(res, 401, { error: 'token inválido' });
@@ -399,7 +425,11 @@ export function createApp(opts: AppOptions): App {
     memory,
     newsHistory,
     watcher,
+    voiceSettings: opts.voice?.settings,
+    autoNews,
+    brainChoice: opts.voice?.brainChoice,
   };
+  const jarvisMcp = mcpHttpHandler(() => createJarvisServer(jarvis));
 
   if (opts.issues) {
     const issues = new IssueLog(opts.issues);

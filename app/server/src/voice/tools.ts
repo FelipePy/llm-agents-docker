@@ -7,6 +7,10 @@ import { TOPICS, type JarvisMemory, type MemoryTopic } from './memory.ts';
 import type { WebSearch } from '../search.ts';
 import type { NewsHistory } from './news-history.ts';
 import type { SessionWatcher } from './session-watch.ts';
+import { CONFIG_OPTIONS, type ConfigChoice, type ConfigOption, type UiSettingKey } from './config.ts';
+import { BRAIN_PROVIDERS, PROVIDER_LABEL, type BrainChoiceApi, type BrainModel, type BrainProvider } from './brain-choice.ts';
+import type { VoiceSettingsStore } from './settings.ts';
+import type { AutoNewsSetting } from './news-auto.ts';
 
 export interface EvolutionApi {
   draft(title: string, spec: string): string;
@@ -58,6 +62,12 @@ export interface JarvisContext {
   userTurn?(): number;
   /** Grava uma issue no ISSUES.md local do repositorio do Jarvis; devolve o numero. */
   createIssue?(title: string, description: string): Promise<number>;
+  /** Configuracoes da voz guardadas no servidor (transcricao local ou Groq). */
+  voiceSettings?: Pick<VoiceSettingsStore, 'view' | 'update'>;
+  /** Noticias automaticas (as falas espontaneas de manchetes). */
+  autoNews?: Pick<AutoNewsSetting, 'enabled' | 'set'>;
+  /** Quem responde por voz: provedor e modelo. */
+  brainChoice?: BrainChoiceApi;
 }
 
 const LABEL: Record<SessionAgent, string> = { claude: 'Claude', codex: 'Codex', shell: 'Shell' };
@@ -302,6 +312,54 @@ export function formatWebSearch(r: WebSearch): string {
 }
 
 /** Implementacao dos comandos; cada um devolve o texto que o cerebro le (e resume em voz). */
+const CONFIG_STOP = new Set(['o', 'a', 'os', 'as', 'do', 'da', 'dos', 'das', 'de', 'opcao', 'configuracao', 'configuracoes']);
+const configWords = (s: string): string => normalize(s).split(' ').filter((t) => t && !CONFIG_STOP.has(t)).join(' ');
+
+/** Quanto um nome falado combina com um nome da lista (0 a 100). */
+function nameScore(spoken: string, name: string): number {
+  const q = configWords(spoken);
+  const n = configWords(name);
+  if (!q || !n) return 0;
+  if (q === n || q.replace(/ /g, '') === n.replace(/ /g, '')) return 100;
+  // Um nome inteiro dentro do que foi falado: quanto mais longo, mais especifico.
+  if (` ${q} `.includes(` ${n} `)) return Math.min(90, 60 + n.length);
+  if (` ${n} `.includes(` ${q} `)) return 50;
+  return 70 * similarity(q.replace(/ /g, ''), n.replace(/ /g, ''));
+}
+
+const CONFIG_MIN = 40;
+
+/** Melhor item pelo nome falado; ou, se empatar ou nada servir, os candidatos para perguntar. */
+function pickByName<T>(items: T[], names: (t: T) => string[], spoken: string): { pick?: T; candidates: T[] } {
+  const ranked = items
+    .map((item) => ({ item, score: Math.max(0, ...names(item).map((n) => nameScore(spoken, n))) }))
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score);
+  const top = ranked[0];
+  if (!top || top.score < CONFIG_MIN) return { candidates: ranked.filter((r) => r.score >= 25).slice(0, 3).map((r) => r.item) };
+  const close = ranked.filter((r) => top.score - r.score < AMBIGUOUS_MARGIN);
+  if (top.score < 100 && close.length > 1) return { candidates: close.slice(0, 4).map((r) => r.item) };
+  return { pick: top.item, candidates: [top.item] };
+}
+
+/** A opcao das configuracoes que o usuario falou ("as legendas", "o 3D", "o modelo"). */
+export const resolveConfigOption = (spoken: string) => pickByName(CONFIG_OPTIONS, (o) => [o.key, ...o.names], spoken);
+
+const TURN_ON = new Set(['liga', 'ligar', 'ligado', 'ligada', 'ligados', 'ligadas', 'ativa', 'ativar', 'ativado', 'ativada', 'ativo', 'on', 'sim', 'mostra', 'mostrar', 'habilita', 'habilitar', 'acende', 'true', 'verdadeiro']);
+const TURN_OFF = new Set(['desliga', 'desligar', 'desligado', 'desligada', 'desligados', 'desligadas', 'desativa', 'desativar', 'desativado', 'desativada', 'off', 'nao', 'esconde', 'esconder', 'tira', 'tirar', 'desabilita', 'desabilitar', 'apaga', 'false', 'falso']);
+
+/** "liga" / "desativar" / "on" para ligar e desligar; null se nao der para saber. */
+export function spokenToggle(spoken: string): boolean | null {
+  const words = normalize(spoken).split(' ');
+  const on = words.some((w) => TURN_ON.has(w));
+  const off = words.some((w) => TURN_OFF.has(w));
+  return on === off ? null : on;
+}
+
+const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+const choiceNames = (c: ConfigChoice) => [c.id, c.label, ...(c.names ?? [])];
+const modelChoices = (models: BrainModel[]): ConfigChoice[] => models.map((m) => ({ id: m.id, label: m.label, names: [m.id.replace(/\[.*\]$/, '')] }));
+
 export function jarvisHandlers(ctx: JarvisContext) {
   const evolution = (): EvolutionApi => {
     if (!ctx.evolution) throw new Error('a evolução do Jarvis não está disponível neste servidor');
@@ -590,6 +648,110 @@ export function jarvisHandlers(ctx: JarvisContext) {
     async manual_do_app({ assunto }: { assunto?: string }) {
       return searchManual(await ctx.manual(), assunto ?? '');
     },
+    async mudar_configuracao({ opcao, valor, confirmado }: { opcao: string; valor?: string; confirmado?: boolean }) {
+      const { pick: option, candidates } = resolveConfigOption(opcao);
+      if (!option) {
+        if (candidates.length > 1) return `Ficou ambíguo: ${candidates.map((o) => o.label).join(' ou ')}? Pergunte ao usuário qual é, antes de mudar.`;
+        const near = candidates.length ? ` (a mais parecida é ${candidates[0].label})` : '';
+        return `Não há nas configurações uma opção "${opcao}"${near}. Nada mudou. Pergunte ao usuário o que ele quer mudar; por voz dá para mudar: ${CONFIG_OPTIONS.map((o) => o.label).join(', ')}.`;
+      }
+      const unavailable = `${capitalize(option.label)} não pode ser mudado por voz neste servidor. Nada mudou.`;
+      const spoken = valor?.trim() ?? '';
+
+      // O valor pedido: ligar/desligar, ou uma escolha (os modelos da voz vem do plano, na hora).
+      let on: boolean | undefined;
+      let choice: ConfigChoice | undefined;
+      let provider: BrainProvider | undefined;
+      if (option.key === 'modeloVoz') {
+        if (!ctx.brainChoice) return unavailable;
+        const current = ctx.brainChoice.get().provider;
+        const order = [current, ...BRAIN_PROVIDERS.filter((p) => p !== current)];
+        const offered: string[] = [];
+        for (const p of order) {
+          let models: BrainModel[];
+          try {
+            models = await ctx.brainChoice.models(p);
+          } catch {
+            continue;
+          }
+          offered.push(`${PROVIDER_LABEL[p]}: ${models.map((m) => m.label).join(', ')}`);
+          if (!spoken) continue;
+          const found = pickByName(modelChoices(models), choiceNames, spoken);
+          if (found.pick) {
+            choice = found.pick;
+            provider = p;
+            break;
+          }
+          if (found.candidates.length > 1) return `Ficou ambíguo: ${found.candidates.map((c) => c.label).join(' ou ')}? Pergunte ao usuário qual modelo.`;
+        }
+        if (!choice) {
+          if (!offered.length) return 'Não consegui consultar os modelos disponíveis agora. Nada mudou.';
+          return `${spoken ? `Não achei o modelo "${spoken}". ` : ''}Os modelos do plano são: ${offered.join('; ')}. Pergunte ao usuário qual ele quer.`;
+        }
+      } else if (option.choices) {
+        const found = spoken ? pickByName(option.choices, choiceNames, spoken) : { candidates: [] as ConfigChoice[] };
+        if (!found.pick) {
+          const list = (found.candidates.length > 1 ? found.candidates : option.choices).map((c) => c.label).join(', ');
+          return `${spoken ? `Não ficou claro qual escolha para ${option.label}. ` : ''}As escolhas são: ${list}. Pergunte ao usuário qual ele quer.`;
+        }
+        choice = found.pick;
+        if (option.key === 'agenteVoz') provider = choice.id as BrainProvider;
+      } else {
+        const toggle = spokenToggle(spoken);
+        if (toggle === null) return `Não entendi se é para ligar ou desligar ${option.label}. Pergunte ao usuário.`;
+        on = toggle;
+      }
+      const target = choice ? `trocar ${option.label} para ${choice.label}${option.key === 'modeloVoz' ? ` (${PROVIDER_LABEL[provider!]})` : ''}` : `${on ? 'ligar' : 'desligar'} ${option.label}`;
+
+      // Opcoes do servidor: se ja esta assim, nada a fazer.
+      const already = `Nada mudou: ${option.label} já está assim (${choice ? choice.label : on ? 'ligado' : 'desligado'}). Diga isso em poucas palavras.`;
+      if (option.key === 'agenteVoz' || option.key === 'modeloVoz') {
+        if (!ctx.brainChoice) return unavailable;
+        const cur = ctx.brainChoice.get();
+        if (cur.provider === provider && (option.key === 'agenteVoz' || cur.model === choice!.id)) return already;
+      } else if (option.key === 'transcricao' || option.key === 'modeloTranscricao') {
+        if (!ctx.voiceSettings) return unavailable;
+        const v = ctx.voiceSettings.view();
+        if ((option.key === 'transcricao' ? v.stt : v.groqModel) === choice!.id) return already;
+      } else if (option.key === 'noticiasAutomaticas') {
+        if (!ctx.autoNews) return unavailable;
+        if (ctx.autoNews.enabled() === on) return already;
+      }
+
+      if (option.sensitive && confirmado !== true) {
+        const warn =
+          option.key === 'escuta' && on === false ? ' Avise que, sem a escuta, ele só volta a falar com você ligando de novo nas configurações.' :
+          option.key === 'agenteVoz' ? ' Avise que a conversa recomeça do zero com o outro agente.' : '';
+        return `Antes de mudar, confirme com o usuário: ${target}?${warn} Só se ele disser que sim, chame de novo com confirmado verdadeiro.`;
+      }
+
+      const failed = (why: string) => `Não mudei ${option.label}: ${why} Explique ao usuário em poucas palavras.`;
+      const done = (what: string) => `Feito: ${what}. Confirme ao usuário em poucas palavras.`;
+      switch (option.key) {
+        case 'agenteVoz':
+        case 'modeloVoz': {
+          const r = await ctx.brainChoice!.set(option.key === 'agenteVoz' ? { provider } : { provider, model: choice!.id });
+          if ('error' in r) return failed(r.error);
+          const label = (await ctx.brainChoice!.models(r.choice.provider).catch(() => [] as BrainModel[])).find((m) => m.id === r.choice.model)?.label ?? r.choice.model;
+          return done(`a partir da próxima fala, quem responde é o ${PROVIDER_LABEL[r.choice.provider]}, com o modelo ${label}`);
+        }
+        case 'transcricao':
+        case 'modeloTranscricao': {
+          const r = await ctx.voiceSettings!.update(option.key === 'transcricao' ? { stt: choice!.id } : { groqModel: choice!.id });
+          if ('error' in r) return failed(r.error);
+          const note = option.key === 'modeloTranscricao' && r.view.stt !== 'groq' ? ' (vale quando a transcrição estiver no Groq)' : '';
+          return done(`${option.label} agora é ${choice!.label}${note}`);
+        }
+        case 'noticiasAutomaticas':
+          ctx.autoNews!.set(on!);
+          return done(`${on ? 'liguei' : 'desliguei'} ${option.label}`);
+        default: {
+          ctx.ui({ kind: 'setting', key: option.key as UiSettingKey, value: choice ? choice.id : on! });
+          const later = option.key === 'escuta' || option.key === 'atalho' ? ' (vale assim que esta resposta terminar)' : '';
+          return done(`${choice ? `troquei ${option.label} para ${choice.label}` : `${on ? 'liguei' : 'desliguei'} ${option.label}`}${later}`);
+        }
+      }
+    },
     async comandos(_args: Record<string, never>) {
       ctx.ui({ kind: 'commands' });
       return COMMANDS.map((c) => `${c.title}: por exemplo, "${c.examples[0]}"`).join('\n');
@@ -779,6 +941,16 @@ export function createJarvisServer(ctx: JarvisContext) {
         'Procura no manual do Jarvis (o app em que você vive: interface, buraco negro, cartões, planetas, painel do dia, terminais, voz, botões "+", atalhos, configurações) como fazer algo ou para que serve algo. Consulte antes de responder dúvidas sobre o app.',
         { assunto: z.string().optional().describe('Assunto da dúvida, com palavras-chave.') },
         run(h.manual_do_app),
+      ),
+      tool(
+        'mudar_configuracao',
+        'Liga, desliga ou troca uma opção das configurações do Jarvis (legendas, escuta, atalho de falar, modo 3D, reduzir movimento, demonstração de voz, sons, cor e estilo do Jarvis, agente e modelo que respondem por voz, transcrição da fala e seu modelo, notícias automáticas). Use quando o usuário pedir para ativar, desativar, mudar ou escolher uma delas. A resposta diz se mudou, se precisa confirmar com o usuário (aí chame de novo com confirmado) ou se é para perguntar algo.',
+        {
+          opcao: z.string().describe('A opção como o usuário falou ("as legendas", "o 3D", "o modelo").'),
+          valor: z.string().optional().describe('"ligar" ou "desligar", ou a escolha como o usuário falou ("verde", "Codex", "Sonnet").'),
+          confirmado: z.boolean().optional().describe('Verdadeiro só depois que o usuário confirmou uma mudança que a ferramenta mandou confirmar.'),
+        },
+        run(h.mudar_configuracao),
       ),
       tool('comandos', 'Lista os comandos de voz e abre o painel de comandos na interface.', {}, run(h.comandos)),
     ],

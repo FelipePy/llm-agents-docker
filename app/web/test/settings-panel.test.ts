@@ -20,6 +20,8 @@ const settings: SettingsState = {
   globeStyle: 'holografico',
   globeHotkey: DEFAULT_GLOBE_HOTKEY,
   sounds: true,
+  captionUser: false,
+  captionJarvis: true,
 };
 const noop = () => {};
 const toggles: SettingsToggles = {
@@ -34,6 +36,8 @@ const toggles: SettingsToggles = {
   onGlobeStyle: noop,
   onGlobeHotkey: noop,
   onSounds: noop,
+  onCaptionUser: noop,
+  onCaptionJarvis: noop,
 };
 
 const render = (extra: { desktop?: DesktopInfo | null; floating?: { open: boolean; toggle: () => void } | null; settings?: SettingsState } = {}) =>
@@ -65,6 +69,13 @@ describe('SettingsPanel', () => {
     expect(html.indexOf('<h2>Voz</h2>')).toBeGreaterThan(-1);
     expect(html.indexOf('Como falar')).toBeGreaterThan(html.indexOf('<h2>Voz</h2>'));
     expect(html.indexOf('<h2>Aparência e som</h2>')).toBeGreaterThan(html.indexOf('Como falar'));
+  });
+  it('as legendas da fala do usuario e do Jarvis sao opcoes separadas', () => {
+    const html = render();
+    const voz = html.slice(0, html.indexOf('<h2>Aparência e som</h2>'));
+    const box = (label: string) => voz.slice(voz.lastIndexOf('<input', voz.indexOf(label)), voz.indexOf(label));
+    expect(box('Legenda da sua fala')).not.toContain('checked');
+    expect(box('Legenda da fala do Jarvis')).toContain('checked');
   });
   it('a cor continua escolhivel sem o modo 3D, porque vale para toda a interface', () => {
     const html = render({ settings: { ...settings, mode3d: false } });
@@ -104,8 +115,8 @@ describe('SettingsPanel', () => {
   });
   it('todos os blocos comecam recolhidos, sem ler nada guardado', () => {
     const html = render({ desktop: { autostart: true } as DesktopInfo, floating: { open: false, toggle: noop } });
-    for (const bloco of ['Como falar', 'Visual e sons', 'Inicialização', 'Janela flutuante']) expect(html).toMatch(new RegExp(`aria-expanded="false"[^>]*>(?:(?!</button>).)*${bloco}</button>`));
-    expect(html.match(/aria-expanded="false"/g)).toHaveLength(4);
+    for (const bloco of ['Como falar', 'Legendas', 'Visual e sons', 'Inicialização', 'Janela flutuante']) expect(html).toMatch(new RegExp(`aria-expanded="false"[^>]*>(?:(?!</button>).)*${bloco}</button>`));
+    expect(html.match(/aria-expanded="false"/g)).toHaveLength(5);
     expect(html).not.toContain('aria-expanded="true"');
     expect(getItem).not.toHaveBeenCalled();
   });
