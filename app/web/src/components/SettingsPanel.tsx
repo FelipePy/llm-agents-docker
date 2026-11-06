@@ -45,6 +45,16 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
             )}
             {(settings.voice || settings.holdKey) && voiceStatus && <div className="voice-status">{voiceStatus}</div>}
           </SettingsCard>
+          <SettingsCard title="Legendas">
+            <label title="Mostra na tela o que o Jarvis entendeu da sua fala">
+              <input type="checkbox" checked={settings.captionUser} onChange={toggles.onCaptionUser} />
+              Legenda da sua fala
+            </label>
+            <label title="Mostra na tela o que o Jarvis está falando">
+              <input type="checkbox" checked={settings.captionJarvis} onChange={toggles.onCaptionJarvis} />
+              Legenda da fala do Jarvis
+            </label>
+          </SettingsCard>
           <VoiceProfileSettings api={api} />
           <SttSettings api={api} />
           <PauseSettings api={api} />

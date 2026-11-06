@@ -80,12 +80,15 @@ function Connected({ token }: { token: string }) {
   const [globeStyle, setGlobeStyle] = useChoice<GlobeStyle>('llm-agent-globe-style', 'holografico', isGlobeStyle);
   const [globeHotkey, setGlobeHotkey] = useSavedHotkey('llm-agent-globe-hotkey', DEFAULT_GLOBE_HOTKEY);
   const [sounds, setSounds] = usePref('llm-agent-sounds', true);
+  // Legendas da conversa: a da fala do usuario e a do Jarvis, cada uma por si (desligadas por padrao).
+  const [captionUser, setCaptionUser] = usePref('llm-agent-caption-user', false);
+  const [captionJarvis, setCaptionJarvis] = usePref('llm-agent-caption-jarvis', false);
   const [voice, setVoice] = useState<VoiceView>(OFF_VIEW);
   const voiceRef = useRef<VoiceClient | null>(null);
   // Ordens do Jarvis para a interface; atualizada a cada render (ver mais abaixo).
   const onUiRef = useRef<(command: UiCommand) => void>(() => {});
   const use3d = webgl && mode3d;
-  const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn && !holdKey, holdKey, hotkey, globeColor, globeStyle, globeHotkey, sounds };
+  const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn && !holdKey, holdKey, hotkey, globeColor, globeStyle, globeHotkey, sounds, captionUser, captionJarvis };
   const toggles = {
     on3d: () => setMode3d(!mode3d),
     onReduceMotion: () => setReduceMotion(!reduceMotion),
@@ -98,6 +101,8 @@ function Connected({ token }: { token: string }) {
     onGlobeStyle: (s: GlobeStyle) => setGlobeStyle(s),
     onGlobeHotkey: setGlobeHotkey,
     onSounds: () => setSounds(!sounds),
+    onCaptionUser: () => setCaptionUser(!captionUser),
+    onCaptionJarvis: () => setCaptionJarvis(!captionJarvis),
   };
 
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -393,8 +398,8 @@ function Connected({ token }: { token: string }) {
     );
   }, [floating, globeColor]);
   useEffect(() => {
-    floating?.update(coreMode, voice.jarvis || voice.user);
-  }, [floating, coreMode, voice.jarvis, voice.user]);
+    floating?.update(coreMode, (captionJarvis && voice.jarvis) || (captionUser && voice.user) || '');
+  }, [floating, coreMode, voice.jarvis, voice.user, captionJarvis, captionUser]);
   useEffect(() => {
     floating?.setColor(globeColor);
   }, [floating, globeColor]);
@@ -571,10 +576,10 @@ function Connected({ token }: { token: string }) {
                 </div>
               </div>
             )}
-            {(voice.user || voice.jarvis) ? (
+            {(captionUser && voice.user) || (captionJarvis && voice.jarvis) ? (
               <div className="captions">
-                {voice.user && <p className="you">você: {voice.user}</p>}
-                {voice.jarvis && <p className="jarvis">{voice.jarvis}</p>}
+                {captionUser && voice.user && <p className="you">você: {voice.user}</p>}
+                {captionJarvis && voice.jarvis && <p className="jarvis">{voice.jarvis}</p>}
               </div>
             ) : (
               coreMode !== 'idle' && <div className="core-caption">{MODE_LABEL[coreMode]}</div>
