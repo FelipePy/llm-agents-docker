@@ -96,6 +96,48 @@ test('buildOverview esconde pastas ocultas e informa a pasta de projetos', async
   assert.equal((await buildOverview(fx.home, { projectsDir: '/x/y' })).projectsDir, '/x/y');
 });
 
+test('listProjects acha repositorios sem conversas na pasta de projetos', async () => {
+  const fx = buildFixture();
+  const dev = join(fx.home, 'dev');
+  for (const dir of ['solto/.git', 'trabalho/api/.git', 'trabalho/fundo/mais/.git', 'sem-git/src', '.oculto/.git', 'node_modules/pacote/.git', 'solto/sub/.git']) {
+    mkdirSync(join(dev, dir), { recursive: true });
+  }
+  const convs = await scanConversations(fx.home);
+  const projects = await listProjects(fx.home, convs);
+  assert.deepEqual(projects.map((p) => p.path).sort(), [fx.p1, join(dev, 'solto'), join(dev, 'trabalho', 'api')].sort());
+  const api = projects.find((p) => p.name === 'api')!;
+  assert.deepEqual([api.conversations, api.agents], [0, []]);
+  assert.ok(api.updatedAt, 'usa a data do repositorio');
+  // Os achados nao mudam a pasta de projetos, mesmo quando sao maioria em outra pasta-mae.
+  assert.equal(projectsBase(fx.home, projects), dev);
+  const hidden = await listProjects(fx.home, convs, [join(dev, 'trabalho')]);
+  assert.deepEqual(hidden.map((p) => p.name).sort(), ['meu-app', 'solto']);
+});
+
+test('listProjects usa a pasta configurada e nao procura na home', async () => {
+  const home = tempHome();
+  mkdirSync(join(home, 'pessoal', '.git'), { recursive: true });
+  mkdirSync(join(home, 'trabalho', 'api', '.git'), { recursive: true });
+  const names = async (dir?: string) => (await listProjects(home, [], [], dir)).map((p) => p.name);
+  assert.deepEqual(await names(home), [], 'a home nao e a pasta de projetos');
+  assert.deepEqual(await names(join(home, 'trabalho')), ['api']);
+  assert.deepEqual(await names(), [], '~/projetos nao existe');
+});
+
+test('projectDetail abre repositorio sem conversas e so os da pasta de projetos', async () => {
+  const fx = buildFixture();
+  const repo = join(fx.home, 'dev', 'novo');
+  mkdirSync(repo);
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+  write(join(repo, 'CLAUDE.md'), 'regras');
+  const fora = join(fx.home, 'fora', 'repo');
+  mkdirSync(join(fora, '.git'), { recursive: true });
+  const convs = await scanConversations(fx.home);
+  const d = await projectDetail(fx.home, repo, convs);
+  assert.deepEqual([d?.name, d?.conversationList.length, d?.git?.branch, d?.instructions.length], ['novo', 0, 'main', 1]);
+  assert.equal(await projectDetail(fx.home, fora, convs), null);
+});
+
 test('projectsBase sem projetos usa ~/projetos', () => {
   assert.equal(projectsBase('/h', []), '/h/projetos');
 });

@@ -17,6 +17,8 @@
   background: radial-gradient(ellipse at 60% 40%, #10142a 0%, var(--bg) 60%);
 }
 * { box-sizing: border-box; }
+/* A pagina tem o tamanho exato da janela: quem rola e cada area por dentro (lista, historico do terminal). */
+html, body, #root { height: 100%; overflow: hidden; }
 body { margin: 0; }
 button { font: inherit; color: inherit; background: #141a2a; border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 button:hover { border-color: var(--accent); }
@@ -24,8 +26,9 @@ input { font: inherit; color: inherit; background: #0a0d16; border: 1px solid va
 input:focus { outline: none; border-color: var(--accent); }
 code { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size: 12px; color: var(--muted); }
 
-.app { display: grid; grid-template-columns: 280px 1fr; grid-template-rows: 1fr auto; height: 100vh; }
-.sidebar { grid-row: 1; display: flex; flex-direction: column; gap: 4px; padding: 16px 12px; border-right: 1px solid var(--line); background: rgba(12, 15, 24, 0.85); overflow: auto; }
+/* minmax(0, ...): sem isso, a largura somada das abas alargaria a coluna e geraria scroll na pagina. */
+.app { display: grid; grid-template-columns: 280px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; height: 100vh; height: 100dvh; }
+.sidebar { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; gap: 4px; padding: 16px 12px; border-right: 1px solid var(--line); background: rgba(12, 15, 24, 0.85); overflow: auto; }
 .brand { font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; }
 .nav { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: transparent; border-color: transparent; }
 .nav.active { background: #141c33; border-color: var(--line); }
@@ -36,7 +39,7 @@ code { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size: 12p
 .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--codex); box-shadow: 0 0 8px var(--codex); animation: pulse 1.6s infinite; }
 @keyframes pulse { 50% { opacity: 0.3; } }
 
-.content { grid-row: 1; overflow: auto; padding: 24px 32px; position: relative; }
+.content { grid-column: 2; grid-row: 1; overflow: auto; padding: 24px 32px; position: relative; }
 .panel h1 { margin: 0 0 4px; font-weight: 600; }
 .panel h2 { margin: 28px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
 .muted { color: var(--muted); }
@@ -63,18 +66,52 @@ code { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size: 12p
 .card summary { padding: 8px 12px; cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted); }
 .markdown { padding: 0 16px 8px; line-height: 1.5; }
 
-.drawer { grid-column: 1 / -1; grid-row: 2; display: flex; flex-direction: column; border-top: 1px solid var(--line); background: var(--bg); min-height: 36px; }
+/* Na mesma linha do conteudo, sem rolar com ele: fica no canto, logo acima do terminal. */
+.background-tasks { grid-column: 1 / -1; grid-row: 1; align-self: end; justify-self: end; position: relative; z-index: 6; margin: 0 16px 10px; color: var(--muted); font-size: 12px; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.9)); pointer-events: none; }
+/* Onda na cor do sistema: um gradiente recortado no texto, tres vezes mais largo que a frase, com a faixa fora de vista nas duas pontas. */
+@media (prefers-reduced-motion: no-preference) {
+  .background-tasks { color: transparent; background: linear-gradient(90deg, var(--muted) 38%, var(--sys-dim) 50%, var(--muted) 62%) 100% 0 / 300% 100%; -webkit-background-clip: text; background-clip: text; animation: background-wave 3s linear infinite; }
+}
+@keyframes background-wave { to { background-position: 0% 0; } }
+
+.drawer { grid-column: 1 / -1; grid-row: 2; display: flex; flex-direction: column; border-top: 1px solid var(--line); background: var(--bg); min-width: 0; min-height: 36px; max-height: calc(100dvh - 80px); }
 .drag { height: 5px; cursor: ns-resize; }
 .drag:hover { background: var(--accent); }
-.tabs { display: flex; gap: 2px; padding: 0 8px; overflow-x: auto; flex: none; }
-.tab { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 6px 6px 0 0; color: var(--muted); cursor: pointer; white-space: nowrap; font-size: 12px; }
+.tabs { position: relative; display: flex; align-items: center; gap: 2px; padding: 0 8px; flex: none; min-width: 0; }
+/* As abas encolhem por igual ate a largura minima; dali em diante a barra rola, sem barra de rolagem visivel. */
+.tab-list { position: relative; display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.tab-list::-webkit-scrollbar { display: none; }
+/* Minimo: cerca de 8 caracteres do nome mais numero, bolinha, fechar, espacos e margens (70px). */
+.tab { container-type: inline-size; flex: 0 1 220px; min-width: calc(8ch + 70px); display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px 6px 0 0; color: var(--muted); cursor: pointer; white-space: nowrap; font-size: 12px; }
 .tab.active { background: var(--panel); color: var(--text); }
-.tab kbd { font-size: 10px; color: var(--muted); }
-.tab .x { padding: 0 6px; border: none; background: transparent; }
-.collapse { margin-left: auto; border: none; background: transparent; }
+.tab.tab-ended .tab-name { font-style: italic; opacity: 0.6; }
+.tab kbd { flex: none; font-size: 10px; color: var(--muted); }
+.tab-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tab .x { flex: none; padding: 0 6px; border: none; background: transparent; }
+/* Aba estreita: o fechar so aparece na ativa ou com o mouse em cima, para sobrar espaco ao nome. */
+@container (max-width: 130px) {
+  .tab:not(.active):not(:hover) .x { display: none; }
+}
+.tab-scroll, .collapse { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: none; border-radius: 6px; background: transparent; color: var(--muted); }
+.tab-scroll:hover:not(:disabled), .collapse:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
+.tab-scroll:disabled { opacity: 0.3; cursor: default; }
+.tab-menu { flex: none; display: flex; align-items: center; gap: 6px; height: 24px; margin: 0 2px 0 4px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.tab-menu:hover, .tab-menu[aria-expanded='true'] { border-color: var(--accent); color: var(--text); }
+.tab-picker { position: absolute; right: 8px; bottom: 100%; width: min(420px, calc(100vw - 16px)); padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; z-index: 20; }
+.tab-picker input { width: 100%; }
+.tab-picker ul { list-style: none; margin: 8px 0 0; padding: 0; max-height: 40vh; overflow-y: auto; }
+.tab-picker li { display: flex; align-items: baseline; gap: 12px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+.tab-picker li.selected { background: #141c33; }
+.tab-picker li.current .picker-label { color: var(--accent); }
+.tab-picker li.picker-ended .picker-label { font-style: italic; opacity: 0.6; }
+.picker-label { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.picker-empty { padding: 6px 8px; font-size: 12px; color: var(--muted); }
 .terms { flex: 1; min-height: 0; position: relative; background: var(--panel); }
 .term-wrap { position: absolute; inset: 0; }
 .terminal { position: absolute; inset: 0; padding: 6px 8px; }
+/* O xterm 6 desenha a propria barra: sem isto, a nativa do navegador aparece junto. */
+.term-wrap .xterm .xterm-viewport { overflow: hidden; background: #0c0f18; }
 .ended { position: absolute; right: 16px; bottom: 12px; padding: 8px 12px; border-radius: 8px; background: #1a2238; z-index: 5; }
 
 .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); display: flex; justify-content: center; padding-top: 12vh; z-index: 10; }

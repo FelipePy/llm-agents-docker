@@ -7,6 +7,9 @@ import {
 export type WorkerCommand =
   | { cmd: 'listen'; barge?: boolean }
   | { cmd: 'sleep' }
+  /** Atalho de falar: o audio ate o "release" e uma fala so (sem palavra de ativacao nem silencio). */
+  | { cmd: 'hold' }
+  | { cmd: 'release' }
   | { cmd: 'cancel' }
   | { cmd: 'speak'; id: number; text: string }
   /** Palavras que o whisper deve reconhecer (nomes de projetos etc.). */
@@ -207,6 +210,18 @@ export class VoiceSession {
   /** Fala incompleta esperando a continuacao (e o prazo para responder a ela assim mesmo). */
   private unfinished: { text: string; ms?: number; timer?: ReturnType<typeof setTimeout> } | undefined;
   private readonly pauses: () => PauseConfig;
+  /**
+   * Modo atalho: o usuario fala segurando uma tecla e nada mais e ouvido (o cliente pede
+   * na mensagem "start"). Entre as falas o estado e "sleeping", com a conversa em aberto;
+   * a voz cadastrada nao e conferida, porque quem aperta a tecla ja esta no computador.
+   */
+  private holdMode = false;
+  /** O usuario esta segurando a tecla agora. */
+  private holding = false;
+  /** Falas soltas cuja transcricao ainda nao chegou. */
+  private holdPending = 0;
+  /** Falas ja transcritas esperando a seguinte (apertou de novo antes da resposta). */
+  private holdText = '';
   private timing: { heard: number; stt?: number; firstToken?: number; firstAudio?: number; tools: string[] } | undefined;
 
   constructor(
@@ -261,8 +276,9 @@ export class VoiceSession {
 
   stop(): void {
     if (this.state === 'off') return;
-    if (this.state !== 'sleeping' && this.state !== 'preparing') this.conversation?.end();
+    if (this.holdMode || (this.state !== 'sleeping' && this.state !== 'preparing')) this.conversation?.end();
     this.stopController.abort();
+    this.resetHold();
     this.dropUnfinished();
     this.refusing = false;
     this.checkingVoice = false;
@@ -277,14 +293,20 @@ export class VoiceSession {
   }
 
   audio(pcm: Buffer): void {
+    if (this.holdMode && !this.holding) return;
     if (this.state !== 'off' && this.state !== 'preparing') this.worker.sendAudio(pcm);
   }
 
   client(msg: VoiceClientMessage): void {
     switch (msg.type) {
       case 'start':
+        if (this.state === 'off') this.holdMode = msg.hold === true;
         void this.start();
         return;
+      case 'hold-start':
+        return this.holdStart();
+      case 'hold-end':
+        return this.holdEnd();
       case 'stop':
         return this.stop();
       case 'interrupt':
@@ -612,8 +634,54 @@ export class VoiceSession {
     this.ask(request, ms);
   }
 
+  /** Apertou o atalho: cala o Jarvis, se ele estiver respondendo, e passa a ouvir. */
+  private holdStart(): void {
+    if (!this.holdMode || this.holding || this.state === 'off' || this.state === 'preparing') return;
+    this.holding = true;
+    if (this.state === 'thinking' || this.state === 'speaking') {
+      this.mute();
+      this.send({ type: 'stop-audio' });
+    }
+    this.setState('listening');
+    this.worker.command({ cmd: 'hold' });
+  }
+
+  /** Soltou o atalho: a fala terminou. */
+  private holdEnd(): void {
+    if (!this.holding) return;
+    this.holding = false;
+    this.holdPending++;
+    this.worker.command({ cmd: 'release' });
+    this.setState('thinking');
+  }
+
+  /** Transcricao de uma fala solta (vazia: nao havia voz). Com outra fala a caminho, as duas viram uma so. */
+  private holdResult(text: string, ms?: number): void {
+    if (!this.holdPending) return; // de antes de ligar o modo atalho
+    this.holdPending--;
+    const heard = this.holdText && text ? mergeUtterances(this.holdText, text) : this.holdText || text;
+    if (this.holding || this.holdPending) {
+      this.holdText = heard;
+      return;
+    }
+    this.holdText = '';
+    if (heard) this.utterance(heard, ms);
+    this.maybeFinish();
+  }
+
+  private resetHold(): void {
+    this.holding = false;
+    this.holdPending = 0;
+    this.holdText = '';
+  }
+
   private onWorker(e: WorkerEvent): void {
     if (this.state === 'off') return;
+    if (this.holdMode) {
+      if (e.event === 'wake' || e.event === 'heard' || e.event === 'heard-start' || e.event === 'heard-drop' || e.event === 'speech-start') return;
+      if (e.event === 'speech-drop') return this.holdResult('');
+      if (e.event === 'transcript') return this.holdResult(e.text.trim(), e.ms);
+    }
     // Avisando que nao reconheceu a voz: a fala de quem chamou nao vira pedido.
     if (this.refusing && (e.event === 'speech-start' || e.event === 'speech-drop' || e.event === 'transcript')) return;
     switch (e.event) {
@@ -749,6 +817,7 @@ export class VoiceSession {
   }
 
   private onExit(): void {
+    this.resetHold();
     this.mute();
     this.send({ type: 'stop-audio' });
     if (this.now() - this.lastRestart < RESTART_WINDOW_MS) {
@@ -851,7 +920,7 @@ export class VoiceSession {
     if (this.state !== 'speaking') {
       this.setState('speaking');
       // Falando, o worker continua ouvindo (mais exigente) para o usuario poder interromper.
-      this.worker.command(this.bargeIn ? { cmd: 'listen', barge: true } : { cmd: 'sleep' });
+      this.worker.command(this.bargeIn && !this.holdMode ? { cmd: 'listen', barge: true } : { cmd: 'sleep' });
     }
     // Resposta pausada (o usuario falou por cima): o resto espera a decisao.
     if (this.held) {
@@ -867,10 +936,14 @@ export class VoiceSession {
 
   private maybeFinish(): void {
     if ((this.state !== 'speaking' && this.state !== 'thinking') || !this.brainDone || this.pending.size) return;
+    if (this.holding || this.holdPending) return;
     if (this.refusing) return this.endRefusal();
     if (this.farewell) {
       this.farewell = false;
       this.conversation?.end();
+      this.setState('sleeping');
+      this.worker.command({ cmd: 'sleep' });
+    } else if (this.holdMode) {
       this.setState('sleeping');
       this.worker.command({ cmd: 'sleep' });
     } else {
@@ -982,6 +1055,12 @@ export class VoiceSession {
     this.cutInAt = this.now();
     this.mute();
     this.send({ type: 'stop-audio' });
+    // Modo atalho (Esc): cala e espera o proximo aperto.
+    if (this.holdMode) {
+      this.setState('sleeping');
+      this.worker.command({ cmd: 'sleep' });
+      return;
+    }
     this.setState('listening');
     if (restartListening) this.worker.command({ cmd: 'listen' });
   }

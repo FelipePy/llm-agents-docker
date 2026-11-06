@@ -102,3 +102,31 @@ test('noticias nao sao anunciadas de madrugada', async () => {
   assert.ok(!s.said.some((t) => t.includes('N1')));
   s.a.stop();
 });
+
+test('noticias desligadas: nao anuncia nem gasta manchetes, o periodo continua e religar retoma', async () => {
+  let on = false;
+  let now = at(11, 59).getTime();
+  const said: string[] = [];
+  const history = new NewsHistory();
+  const a = new Announcer({
+    now: () => now,
+    day: async () => ({ weather: null, news: [{ title: 'N1', source: 'G1', link: '', published: '' }] }),
+    say: (text) => (said.push(text), true),
+    newsEnabled: () => on,
+    history,
+    random: () => 0,
+  });
+  await a.start();
+  said.length = 0;
+  await a.tick();
+  assert.equal(said.length, 0, 'desligada, nada de noticia');
+  assert.ok(!history.has('N1'), 'a manchete continua disponivel para o pedido por voz');
+  now = at(12, 1).getTime();
+  await a.tick();
+  assert.match(said.join(), /tarde/, 'o aviso de periodo nao e noticia');
+  assert.ok(!said.join().includes('N1'));
+  on = true;
+  await a.tick();
+  assert.ok(said.at(-1)!.includes('N1'), 'religada, volta a anunciar');
+  a.stop();
+});

@@ -5,29 +5,23 @@ import {
   AdditiveBlending, Color, InstancedBufferAttribute, InstancedBufferGeometry, MeshBasicMaterial, PlaneGeometry, ShaderMaterial, type Group, type Mesh,
 } from 'three';
 import { smoothHeat, targetHeat, type CoreSignal } from './core.ts';
-import { GLOBE_COLORS, GLOBE_RADIUS, globeDynamics, globeFragments, type GlobeColor } from './globe.ts';
+import { GLOBE_COLORS, GLOBE_RADIUS, GLOBE_STYLES, globeDynamics, type GlobeColor, type GlobeRing, type GlobeStyle } from './globe.ts';
 import { globeFragmentShader, globeVertexShader } from './globeShader.ts';
 
 interface Props {
   /** Sinal da voz (estado + volume), lido a cada quadro. */
   signal: MutableRefObject<CoreSignal>;
   color: GlobeColor;
+  globeStyle: GlobeStyle;
   /** 1 = todos os fragmentos; menos em GPUs fracas. */
   detail: number;
   reducedMotion: boolean;
   onSelect: () => void;
 }
 
-const FRAGMENTS = 3600;
-/** Aneis internos: raio, eixo de giro e velocidade. */
-const RINGS: { radius: number; tilt: [number, number]; speed: number }[] = [
-  { radius: 1.5, tilt: [0.4, 0.2], speed: 0.9 },
-  { radius: 2.1, tilt: [-0.9, 0.5], speed: -0.6 },
-  { radius: 2.8, tilt: [1.3, -0.3], speed: 0.4 },
-];
-
-/** O Jarvis: um globo holografico que se agita e cresce enquanto ele fala. */
-export function Globe({ signal, color, detail, reducedMotion, onSelect }: Props) {
+/** O Jarvis: um globo que se agita e cresce enquanto ele fala, no estilo escolhido. */
+export function Globe({ signal, color, globeStyle, detail, reducedMotion, onSelect }: Props) {
+  const style = GLOBE_STYLES[globeStyle];
   const heat = useRef(0.05);
   const level = useRef(0);
   const time = useRef(0);
@@ -37,9 +31,9 @@ export function Globe({ signal, color, detail, reducedMotion, onSelect }: Props)
   const [hover, setHover] = useState(false);
   useCursor(hover);
 
-  const fragments = useMemo(() => globeFragments(Math.round(FRAGMENTS * detail)), [detail]);
+  const fragments = useMemo(() => style.build(Math.round(style.fragments * detail)), [style, detail]);
   const geometry = useMemo(() => {
-    const base = new PlaneGeometry(1, 1);
+    const base = new PlaneGeometry(1, 1, style.segments, 1);
     const g = new InstancedBufferGeometry();
     g.index = base.index;
     g.setAttribute('position', base.getAttribute('position'));
@@ -49,7 +43,7 @@ export function Globe({ signal, color, detail, reducedMotion, onSelect }: Props)
     g.setAttribute('aTilt', new InstancedBufferAttribute(fragments.tilt, 2));
     g.instanceCount = fragments.count;
     return g;
-  }, [fragments]);
+  }, [fragments, style]);
   useEffect(() => () => geometry.dispose(), [geometry]);
 
   const material = useMemo(
@@ -114,7 +108,7 @@ export function Globe({ signal, color, detail, reducedMotion, onSelect }: Props)
     if (rings.current) {
       rings.current.scale.setScalar(d.expand);
       rings.current.children.forEach((ring, i) => {
-        ring.rotation.z += dt * RINGS[i].speed * d.spin * motion;
+        ring.rotation.z += dt * style.rings[i].speed * d.spin * motion;
       });
     }
     core.current?.scale.setScalar(0.8 + 0.25 * heat.current + 0.6 * level.current);
@@ -124,8 +118,8 @@ export function Globe({ signal, color, detail, reducedMotion, onSelect }: Props)
     <group>
       <mesh geometry={geometry} material={material} frustumCulled={false} raycast={() => null} />
       <group ref={rings}>
-        {RINGS.map((r, i) => (
-          <group key={i} rotation={[r.tilt[0], r.tilt[1], 0]}>
+        {style.rings.map((r: GlobeRing, i: number) => (
+          <group key={`${globeStyle}-${i}`} rotation={[r.tilt[0], r.tilt[1], 0]}>
             <mesh material={ringMaterial} raycast={() => null}>
               <torusGeometry args={[r.radius, 0.022, 6, 160, Math.PI * 1.6]} />
             </mesh>
@@ -133,7 +127,7 @@ export function Globe({ signal, color, detail, reducedMotion, onSelect }: Props)
         ))}
       </group>
       <mesh ref={core} material={coreMaterial} raycast={() => null}>
-        <sphereGeometry args={[0.55, 32, 32]} />
+        <sphereGeometry key={globeStyle} args={[style.coreRadius, 32, 32]} />
       </mesh>
       {/* Area de clique (invisivel): abre "Você". */}
       <mesh

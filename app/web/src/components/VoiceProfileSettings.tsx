@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Api, VoiceProfile } from '../api.ts';
 import { MIN_RECORD_S, recordPhrase } from '../voice/record.ts';
 import { ACCESS_OPTIONS, MAX_PIN, MIN_PIN, pinInput, pinProblem, type AccessMode } from '../pin.ts';
+import { SettingsCard } from './SettingsCard.tsx';
 
 /** Frases do cadastro (sem "Jarvis", para a escuta ligada nao acordar enquanto voce grava). */
 export const PHRASES = [
@@ -170,8 +171,7 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
         'Pronto: agora só a sua voz (ou a sua senha) ativa o Jarvis.',
       );
     return (
-      <div className="stt-settings">
-        <div className="stt-title">{redo ? 'Refazer a voz' : 'Cadastrar a sua voz'}</div>
+      <SettingsCard title={redo ? 'Refazer a voz' : 'Cadastrar a sua voz'}>
         <p className="muted">Num lugar silencioso, grave cada frase com a sua voz normal, como fala com o Jarvis.</p>
         {PHRASES.map((phrase, i) => (
           <Recorder key={i} phrase={phrase} audio={audio[i]} onAudio={setPhrase(i)} onError={fail} disabled={busy} />
@@ -212,15 +212,14 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
           </button>
         </div>
         {notes}
-      </div>
+      </SettingsCard>
     );
   }
 
   if (mode === 'access') {
     const ready = current.length > 0 && (!legacy || newPasswordOk) && !busy;
     return (
-      <div className="stt-settings">
-        <div className="stt-title">Como liberar o acesso</div>
+      <SettingsCard title="Como liberar o acesso">
         <p className="muted">
           A senha é a mesma da voz: fale os {MIN_PIN} a {MAX_PIN} dígitos no lugar do “Jarvis”, por exemplo na primeira vez do dia.
         </p>
@@ -259,14 +258,13 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
           </button>
         </div>
         {notes}
-      </div>
+      </SettingsCard>
     );
   }
 
   if (mode === 'recover') {
     return (
-      <div className="stt-settings">
-        <div className="stt-title">Esqueci a senha</div>
+      <SettingsCard title="Esqueci a senha">
         <p className="muted">Pela sua voz: grave a frase abaixo e defina a senha nova.</p>
         <Recorder phrase={PHRASES[0]} audio={audio[0]} onAudio={setPhrase(0)} onError={fail} disabled={busy} />
         {profile.emailRecovery && (
@@ -320,13 +318,12 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
           </button>
         </div>
         {notes}
-      </div>
+      </SettingsCard>
     );
   }
 
   return (
-    <div className="stt-settings">
-      <div className="stt-title">Sua voz</div>
+    <SettingsCard title="Sua voz">
       <p className={profile.enrolled ? 'voice-enrolled' : 'muted'}>
         {profile.enrolled
           ? `✓ Voz cadastrada${profile.enrolledAt ? ` em ${date(profile.enrolledAt)}` : ''}. Acesso: ${legacy ? 'só a voz' : accessLabel(profile.access).toLowerCase()}.`
@@ -351,6 +348,6 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
         )}
       </div>
       {notes}
-    </div>
+    </SettingsCard>
   );
 }

@@ -1075,3 +1075,159 @@ test('acordado, falar numeros e um pedido normal (nao confere senha)', async () 
   await waitFor(() => s.brain.calls.length === 1);
   assert.deepEqual(s.pins, []);
 });
+
+// --- Atalho de falar (segurar a tecla) ---
+
+async function holdSession(script: Step[] = [], extra: { conversation?: { start(): void; request(text: string): void; end(): void } } = {}) {
+  const worker = new FakeWorker();
+  const brain = new FakeBrain(script);
+  const sent: VoiceServerMessage[] = [];
+  const session = new VoiceSession(worker, brain, (m) => sent.push(m), () => 0, () => {}, extra);
+  session.client({ type: 'start', hold: true });
+  await waitFor(() => session.state === 'sleeping');
+  const speak = async (text: string) => {
+    session.client({ type: 'hold-start' });
+    session.audio(Buffer.alloc(2560));
+    session.client({ type: 'hold-end' });
+    worker.fire({ event: 'transcript', id: 1, text });
+  };
+  return { worker, brain, sent, session, speak };
+}
+
+const finishSpeech = (s: Awaited<ReturnType<typeof holdSession>>) => {
+  for (const { id } of s.worker.speaks()) {
+    s.worker.fire({ event: 'audio', id, data: 'AA==', last: true });
+    s.session.client({ type: 'played', id });
+  }
+};
+
+test('modo atalho: nada chega ao worker sem segurar a tecla, e nem o nome acorda', async () => {
+  const s = await holdSession();
+  s.session.audio(Buffer.alloc(2560));
+  assert.equal(s.worker.audioBytes, 0);
+  s.worker.fire({ event: 'wake', score: 0.9 });
+  s.worker.fire({ event: 'heard', text: 'Jarvis, abre o meu-app' });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(s.session.state, 'sleeping');
+  assert.deepEqual(s.brain.calls, []);
+});
+
+test('modo atalho: apertar ouve, soltar responde sem esperar silencio e volta a esperar', async () => {
+  const s = await holdSession([['Abrindo.']]);
+  s.session.client({ type: 'hold-start' });
+  assert.equal(s.session.state, 'listening');
+  assert.equal(s.worker.last(), 'hold');
+  s.session.audio(Buffer.alloc(2560));
+  assert.equal(s.worker.audioBytes, 2560);
+  s.session.client({ type: 'hold-end' });
+  assert.equal(s.worker.last(), 'release');
+  assert.equal(s.session.state, 'thinking');
+  s.session.audio(Buffer.alloc(2560));
+  assert.equal(s.worker.audioBytes, 2560, 'depois de soltar, o microfone nao passa');
+  s.worker.fire({ event: 'transcript', id: 1, text: 'abre o projeto e', ms: 5 });
+  assert.equal(s.session.state, 'thinking');
+  // Termina em "e", mas soltar a tecla ja encerrou a fala: responde sem esperar a continuacao.
+  await waitFor(() => s.brain.calls.length === 1 && s.worker.speaks().length === 1);
+  assert.equal(s.brain.calls[0], 'abre o projeto e');
+  assert.ok(!s.worker.commands.some((c) => c.cmd === 'listen'), 'o worker nunca volta a ouvir sozinho');
+  finishSpeech(s);
+  await waitFor(() => s.session.state === 'sleeping');
+  assert.equal(s.worker.last(), 'sleep');
+});
+
+test('modo atalho: aperto sem voz volta a esperar sem chamar o cerebro', async () => {
+  const s = await holdSession();
+  s.session.client({ type: 'hold-start' });
+  s.session.client({ type: 'hold-end' });
+  s.worker.fire({ event: 'speech-drop' });
+  assert.equal(s.session.state, 'sleeping');
+  assert.deepEqual(s.brain.calls, []);
+});
+
+test('modo atalho: apertar enquanto ele fala cala na hora', async () => {
+  const s = await holdSession([['Uma resposta longa.'], ['Certo.']]);
+  await s.speak('conta uma coisa');
+  await waitFor(() => s.worker.speaks().length === 1);
+  await waitFor(() => s.session.state === 'speaking');
+  s.sent.length = 0;
+  s.session.client({ type: 'hold-start' });
+  assert.equal(s.session.state, 'listening');
+  assert.ok(s.sent.some((m) => m.type === 'stop-audio'));
+  assert.equal(s.worker.last(), 'hold');
+  s.session.client({ type: 'hold-end' });
+  s.worker.fire({ event: 'transcript', id: 2, text: 'muda de assunto' });
+  await waitFor(() => s.brain.calls.length === 2);
+  assert.equal(s.brain.calls[1], 'muda de assunto');
+});
+
+test('modo atalho: apertar de novo antes da resposta junta as duas falas', async () => {
+  const s = await holdSession([['Ok.']]);
+  s.session.client({ type: 'hold-start' });
+  s.session.client({ type: 'hold-end' });
+  s.session.client({ type: 'hold-start' });
+  s.worker.fire({ event: 'transcript', id: 1, text: 'abre o meu-app' });
+  assert.equal(s.session.state, 'listening', 'segurando de novo: continua ouvindo');
+  s.session.client({ type: 'hold-end' });
+  s.worker.fire({ event: 'transcript', id: 2, text: 'e roda os testes' });
+  await waitFor(() => s.brain.calls.length === 1);
+  assert.equal(s.brain.calls[0], 'abre o meu-app e roda os testes');
+});
+
+test('modo atalho: Esc cala e volta a esperar, sem ouvir', async () => {
+  const s = await holdSession([['Uma resposta longa.']]);
+  await s.speak('conta uma coisa');
+  await waitFor(() => s.session.state === 'speaking');
+  s.session.client({ type: 'interrupt' });
+  assert.equal(s.session.state, 'sleeping');
+  assert.equal(s.worker.last(), 'sleep');
+});
+
+test('modo atalho: o ditado da conversa direta volta a esperar depois de cada fala', async () => {
+  const typed: string[] = [];
+  const worker = new FakeWorker();
+  const session = new VoiceSession(worker, new FakeBrain([]), () => {}, () => 0, () => {}, {
+    relay: { type: (_id, t) => (typed.push(t), true), submit: () => true, erase: () => true },
+  });
+  session.client({ type: 'start', hold: true });
+  await waitFor(() => session.state === 'sleeping');
+  session.setRelay({ id: 's1', label: 'Claude' });
+  session.client({ type: 'hold-start' });
+  session.client({ type: 'hold-end' });
+  worker.fire({ event: 'transcript', id: 1, text: 'roda os testes' });
+  assert.deepEqual(typed, ['roda os testes']);
+  assert.equal(session.state, 'sleeping');
+});
+
+test('modo atalho: a conversa fica em aberto entre as falas e so termina ao desligar', async () => {
+  const log: string[] = [];
+  const s = await holdSession([['Um.'], ['Dois.']], {
+    conversation: { start: () => log.push('start'), request: (t) => log.push(t), end: () => log.push('end') },
+  });
+  await s.speak('primeira');
+  await waitFor(() => s.worker.speaks().length === 1);
+  finishSpeech(s);
+  await waitFor(() => s.session.state === 'sleeping');
+  await s.speak('segunda');
+  await waitFor(() => s.brain.calls.length === 2);
+  assert.deepEqual(log, ['primeira', 'segunda']);
+  s.session.stop();
+  assert.deepEqual(log, ['primeira', 'segunda', 'end']);
+});
+
+test('modo atalho: soltar depois de parar ou com o worker reiniciado nao fica preso', async () => {
+  const s = await holdSession();
+  s.session.client({ type: 'hold-start' });
+  s.worker.fire({ event: 'exit', code: 1 });
+  await waitFor(() => s.session.state === 'sleeping');
+  s.session.client({ type: 'hold-end' });
+  assert.equal(s.session.state, 'sleeping');
+  assert.ok(!s.worker.commands.some((c) => c.cmd === 'release'));
+});
+
+test('fora do modo atalho, apertar nao faz nada', async () => {
+  const s = await started();
+  s.session.client({ type: 'hold-start' });
+  s.session.client({ type: 'hold-end' });
+  assert.equal(s.session.state, 'sleeping');
+  assert.ok(!s.worker.commands.some((c) => c.cmd === 'hold' || c.cmd === 'release'));
+});

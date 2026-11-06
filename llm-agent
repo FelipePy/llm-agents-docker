@@ -209,19 +209,35 @@ if [ -n "$optional_volumes$optional_env" ]; then
   override_args=(-f "$override")
 fi
 
+# Reserva um nome para esta sessao: so uma sessao por vez segura o lock de cada
+# nome, entao aberturas simultaneas nao escolhem o mesmo. O lock fica no fd 9
+# ate o processo terminar, e o kernel o solta mesmo se ele for morto. Os arquivos
+# nao sao apagados: apagar um lock em uso permitiria dois donos para o mesmo nome.
+# Falha so se o nome estiver ocupado; sem lock disponivel, segue sem reserva.
+reserve_name() { # nome
+  local dir="${XDG_CONFIG_HOME:-$HOME/.config}/llm-agent/locks"
+  command -v flock >/dev/null || return 0
+  mkdir -p "$dir" 2>/dev/null || return 0
+  # Abrir de novo no fd 9 solta o lock do nome anterior.
+  { exec 9>"$dir/$1.lock"; } 2>/dev/null || return 0
+  # Codigo 1 e nome ocupado; outro codigo e erro do proprio flock.
+  flock -n 9 2>/dev/null || [ $? -ne 1 ]
+}
+
 # Nome do container: llm-agent-<comando>-<pasta do projeto>. O Docker so
 # aceita [a-zA-Z0-9_.-] em nomes; o resto vira "-". Se o nome ja estiver em
 # uso (outra sessao no mesmo projeto), acrescenta -2, -3, ...
+# Grava em $name, e nao na saida: numa subshell ($(...)) o lock se perderia.
 container_name() {
-  local base name n=1
+  local base n=1
   base="llm-agent-$(basename "${1:-agent}")-$(basename "$AGENT_WORKDIR")"
   base="$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_.-' '-')"
   name="$base"
-  while "${docker_cmd[@]}" container inspect "$name" >/dev/null 2>&1; do
+  while ! reserve_name "$name" \
+    || "${docker_cmd[@]}" container inspect "$name" >/dev/null 2>&1; do
     n=$((n + 1))
     name="$base-$n"
   done
-  echo "$name"
 }
 
 # Verdadeiro se o usuario ja passou --remote-control (com ou sem nome).
@@ -239,7 +255,7 @@ if [ "${1:-}" = "--build" ]; then
   shift
   build_image "$@"
 else
-  name="$(container_name "${1:-}")"
+  container_name "${1:-}"
   # O Claude Code abre com Remote Control (app Claude no celular e
   # claude.ai/code), nomeado como o container: claude-<pasta>[-N]. Sem nome,
   # ele usaria o hostname, que no container e um ID aleatorio.

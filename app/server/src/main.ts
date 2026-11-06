@@ -12,6 +12,7 @@ import { WorkerProcess } from './voice/worker.ts';
 import { VoiceSettingsStore, pauseConfig, sttConfig } from './voice/settings.ts';
 import { JarvisMemory } from './voice/memory.ts';
 import { NewsHistory } from './voice/news-history.ts';
+import { AutoNewsSetting } from './voice/news-auto.ts';
 import { parseSmtpUrl, sendMail } from './mail.ts';
 import { DEFAULT_THRESHOLD, type Mailer } from './voice/speaker.ts';
 
@@ -162,9 +163,11 @@ const app = createApp({
     restart: restartVerified,
     voicePython: join(repo, 'app', 'voice', '.venv', 'bin', 'python'),
   },
+  issues: { repoDir: repo },
   selfCheck: { brain: brainCheck },
   memory,
   newsHistory,
+  autoNews: new AutoNewsSetting(join(stateDir, 'jarvis-news-auto.json')),
 });
 
 const port = await app.listen();

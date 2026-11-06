@@ -59,6 +59,8 @@ export interface AnnouncerOptions {
   tickMs?: number;
   /** Manchetes ja apresentadas (o mesmo historico da ferramenta de noticias). */
   history?: NewsHistory;
+  /** Rodadas de noticias ligadas? Consultado a cada verificacao (o usuario muda pela tela). */
+  newsEnabled?: () => boolean;
 }
 
 export class Announcer {
@@ -76,6 +78,7 @@ export class Announcer {
       newsHours: [8, 22],
       random: Math.random,
       tickMs: 60e3,
+      newsEnabled: () => true,
       ...opts,
     };
     this.history = opts.history ?? new NewsHistory(undefined, this.opts.now);
@@ -105,6 +108,7 @@ export class Announcer {
     }
     if (this.pendingPeriod && this.opts.say(this.pendingPeriod)) this.pendingPeriod = undefined;
 
+    if (!this.opts.newsEnabled()) return;
     const [from, to] = this.opts.newsHours;
     const h = d.getHours();
     if (h < from || h >= to || this.opts.now() - this.lastNews < this.opts.newsEveryMs) return;

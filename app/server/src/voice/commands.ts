@@ -39,6 +39,7 @@ export const COMMANDS: VoiceCommand[] = [
   { name: 'status_evolucao', title: 'Acompanhar a funcionalidade nova', examples: ['como está a funcionalidade nova?'] },
   { name: 'aplicar_evolucao', title: 'Aplicar a funcionalidade nova', examples: ['pode aplicar'] },
   { name: 'descartar_evolucao', title: 'Descartar a funcionalidade nova', examples: ['descarta a funcionalidade nova'] },
+  { name: 'criar_issue', title: 'Criar uma issue do app', examples: ['cria uma issue para ter mais cores no globo', 'abre uma issue: o painel do dia não atualiza'] },
   { name: 'data_e_hora', title: 'Data e hora', examples: ['que horas são?', 'que dia é hoje?'] },
   { name: 'manual_do_app', title: 'Tirar dúvidas sobre o app', examples: ['como eu crio um projeto novo?', 'para que serve a gaveta de terminais?'] },
   { name: 'comandos', title: 'Ver os comandos de voz', examples: ['o que você sabe fazer?'] },

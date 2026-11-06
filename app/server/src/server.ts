@@ -18,14 +18,16 @@ import { COMMANDS } from './voice/commands.ts';
 import { EvolutionManager, markUpdateAnnounced, readUpdate, updateNotice, updateOutcome, type EvolutionDeps, type SelfCheck } from './evolution.ts';
 import { writeFile } from 'node:fs/promises';
 import { Announcer } from './voice/announcer.ts';
-import { SessionWatcher, type WatchSummarizer } from './voice/session-watch.ts';
+import { DecisionWatcher, SessionWatcher, countWorking, type WatchSummarizer } from './voice/session-watch.ts';
 import { shortTitle } from './conversations.ts';
 import { gitLines } from './catalog.ts';
 import { VoiceSession, type VoiceWorker, type WorkerEvent } from './voice/session.ts';
 import { pauseConfig, type VoiceSettingsStore } from './voice/settings.ts';
 import { SpeakerProfileStore, type Mailer } from './voice/speaker.ts';
+import { IssueLog, type IssueDeps } from './voice/issues.ts';
 import { JarvisMemory } from './voice/memory.ts';
 import { NewsHistory } from './voice/news-history.ts';
+import { AutoNewsSetting } from './voice/news-auto.ts';
 import type { SessionInfo, VoiceClientMessage, VoiceServerMessage } from './types.ts';
 
 export interface AppOptions {
@@ -75,12 +77,16 @@ export interface AppOptions {
    * do /api/self-check que o app/restart.sh chama depois de reiniciar.
    */
   evolution?: Omit<EvolutionDeps, 'openSession' | 'sessions' | 'sessionOutput' | 'closeSession'>;
+  /** Issues pedidas por voz: repositorio onde fica o ISSUES.md. */
+  issues?: IssueDeps;
   /** Verificacoes extras do /api/self-check (o cerebro responde?). */
   selfCheck?: { brain?: () => Promise<void> };
   /** Memoria do Jarvis entre sessoes (sem ela, um arquivo na pasta de trabalho). */
   memory?: JarvisMemory;
   /** Manchetes ja apresentadas por voz (sem ele, um arquivo na pasta de trabalho). */
   newsHistory?: NewsHistory;
+  /** Escolha sobre as noticias automaticas (sem ela, um arquivo na pasta de trabalho). */
+  autoNews?: AutoNewsSetting;
   /** Manual do app consultado pelo Jarvis (o README do projeto). */
   manualPath?: string;
 }
@@ -150,6 +156,13 @@ export function createApp(opts: AppOptions): App {
   const clients = new Set<WebSocket>();
   const memory = opts.memory ?? new JarvisMemory(join(workspace, '.jarvis-memory.json'));
   const newsHistory = opts.newsHistory ?? new NewsHistory(join(workspace, '.jarvis-news.json'));
+  const autoNews = opts.autoNews ?? new AutoNewsSetting(join(workspace, '.jarvis-news-auto.json'));
+  // Sessoes de agente paradas pedindo uma resposta do usuario (aviso por voz, sem ele perguntar).
+  const decisionWatcher = new DecisionWatcher({
+    sessions: () => terminals.list(),
+    output: (id) => terminals.screen(id),
+    log: (line) => console.error(`[voz] ${line}`),
+  });
   // Sessoes que o usuario pediu para acompanhar (aviso por voz ao terminar ou dar erro).
   const watcher = new SessionWatcher({
     sessions: () => terminals.list(),
@@ -157,6 +170,7 @@ export function createApp(opts: AppOptions): App {
     output: (id) => terminals.screen(id),
     summarize: opts.voice?.watchSummary,
     quietMs: opts.voice?.watchQuietMs,
+    log: (line) => console.error(`[voz] ${line}`),
   });
 
   const broadcast = (msg: ServerMessage): void => {
@@ -166,6 +180,17 @@ export function createApp(opts: AppOptions): App {
   terminals.on('output', (id: string, data: string) => broadcast({ type: 'output', id, data }));
   terminals.on('exit', (id: string, code: number) => broadcast({ type: 'exit', id, code }));
   terminals.on('sessions', () => broadcast({ type: 'sessions', sessions: terminals.list() }));
+
+  // Tarefas em background: a tela so diz quem esta trabalhando quando olhada, entao a contagem e periodica.
+  let backgroundCount = 0;
+  const syncBackground = (): void => {
+    const count = countWorking(terminals.list(), (id) => terminals.screen(id));
+    if (count === backgroundCount) return;
+    backgroundCount = count;
+    broadcast({ type: 'background', count });
+  };
+  terminals.on('sessions', syncBackground);
+  const backgroundTimer = setInterval(syncBackground, 2_000);
 
   // Voz do usuario: o worker calcula os vetores (cadastro, recuperacao e ativacao).
   let embedSeq = 0;
@@ -250,6 +275,19 @@ export function createApp(opts: AppOptions): App {
       const result = await store.update(input);
       return 'error' in result ? send(res, 400, result) : send(res, 200, result.view);
     }
+    if (url.pathname === '/api/news/auto') {
+      if (req.method === 'GET') return send(res, 200, { enabled: autoNews.enabled() });
+      if (req.method !== 'PUT') return send(res, 405, { error: 'use GET ou PUT' });
+      let input: { enabled?: unknown } | null;
+      try {
+        input = (await readJson(req)) as { enabled?: unknown } | null;
+      } catch {
+        return send(res, 400, { error: 'JSON inválido' });
+      }
+      if (typeof input?.enabled !== 'boolean') return send(res, 400, { error: 'enabled deve ser verdadeiro ou falso' });
+      autoNews.set(input.enabled);
+      return send(res, 200, { enabled: autoNews.enabled() });
+    }
     if (url.pathname === '/api/self-check' && req.method === 'GET') {
       return send(res, 200, await selfCheck(url.searchParams.get('record') === '1', url.searchParams.get('voice') !== '0'));
     }
@@ -269,7 +307,7 @@ export function createApp(opts: AppOptions): App {
     }
     const m = /^\/api\/projects\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
     if (m) {
-      const detail = await projectDetail(opts.home, projectPathFromId(m[1]), await scanConversations(opts.home), hidden);
+      const detail = await projectDetail(opts.home, projectPathFromId(m[1]), await scanConversations(opts.home), hidden, opts.projectsDir);
       return detail ? send(res, 200, detail) : send(res, 404, { error: 'projeto não encontrado' });
     }
     send(res, 404, { error: 'rota desconhecida' });
@@ -315,7 +353,7 @@ export function createApp(opts: AppOptions): App {
     if (typeof name !== 'string' || !PROJECT_NAME.test(name)) {
       throw new Error('nome de projeto inválido: use letras, números, ".", "_" ou "-"');
     }
-    const projects = await listProjects(opts.home, await scanConversations(opts.home), hidden);
+    const projects = await listProjects(opts.home, await scanConversations(opts.home), hidden, opts.projectsDir);
     const path = join(projectsBase(opts.home, projects, opts.projectsDir), name);
     if (await exists(path)) throw new Error(`já existe uma pasta em ${path}`);
     await mkdir(path, { recursive: true });
@@ -325,8 +363,8 @@ export function createApp(opts: AppOptions): App {
   // Ferramentas do Jarvis (etapa 3b): as mesmas acoes da interface, sem shell livre.
   let voiceUi: ((m: VoiceServerMessage) => void) | undefined;
   const jarvis: JarvisContext = {
-    projects: async () => listProjects(opts.home, await scanConversations(opts.home), hidden),
-    projectDetail: async (path) => projectDetail(opts.home, path, await scanConversations(opts.home), hidden),
+    projects: async () => listProjects(opts.home, await scanConversations(opts.home), hidden, opts.projectsDir),
+    projectDetail: async (path) => projectDetail(opts.home, path, await scanConversations(opts.home), hidden, opts.projectsDir),
     gitLog: (path) => gitLines(path, ['log', '-5', '--format=%h %ar %s']),
     gitChanges: (path) => gitLines(path, ['status', '--porcelain']),
     sessions: () => terminals.list(),
@@ -363,6 +401,11 @@ export function createApp(opts: AppOptions): App {
     watcher,
   };
 
+  if (opts.issues) {
+    const issues = new IssueLog(opts.issues);
+    jarvis.createIssue = (title, description) => issues.create(title, description);
+  }
+
   // Funcionalidades novas para o proprio Jarvis (definidas e aprovadas por voz).
   const evolution = opts.evolution
     ? new EvolutionManager({
@@ -385,16 +428,14 @@ export function createApp(opts: AppOptions): App {
       discard: () => evolution.discard(),
     };
   }
+  // Avisos pedidos (sessao acompanhada, evolucao): saem tambem no meio da conversa, num silencio.
+  const say = (text: string) => voiceSession?.announce(text, { whileListening: true }) ?? false;
   let delivering = false;
-  /** Fala o que estiver pendente: avisos, o resultado de uma atualizacao, "terminei". */
+  /** Fala o que estiver pendente: o resultado de uma atualizacao, "terminei". */
   async function deliverNotices(): Promise<void> {
     if (delivering) return;
     delivering = true;
     try {
-      // Avisos pedidos (sessao acompanhada, evolucao): saem tambem no meio da conversa, num silencio.
-      const say = (text: string) => voiceSession?.announce(text, { whileListening: true }) ?? false;
-      notices.push(...(await watcher.check()));
-      while (notices.length && say(notices[0])) notices.shift();
       const file = opts.evolution?.updateFile;
       const u = file ? readUpdate(file) : null;
       const outcome = updateOutcome(u);
@@ -411,6 +452,18 @@ export function createApp(opts: AppOptions): App {
     }
   }
   const noticeTimer = setInterval(() => void deliverNotices().catch(() => {}), 15_000);
+  // Ciclo rapido: uma decisao pendente, o fim de uma sessao acompanhada e os avisos na fila nao esperam os 15 s acima.
+  const deliverWatched = (): void => {
+    try {
+      decisionWatcher.deliver(say);
+      watcher.deliver(say);
+      while (notices.length && say(notices[0])) notices.shift();
+    } catch {
+      // o proximo ciclo tenta de novo
+    }
+  };
+  const watchTimer = setInterval(deliverWatched, 1_000);
+  terminals.on('exit', deliverWatched);
 
   /** O worker sobe e sintetiza uma fala curta. */
   async function voiceCheck(worker: VoiceWorker): Promise<void> {
@@ -487,7 +540,7 @@ export function createApp(opts: AppOptions): App {
       case 'open': {
         if (!AGENTS.includes(msg.agent)) return reply({ type: 'error', message: 'agente inválido' });
         const convs = await scanConversations(opts.home);
-        const projects = await listProjects(opts.home, convs, hidden);
+        const projects = await listProjects(opts.home, convs, hidden, opts.projectsDir);
         const isWorkspace = msg.projectPath === workspace && msg.resume === undefined;
         if (!isWorkspace && !projects.some((p) => p.path === msg.projectPath)) {
           return reply({ type: 'error', message: `projeto desconhecido: ${msg.projectPath}` });
@@ -570,6 +623,7 @@ export function createApp(opts: AppOptions): App {
             say: (text) => session.announce(text),
             newsEveryMs: voice.announce.newsEveryMin * 60e3,
             history: newsHistory,
+            newsEnabled: () => autoNews.enabled(),
           });
           void announcer.start();
         },
@@ -621,6 +675,7 @@ export function createApp(opts: AppOptions): App {
     wss.handleUpgrade(req, socket, head, (ws) => {
       clients.add(ws);
       ws.on('close', () => clients.delete(ws));
+      ws.send(JSON.stringify({ type: 'background', count: backgroundCount } satisfies ServerMessage));
       ws.send(JSON.stringify({ type: 'sessions', sessions: terminals.list() } satisfies ServerMessage));
       ws.on('message', (raw) => {
         let msg: ClientMessage;
@@ -645,6 +700,8 @@ export function createApp(opts: AppOptions): App {
       }),
     close: async () => {
       clearInterval(noticeTimer);
+      clearInterval(watchTimer);
+      clearInterval(backgroundTimer);
       terminals.closeAll();
       voiceSession?.stop();
       voiceSocket?.terminate();

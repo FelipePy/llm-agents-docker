@@ -116,6 +116,22 @@ export class Api {
     return body;
   }
 
+  /** As noticias automaticas estao ligadas? */
+  async autoNews(): Promise<boolean> {
+    return (await this.get<{ enabled: boolean }>('/api/news/auto')).enabled;
+  }
+
+  /** Liga ou desliga as noticias automaticas; devolve o que ficou salvo. */
+  async saveAutoNews(enabled: boolean): Promise<boolean> {
+    const res = await this.fetchImpl('/api/news/auto', {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ao salvar`);
+    return ((await res.json()) as { enabled: boolean }).enabled;
+  }
+
   voiceProfile(): Promise<VoiceProfile> {
     return this.get('/api/voice/profile');
   }
