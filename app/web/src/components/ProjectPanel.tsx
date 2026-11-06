@@ -3,6 +3,7 @@ import type { Api } from '../api.ts';
 import type { ProjectDetail, SessionAgent } from '../types.ts';
 import { LABEL, formatDate } from '../format.ts';
 import { FileCard } from './FileCard.tsx';
+import { CopySection } from './CopySection.tsx';
 
 interface Props {
   api: Api;
@@ -28,7 +29,7 @@ export function ProjectPanel({ api, id, revision, onOpen }: Props) {
   if (error) return <p className="error">{error}</p>;
   if (!detail || detail.id !== id) return <p className="muted">Carregando…</p>;
   return (
-    <section className="panel">
+    <CopySection>
       <h1>{detail.name}</h1>
       <p className="muted">
         <code>{detail.path}</code>
@@ -73,6 +74,6 @@ export function ProjectPanel({ api, id, revision, onOpen }: Props) {
           {detail.memory.map((f) => <FileCard key={f.path} file={f} />)}
         </>
       )}
-    </section>
+    </CopySection>
   );
 }

@@ -121,3 +121,10 @@ code { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size: 12p
 .search li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
 .search li.active { background: #141c33; }
 .fatal { padding: 48px; }
+/* Copiar o trecho selecionado de uma secao: botao discreto, sem borda, no canto superior direito. */
+.copy-section { position: relative; }
+.copy-selection { position: absolute; top: 0; right: 0; z-index: 2; display: flex; align-items: center; gap: 6px; padding: 4px; border: none; background: transparent; color: var(--muted); font-size: 12px; line-height: 1; cursor: pointer; }
+.copy-selection:hover { color: var(--sys-soft); background: transparent; }
+.copy-selection.copied { color: var(--sys-soft); }
+.copy-selection.failed { color: var(--warn); }
+.panel-overlay .copy-selection { right: 28px; }

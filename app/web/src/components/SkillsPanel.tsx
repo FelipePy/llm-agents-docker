@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Skill } from '../types.ts';
+import { CopySection } from './CopySection.tsx';
 
 export function SkillsPanel({ skills, focus }: { skills: Skill[]; focus?: string }) {
   const [query, setQuery] = useState('');
@@ -15,7 +16,7 @@ export function SkillsPanel({ skills, focus }: { skills: Skill[]; focus?: string
       (s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)),
   );
   return (
-    <section className="panel">
+    <CopySection>
       <h1>Skills</h1>
       <div className="toolbar">
         <input placeholder="Buscar skill" value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -42,6 +43,6 @@ export function SkillsPanel({ skills, focus }: { skills: Skill[]; focus?: string
           </li>
         ))}
       </ul>
-    </section>
+    </CopySection>
   );
 }

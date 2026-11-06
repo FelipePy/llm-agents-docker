@@ -33,6 +33,7 @@ import { useHoldKeys } from './voice/useHoldKeys.ts';
 import { waveLabel, wavePlace } from './voice/hold.ts';
 import { DEFAULT_GLOBE_HOTKEY, MIDDLE_BUTTON, matchesHotkey, sameHotkey } from './voice/hotkey.ts';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
+import { CopySection } from './components/CopySection.tsx';
 import { setAutostart, useDesktop } from './desktop.ts';
 
 // A cena 3D (three.js) so e baixada quando o modo 3D esta ligado.
@@ -488,12 +489,12 @@ function Connected({ token }: { token: string }) {
     ) : panel?.kind === 'new-project' ? (
       <NewProjectPanel base={overview?.projectsDir ?? ''} onCreate={createProject} />
     ) : panel?.kind === 'files' ? (
-      <section className="panel">
+      <CopySection>
         <h1>{panel.title}</h1>
         {panel.files.map((f, i) => (
           <FileCard key={f.path} file={f} open={i === 0} />
         ))}
-      </section>
+      </CopySection>
     ) : null;
 
   return (

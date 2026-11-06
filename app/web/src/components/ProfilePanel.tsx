@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Api, JarvisMemoryView } from '../api.ts';
 import type { Profile } from '../types.ts';
 import { FileCard } from './FileCard.tsx';
+import { CopySection } from './CopySection.tsx';
 
 export function ProfilePanel({ profile, api }: { profile?: Profile; api: Api }) {
   if (!profile) return <p className="muted">Carregando…</p>;
   return (
-    <section className="panel">
+    <CopySection>
       <h1>Você</h1>
       <p className="muted">O que os agentes e o Jarvis sabem sobre você.</p>
       <h2>Instruções globais</h2>
@@ -22,7 +23,7 @@ export function ProfilePanel({ profile, api }: { profile?: Profile; api: Api }) 
         <p className="muted">Nenhuma memória sobre você ainda.</p>
       )}
       <JarvisMemorySection api={api} />
-    </section>
+    </CopySection>
   );
 }
 
