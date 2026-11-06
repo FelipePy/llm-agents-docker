@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { copyText, selectionIn } from '../src/clipboard.ts';
+import { copyText, handleCopyKey, isCopyShortcut, selectionIn } from '../src/clipboard.ts';
 import { CopyButton, CopySection } from '../src/components/CopySection.tsx';
 
 /** Documento falso so com o que a copia antiga usa. */
@@ -73,5 +73,50 @@ describe('CopySection', () => {
     expect(render(null)).toContain('aria-label="Copiar seleção"');
     expect(render('copied')).toContain('Copiado');
     expect(render('failed')).toContain('Não consegui copiar');
+  });
+});
+
+/** Tecla falsa no formato que o xterm entrega ao attachCustomKeyEventHandler. */
+function key(over: Partial<{ type: string; key: string; code: string; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean }>) {
+  return { type: 'keydown', key: 'C', code: 'KeyC', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false, preventDefault: vi.fn(), ...over };
+}
+
+describe('atalho de copiar no terminal', () => {
+  it('Ctrl+Shift+C copia a selecao e o xterm nao recebe a tecla', () => {
+    const copy = vi.fn();
+    const e = key({});
+    expect(handleCopyKey(e, 'trecho', copy)).toBe(true);
+    expect(copy).toHaveBeenCalledWith('trecho');
+    expect(e.preventDefault).toHaveBeenCalled();
+  });
+  it('Ctrl+C sem Shift continua sendo o ^C do programa, mesmo com selecao', () => {
+    const copy = vi.fn();
+    const e = key({ key: 'c', shiftKey: false });
+    expect(handleCopyKey(e, 'trecho', copy)).toBe(false);
+    expect(copy).not.toHaveBeenCalled();
+    expect(e.preventDefault).not.toHaveBeenCalled();
+  });
+  it('Ctrl+Shift+C sem selecao nao copia, mas segura a tecla (nao abre o inspetor)', () => {
+    const copy = vi.fn();
+    const e = key({});
+    expect(handleCopyKey(e, '', copy)).toBe(true);
+    expect(copy).not.toHaveBeenCalled();
+    expect(e.preventDefault).toHaveBeenCalled();
+  });
+  it('copia uma vez so: keyup e keypress da mesma tecla sao engolidos sem copiar de novo', () => {
+    const copy = vi.fn();
+    expect(handleCopyKey(key({ type: 'keyup' }), 'trecho', copy)).toBe(true);
+    expect(handleCopyKey(key({ type: 'keypress' }), 'trecho', copy)).toBe(true);
+    expect(copy).not.toHaveBeenCalled();
+  });
+  it('vale em outro layout de teclado (pelo codigo da tecla) e nao com Alt ou Meta', () => {
+    expect(isCopyShortcut(key({ key: 'С' }))).toBe(true);
+    expect(isCopyShortcut(key({ altKey: true }))).toBe(false);
+    expect(isCopyShortcut(key({ metaKey: true }))).toBe(false);
+    expect(isCopyShortcut(key({ key: 'v', code: 'KeyV' }))).toBe(false);
+  });
+  it('o botao do terminal mostra o atalho no titulo', () => {
+    const html = renderToStaticMarkup(createElement(CopyButton, { feedback: null, onCopy: () => {}, hint: 'Ctrl+Shift+C' }));
+    expect(html).toContain('Copiar seleção (Ctrl+Shift+C)');
   });
 });
