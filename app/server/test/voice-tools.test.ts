@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findProject, jarvisHandlers, stripAnsi, type JarvisContext } from '../src/voice/tools.ts';
+import { findProject, jarvisHandlers, resolveConfigOption, spokenToggle, stripAnsi, type JarvisContext } from '../src/voice/tools.ts';
+import type { BrainChoice, BrainChoiceApi, BrainModel, BrainProvider } from '../src/voice/brain-choice.ts';
 import { COMMANDS } from '../src/voice/commands.ts';
 import { JarvisMemory } from '../src/voice/memory.ts';
 import { NewsHistory } from '../src/voice/news-history.ts';
@@ -446,4 +447,131 @@ test('enviar_para_sessao volta a acompanhar uma sessao ja acompanhada, mas nao o
   assert.match(await h.parar_de_acompanhar({ projeto: 'meu-app' }), /Parei de acompanhar/);
   assert.doesNotMatch(await h.enviar_para_sessao({ projeto: 'meu-app', mensagem: 'mais uma' }), /acompanhando/);
   assert.deepEqual(c.watcher.list(), []);
+});
+
+// Configuracoes por voz (mudar_configuracao).
+const MODELS: Record<BrainProvider, BrainModel[]> = {
+  claude: [{ id: 'opus', label: 'Opus 5.5' }, { id: 'sonnet', label: 'Sonnet 5.5' }, { id: 'haiku', label: 'Haiku 5.5' }, { id: 'claude-fable-5-1[1m]', label: 'Fable 5.1' }],
+  codex: [{ id: 'gpt-6-sol', label: 'GPT-6-Sol' }, { id: 'gpt-6-luna', label: 'GPT-6-Luna' }],
+};
+function configCtx() {
+  let choice: BrainChoice = { provider: 'claude', model: 'haiku' };
+  let stt: 'local' | 'groq' = 'local';
+  let groqModel = 'whisper-large-v3-turbo';
+  let news = true;
+  const updates: unknown[] = [];
+  const brainChoice: BrainChoiceApi = {
+    get: () => ({ ...choice }),
+    models: async (p) => MODELS[p],
+    view: async () => ({ ...choice, models: MODELS, errors: {} }),
+    set: async (i) => {
+      const provider = (i.provider ?? choice.provider) as BrainProvider;
+      choice = { provider, model: (i.model as string | undefined) ?? (provider === 'claude' ? 'haiku' : MODELS[provider][0].id) };
+      return { choice };
+    },
+  };
+  const voiceSettings = {
+    view: () => ({ stt, groqModel, groqKeyHint: null, pauses: {}, pauseDefaults: {} }) as never,
+    update: async (i: { stt?: unknown; groqModel?: unknown }) => {
+      updates.push(i);
+      if (i.stt === 'groq') return { error: 'Cole a chave de API do Groq para usar a transcrição na nuvem.' };
+      if (i.stt) stt = i.stt as 'local';
+      if (i.groqModel) groqModel = i.groqModel as string;
+      return { view: voiceSettings.view() };
+    },
+  };
+  const autoNews = { enabled: () => news, set: (on: boolean) => void (news = on) };
+  const c = ctx({ brainChoice, voiceSettings, autoNews });
+  return { ...c, choice: () => choice, news: () => news, updates };
+}
+
+test('resolveConfigOption: acha a opcao pelo jeito de falar e avisa o que ficou ambiguo', () => {
+  assert.equal(resolveConfigOption('as legendas').pick?.key, 'legendas');
+  assert.equal(resolveConfigOption('legenda do jarvis').pick?.key, 'legendaJarvis');
+  assert.equal(resolveConfigOption('a minha legenda').pick?.key, 'legendaUsuario');
+  assert.equal(resolveConfigOption('o 3D').pick?.key, 'modo3d');
+  assert.equal(resolveConfigOption('o modelo').pick?.key, 'modeloVoz');
+  assert.equal(resolveConfigOption('modelo do groq').pick?.key, 'modeloTranscricao');
+  assert.equal(resolveConfigOption('sons de clique').pick?.key, 'sons');
+  assert.equal(resolveConfigOption('lengendas').pick?.key, 'legendas', 'tolera erro de transcricao');
+  assert.equal(resolveConfigOption('papel de parede').pick, undefined);
+  const voz = resolveConfigOption('voz');
+  assert.equal(voz.pick, undefined);
+  assert.ok(voz.candidates.length > 1, 'voz sozinha serve para varias opcoes');
+});
+
+test('spokenToggle: ligar, desligar e o que nao da para saber', () => {
+  assert.equal(spokenToggle('ativa'), true);
+  assert.equal(spokenToggle('ligar'), true);
+  assert.equal(spokenToggle('desativar'), false);
+  assert.equal(spokenToggle('não'), false);
+  assert.equal(spokenToggle('tanto faz'), null);
+});
+
+test('mudar_configuracao: opcao simples da interface muda direto e confirma curto', async () => {
+  const { h, ui } = configCtx();
+  assert.match(await h.mudar_configuracao({ opcao: 'as legendas', valor: 'ativa' }), /Feito: liguei as legendas/);
+  assert.match(await h.mudar_configuracao({ opcao: 'sons', valor: 'desliga' }), /desliguei os sons/);
+  assert.match(await h.mudar_configuracao({ opcao: 'cor do jarvis', valor: 'azul' }), /ciano/);
+  assert.deepEqual(ui, [
+    { kind: 'setting', key: 'legendas', value: true },
+    { kind: 'setting', key: 'sons', value: false },
+    { kind: 'setting', key: 'cor', value: 'ciano' },
+  ]);
+});
+
+test('mudar_configuracao: opcao inexistente ou ambigua pergunta e nao muda nada', async () => {
+  const { h, ui } = configCtx();
+  assert.match(await h.mudar_configuracao({ opcao: 'papel de parede', valor: 'liga' }), /Não há nas configurações.*Pergunte/);
+  assert.match(await h.mudar_configuracao({ opcao: 'voz', valor: 'liga' }), /ambíguo.* ou .*Pergunte/);
+  assert.match(await h.mudar_configuracao({ opcao: 'legendas', valor: 'talvez' }), /ligar ou desligar.*Pergunte/);
+  assert.match(await h.mudar_configuracao({ opcao: 'cor', valor: 'furta-cor' }), /escolhas são: dourado, ciano/);
+  assert.deepEqual(ui, []);
+});
+
+test('mudar_configuracao: agente e modelo da voz pedem confirmacao antes de mudar', async () => {
+  const t = configCtx();
+  assert.match(await t.h.mudar_configuracao({ opcao: 'agente', valor: 'Codex' }), /confirme com o usuário: trocar o agente que responde por voz para Codex\?.*recomeça do zero/);
+  assert.deepEqual(t.choice(), { provider: 'claude', model: 'haiku' }, 'sem confirmar, nada muda');
+  assert.match(await t.h.mudar_configuracao({ opcao: 'agente', valor: 'Codex', confirmado: true }), /quem responde é o Codex, com o modelo GPT-6-Sol/);
+  assert.deepEqual(t.choice(), { provider: 'codex', model: 'gpt-6-sol' });
+  // Modelo do outro provedor: troca os dois.
+  assert.match(await t.h.mudar_configuracao({ opcao: 'modelo', valor: 'sonnet' }), /confirme.*Sonnet 5\.5 \(Claude\)/);
+  assert.match(await t.h.mudar_configuracao({ opcao: 'modelo', valor: 'sonnet', confirmado: true }), /Claude, com o modelo Sonnet/);
+  assert.deepEqual(t.choice(), { provider: 'claude', model: 'sonnet' });
+  assert.match(await t.h.mudar_configuracao({ opcao: 'modelo', valor: 'fable', confirmado: true }), /Fable 5\.1/);
+  assert.equal(t.choice().model, 'claude-fable-5-1[1m]');
+  assert.match(await t.h.mudar_configuracao({ opcao: 'modelo', valor: 'fable' }), /Nada mudou: .*já está assim/);
+  assert.match(await t.h.mudar_configuracao({ opcao: 'modelo', valor: 'gpt-9000' }), /Não achei o modelo.*Claude: Opus 5\.5.*Codex: GPT-6-Sol/);
+  assert.match(await t.h.mudar_configuracao({ opcao: 'modelo' }), /modelos do plano são/);
+});
+
+test('mudar_configuracao: transcricao confirma, e o erro do servidor volta para o Jarvis explicar', async () => {
+  const t = configCtx();
+  assert.match(await t.h.mudar_configuracao({ opcao: 'transcrição', valor: 'nuvem' }), /confirme/);
+  assert.deepEqual(t.updates, []);
+  assert.match(await t.h.mudar_configuracao({ opcao: 'transcrição', valor: 'nuvem', confirmado: true }), /Não mudei .*chave de API do Groq/);
+  assert.match(await t.h.mudar_configuracao({ opcao: 'modelo do groq', valor: 'mais preciso', confirmado: true }), /large v3 .*vale quando a transcrição estiver no Groq/);
+  assert.match(await t.h.mudar_configuracao({ opcao: 'transcrição', valor: 'local' }), /já está assim/);
+});
+
+test('mudar_configuracao: noticias automaticas mudam direto no servidor', async () => {
+  const t = configCtx();
+  assert.match(await t.h.mudar_configuracao({ opcao: 'notícias automáticas', valor: 'desativa' }), /desliguei as notícias automáticas/);
+  assert.equal(t.news(), false);
+  assert.match(await t.h.mudar_configuracao({ opcao: 'notícias automáticas', valor: 'desliga' }), /já está assim/);
+});
+
+test('mudar_configuracao: escuta e atalho confirmam e so valem depois da resposta', async () => {
+  const { h, ui } = configCtx();
+  assert.match(await h.mudar_configuracao({ opcao: 'escuta ativa', valor: 'desliga' }), /confirme.*sem a escuta/);
+  assert.deepEqual(ui, []);
+  assert.match(await h.mudar_configuracao({ opcao: 'escuta ativa', valor: 'desliga', confirmado: true }), /assim que esta resposta terminar/);
+  assert.deepEqual(ui, [{ kind: 'setting', key: 'escuta', value: false }]);
+});
+
+test('mudar_configuracao: sem o servico no servidor, avisa que nao da', async () => {
+  const { h } = ctx();
+  assert.match(await h.mudar_configuracao({ opcao: 'notícias automáticas', valor: 'liga' }), /não pode ser mudado por voz/);
+  assert.match(await h.mudar_configuracao({ opcao: 'modelo', valor: 'sonnet' }), /não pode ser mudado por voz/);
 });
