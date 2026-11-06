@@ -64,3 +64,12 @@ export function handleCopyKey(e: Key & { preventDefault(): void }, selection: st
   if (e.type === 'keydown' && selection) copy(selection);
   return true;
 }
+
+/**
+ * Com o rastreio do mouse ligado (Claude Code), Shift+arrastar seleciona, mas o movimento depois de
+ * soltar o botao vai para o programa como entrada, e o xterm apaga a selecao a cada entrada. Enquanto
+ * houver selecao, o movimento sem botao fica retido; clicar ou rolar segue normal.
+ */
+export function holdsHover(e: { type: string; buttons: number }, hasSelection: boolean): boolean {
+  return hasSelection && e.type === 'mousemove' && e.buttons === 0;
+}

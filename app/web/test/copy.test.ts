@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { copyText, handleCopyKey, isCopyShortcut, selectionIn } from '../src/clipboard.ts';
+import { copyText, handleCopyKey, holdsHover, isCopyShortcut, selectionIn } from '../src/clipboard.ts';
 import { CopyButton, CopySection } from '../src/components/CopySection.tsx';
 
 /** Documento falso so com o que a copia antiga usa. */
@@ -118,5 +118,16 @@ describe('atalho de copiar no terminal', () => {
   it('o botao do terminal mostra o atalho no titulo', () => {
     const html = renderToStaticMarkup(createElement(CopyButton, { feedback: null, onCopy: () => {}, hint: 'Ctrl+Shift+C' }));
     expect(html).toContain('Copiar seleção (Ctrl+Shift+C)');
+  });
+});
+
+describe('selecao com Shift quando o programa usa o mouse', () => {
+  it('com selecao, o movimento sem botao fica retido (nao vira entrada que apaga a selecao)', () => {
+    expect(holdsHover({ type: 'mousemove', buttons: 0 }, true)).toBe(true);
+  });
+  it('sem selecao, ou arrastando, ou clicando, o mouse segue para o programa', () => {
+    expect(holdsHover({ type: 'mousemove', buttons: 0 }, false)).toBe(false);
+    expect(holdsHover({ type: 'mousemove', buttons: 1 }, true)).toBe(false);
+    expect(holdsHover({ type: 'mousedown', buttons: 1 }, true)).toBe(false);
   });
 });

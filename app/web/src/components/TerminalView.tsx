@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import type { LiveSocket } from '../api.ts';
 import { bus } from '../bus.ts';
 import { shortcut } from '../tabs.ts';
-import { handleCopyKey } from '../clipboard.ts';
+import { handleCopyKey, holdsHover } from '../clipboard.ts';
 import { CopyButton, useCopyFeedback } from './CopySection.tsx';
 
 /**
@@ -52,6 +52,11 @@ export function TerminalView({ id, active, focusKey, socket }: { id: string; act
       if (handleCopyKey(e, term.getSelection(), (text) => void copyRef.current(text))) return false;
       return shortcut(e) === null;
     });
+    // Na captura, antes do xterm: o movimento retido nao chega a virar entrada (ver holdsHover).
+    const hover = (e: MouseEvent) => {
+      if (holdsHover(e, term.hasSelection())) e.stopPropagation();
+    };
+    el.addEventListener('mousemove', hover, true);
     const selection = term.onSelectionChange(() => setSelected(term.hasSelection() ? term.getSelection() : ''));
     const input = term.onData((data) => socket.send({ type: 'input', id, data }));
     const resize = term.onResize(({ cols, rows }) => socket.send({ type: 'resize', id, cols, rows }));
@@ -66,6 +71,7 @@ export function TerminalView({ id, active, focusKey, socket }: { id: string; act
     fitRef.current = { term, fit };
     return () => {
       observer.disconnect();
+      el.removeEventListener('mousemove', hover, true);
       off();
       input.dispose();
       resize.dispose();
