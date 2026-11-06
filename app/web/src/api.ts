@@ -60,6 +60,15 @@ export type VoiceRecoverInput =
   | { method: 'email' }
   | { method: 'code'; code: string; password: string };
 
+/** Quem responde por voz: provedor, modelo e os modelos de cada um (consultados na hora). */
+export type BrainProvider = 'claude' | 'codex';
+export interface BrainModel { id: string; label: string }
+export interface BrainChoice { provider: BrainProvider; model: string }
+export interface BrainChoiceView extends BrainChoice {
+  models: Record<BrainProvider, BrainModel[]>;
+  errors: Partial<Record<BrainProvider, string>>;
+}
+
 export interface JarvisFact { id: string; about: string; project?: string; text: string; updated: string }
 export interface JarvisMemoryView { facts: JarvisFact[]; conversations: { at: string; text: string }[] }
 
@@ -112,6 +121,23 @@ export class Api {
       body: JSON.stringify(input),
     });
     const body = (await res.json().catch(() => ({}))) as VoiceSettings & { error?: string };
+    if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status} ao salvar`);
+    return body;
+  }
+
+  /** Provedor e modelo da voz, com a lista de modelos do plano (o servidor consulta a cada chamada). */
+  voiceBrain(): Promise<BrainChoiceView> {
+    return this.get('/api/voice/brain');
+  }
+
+  /** Salva a escolha; o erro do servidor (ex.: modelo fora do plano) vira a mensagem da excecao. */
+  async saveVoiceBrain(input: BrainChoice): Promise<BrainChoice> {
+    const res = await this.fetchImpl('/api/voice/brain', {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const body = (await res.json().catch(() => ({}))) as BrainChoice & { error?: string };
     if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status} ao salvar`);
     return body;
   }

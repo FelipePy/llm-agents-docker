@@ -4,6 +4,7 @@ import { GlobeHotkeyField, TalkHotkeyField } from './HotkeyField.tsx';
 import { PauseSettings } from './PauseSettings.tsx';
 import { SettingsCard } from './SettingsCard.tsx';
 import { SttSettings } from './SttSettings.tsx';
+import { BrainSettings } from './BrainSettings.tsx';
 import { VoiceProfileSettings } from './VoiceProfileSettings.tsx';
 import { GLOBE_COLORS, GLOBE_STYLES, isGlobeColor, isGlobeStyle } from '../scene/globe.ts';
 import type { SettingsState, SettingsToggles } from './Settings.tsx';
@@ -56,6 +57,7 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
             </label>
           </SettingsCard>
           <VoiceProfileSettings api={api} />
+          <BrainSettings api={api} />
           <SttSettings api={api} />
           <PauseSettings api={api} />
         </div>
