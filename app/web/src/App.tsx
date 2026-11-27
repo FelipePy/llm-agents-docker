@@ -25,6 +25,7 @@ import { HoldWave } from './components/HoldWave.tsx';
 import { SkillDetail } from './components/SkillDetail.tsx';
 import { SkillsPanel } from './components/SkillsPanel.tsx';
 import { TerminalDrawer } from './components/TerminalDrawer.tsx';
+import { TalkButton, touchOnly } from './components/TalkButton.tsx';
 import { TopActions, type TopModal } from './components/TopActions.tsx';
 import { backgroundLabel } from './format.ts';
 import { OFF_VIEW, VoiceClient, VoiceConnectionError, timingText, voiceStatus, type VoiceView } from './voice/client.ts';
@@ -90,6 +91,8 @@ function Connected({ token }: { token: string }) {
   // Ordens do Jarvis para a interface; atualizada a cada render (ver mais abaixo).
   const onUiRef = useRef<(command: UiCommand) => void>(() => {});
   const use3d = webgl && mode3d;
+  // Celular: o atalho de falar vira um botao de segurar.
+  const [touch] = useState(touchOnly);
   const settings = { webgl, mode3d, reduceMotion, voiceDemo, voice: voiceOn && !holdKey, holdKey, hotkey, globeColor, globeStyle, globeHotkey, sounds, captionUser, captionJarvis };
   const toggles = {
     on3d: () => setMode3d(!mode3d),
@@ -628,6 +631,13 @@ function Connected({ token }: { token: string }) {
           listPanel
         )}
       </main>
+      {holdKey && touch && (
+        <TalkButton
+          holding={!!voice.holding}
+          onPress={() => (voiceRef.current ? voiceRef.current.holdStart() : setVoiceEpoch((e) => e + 1))}
+          onRelease={() => voiceRef.current?.holdEnd()}
+        />
+      )}
       {waveText && <HoldWave level={holdLevel} reduced={reduceMotion} label={waveText} place={wavePlace(use3d, modal !== null, !!readingPanel)} />}
       {backgroundCount > 0 && (
         <div className="background-tasks" role="status">

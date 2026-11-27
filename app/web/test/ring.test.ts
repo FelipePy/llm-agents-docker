@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  arcPositions, crumbLabel, filterItems, itemsFor, memoryTitle, pageSizeFor, paginate, type RingData, type RingItem,
+  arcPositions, crumbLabel, filterItems, itemsFor, listPageSize, listPositions, memoryTitle, pageSizeFor, paginate, type RingData, type RingItem,
 } from '../src/ring.ts';
 import type { Overview, ProjectDetail, SessionInfo } from '../src/types.ts';
 
@@ -153,4 +153,12 @@ it('pageSizeFor cabe na altura do arco, entre 6 e 18', () => {
   expect(pageSizeFor(380)).toBe(18);
   expect(pageSizeFor(300)).toBe(15);
   expect(pageSizeFor(100)).toBe(6);
+});
+
+it('celular: lista abaixo do nucleo, cabendo na altura (no minimo 3)', () => {
+  expect(listPositions(3, 800, 40)).toEqual([{ x: 0, y: 112 }, { x: 0, y: 152 }, { x: 0, y: 192 }]);
+  expect(listPageSize(800, 40)).toBe(5);
+  expect(listPageSize(300, 40)).toBe(3);
+  const last = listPositions(listPageSize(800), 800).at(-1)!;
+  expect(last.y).toBeLessThanOrEqual(800 / 2 - 96);
 });

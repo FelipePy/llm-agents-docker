@@ -217,3 +217,20 @@ export function arcPositions(n: number, rx: number, ry: number, spacing = CARD_S
 export function pageSizeFor(ry: number, spacing = CARD_SPACING): number {
   return Math.max(6, Math.min(18, Math.floor((2 * ry * 0.94) / spacing) + 1));
 }
+
+/** Abaixo desta largura (celular), os cartoes viram uma lista centrada abaixo do nucleo. */
+export const NARROW_WIDTH = 640;
+/** Inicio da lista, abaixo do centro do nucleo (fracao da altura). */
+const LIST_START = 0.14;
+/** Espaco livre no rodape (legenda e paginacao), em px. */
+const LIST_FOOTER = 96;
+
+/** Celular: quantos cartoes cabem entre o inicio da lista e o rodape (no minimo 3). */
+export function listPageSize(h: number, spacing = CARD_SPACING): number {
+  return Math.max(3, Math.floor((h * (0.5 - LIST_START) - LIST_FOOTER) / spacing) + 1);
+}
+
+/** Celular: lista vertical abaixo do nucleo; y relativo ao centro da tela. */
+export function listPositions(n: number, h: number, spacing = CARD_SPACING): { x: number; y: number }[] {
+  return Array.from({ length: n }, (_, i) => ({ x: 0, y: Math.round(h * LIST_START) + i * spacing }));
+}
