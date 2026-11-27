@@ -4,6 +4,7 @@ import { execFile, spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { createApp } from './server.ts';
 import { loadOrCreateToken } from './auth.ts';
+import { TailscaleRemote } from './remote.ts';
 import { watchPaths } from './watch.ts';
 import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { ClaudeBrain, brainEnv, claudeJudge, claudeWatchSummary, claudeWebSearch } from './voice/brain.ts';
@@ -163,6 +164,19 @@ async function brainCheck(): Promise<void> {
   }
 }
 
+// Acesso pelo celular: tailscale serve (no WSL, o tailscale.exe do Windows); 127 se nao existe.
+const remote = new TailscaleRemote({
+  run: (cmd, args) =>
+    new Promise((ok) =>
+      execFile(cmd, args, { timeout: 20_000 }, (err, stdout, stderr) =>
+        ok({ code: err ? ((err as NodeJS.ErrnoException).code === 'ENOENT' ? 127 : typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0, out: `${stdout}${stderr}` }),
+      ),
+    ),
+  port: () => port,
+  token,
+  bins: process.env.LLM_AGENT_TAILSCALE ? [process.env.LLM_AGENT_TAILSCALE] : undefined,
+});
+
 const app = createApp({
   home,
   port: Number(process.env.LLM_AGENT_UI_PORT ?? 7777),
@@ -210,9 +224,13 @@ const app = createApp({
   memory,
   newsHistory,
   autoNews: new AutoNewsSetting(join(stateDir, 'jarvis-news-auto.json')),
+  remote,
 });
 
 port = await app.listen();
+// Aprende o nome do PC na tailnet: a pagina aberta pelo celular ja e aceita sem abrir as configuracoes.
+void remote.status().catch(() => {});
+setInterval(() => void remote.status().catch(() => {}), 5 * 60_000).unref();
 const serverJson = join(stateDir, 'server.json');
 writeFileSync(serverJson, JSON.stringify({ pid: process.pid, port }) + '\n', { mode: 0o600 });
 

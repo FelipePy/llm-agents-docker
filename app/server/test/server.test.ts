@@ -109,3 +109,50 @@ test('sem build da UI, responde 404 com instrucao', async () => {
     await app.close();
   }
 });
+
+test('/api/remote: estado, ligar/desligar e a origem do celular aceita', async () => {
+  const calls: boolean[] = [];
+  let host: string | null = null;
+  const remote = {
+    origins: () => (host ? [`https://${host}`] : []),
+    status: async () => {
+      host = 'pc.tail1.ts.net';
+      return { installed: true, running: true, host, https: true, serving: calls.at(-1) ?? false, link: null, problem: null };
+    },
+    set: async (on: boolean) => {
+      if (on && calls.includes(true)) throw new Error('já ligado');
+      calls.push(on);
+      return remote.status();
+    },
+  };
+  const { app, base } = await startApp(tempHome(), { remote });
+  try {
+    const phone = { ...auth, origin: 'https://pc.tail1.ts.net' };
+    assert.equal((await httpGet(`${base}/api/remote`, phone)).status, 403);
+    const got = await httpGet(`${base}/api/remote`, auth);
+    assert.equal(got.status, 200);
+    assert.equal(JSON.parse(got.body).host, 'pc.tail1.ts.net');
+    assert.equal((await httpGet(`${base}/api/remote`, phone)).status, 200);
+    const put = (body: unknown) =>
+      fetch(`${base}/api/remote`, { method: 'PUT', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    assert.equal((await put({ on: 'sim' })).status, 400);
+    const on = await put({ on: true });
+    assert.equal(on.status, 200);
+    assert.equal((await on.json()).serving, true);
+    const again = await put({ on: true });
+    assert.equal(again.status, 400);
+    assert.equal((await again.json()).error, 'já ligado');
+    assert.deepEqual(calls, [true]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('/api/remote: 404 sem o acesso pelo celular', async () => {
+  const { app, base } = await startApp(tempHome());
+  try {
+    assert.equal((await httpGet(`${base}/api/remote`, auth)).status, 404);
+  } finally {
+    await app.close();
+  }
+});
