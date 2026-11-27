@@ -1,0 +1,68 @@
+name: android
+
+# APK do Jarvis para Android (app/android), so quando pedido (aba Actions ou
+# "gh workflow run android --ref <branch>"). Sai como artefato da execucao e,
+# com "publicar" marcado, tambem num release android-vX.Y.Z (baixavel no celular).
+#
+# Assinatura: com os segredos JARVIS_KEYSTORE_BASE64, JARVIS_KEYSTORE_PASSWORD,
+# JARVIS_KEY_ALIAS e JARVIS_KEY_PASSWORD, as versoes novas instalam por cima da
+# anterior. Sem eles, cada execucao assina com uma chave de depuracao nova, e
+# atualizar exige desinstalar o app antes.
+on:
+  workflow_dispatch:
+    inputs:
+      publicar:
+        description: Publicar um release android-vX.Y.Z com o APK
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - id: v
+        run: |
+          base="$(tr -d '[:space:]' < VERSION)"
+          echo "name=${base%.*}.${GITHUB_RUN_NUMBER}" >>"$GITHUB_OUTPUT"
+      - name: Chave de assinatura (opcional)
+        env:
+          KEYSTORE: ${{ secrets.JARVIS_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE" ]; then
+            echo "$KEYSTORE" | base64 -d >"$RUNNER_TEMP/jarvis.jks"
+            echo "JARVIS_KEYSTORE=$RUNNER_TEMP/jarvis.jks" >>"$GITHUB_ENV"
+          else
+            echo "Sem a chave nos segredos: APK assinado com chave de depuração." >>"$GITHUB_STEP_SUMMARY"
+          fi
+      - name: APK
+        env:
+          JARVIS_KEYSTORE_PASSWORD: ${{ secrets.JARVIS_KEYSTORE_PASSWORD }}
+          JARVIS_KEY_ALIAS: ${{ secrets.JARVIS_KEY_ALIAS }}
+          JARVIS_KEY_PASSWORD: ${{ secrets.JARVIS_KEY_PASSWORD }}
+        run: |
+          gradle --no-daemon -p app/android testDebugUnitTest assembleRelease \
+            -PjarvisVersionCode="$GITHUB_RUN_NUMBER" -PjarvisVersionName="${{ steps.v.outputs.name }}"
+          cp app/android/app/build/outputs/apk/release/app-release.apk "Jarvis_${{ steps.v.outputs.name }}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Jarvis_${{ steps.v.outputs.name }}_android
+          path: Jarvis_${{ steps.v.outputs.name }}.apk
+      - name: Release
+        if: inputs.publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "android-v${{ steps.v.outputs.name }}" "Jarvis_${{ steps.v.outputs.name }}.apk" \
+            --target "$GITHUB_SHA" --latest=false --title "Jarvis Android ${{ steps.v.outputs.name }}" \
+            --notes "App do Jarvis para Android. Instale o APK no celular (permita instalar de fontes desconhecidas)."
