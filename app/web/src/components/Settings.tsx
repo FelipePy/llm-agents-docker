@@ -44,8 +44,8 @@ export function Settings({ settings, toggles, voiceStatus }: { settings: Setting
   const use3d = settings.webgl && settings.mode3d;
   return (
     <div className="settings">
-      <label title={settings.holdKey ? `Desligada enquanto o atalho ${settings.hotkey.label} estiver ativado` : 'Escuta o microfone esperando “Hey Jarvis”'}>
-        <input type="checkbox" checked={settings.voice} disabled={settings.holdKey} onChange={toggles.onVoice} />
+      <label title={settings.holdKey ? `Marque para voltar a ouvir “Jarvis” (desliga o falar com ${settings.hotkey.label})` : 'Escuta o microfone esperando “Hey Jarvis”'}>
+        <input type="checkbox" checked={settings.voice} onChange={toggles.onVoice} />
         Escuta ativa
       </label>
       <label title={`Segure ${settings.hotkey.label} para falar; ao soltar, o Jarvis responde. A escuta por “Jarvis” fica desligada.`}>

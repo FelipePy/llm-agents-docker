@@ -99,6 +99,7 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
   const [access, setAccess] = useState<AccessMode>('both');
+  const [verify, setVerify] = useState(true);
 
   useEffect(() => {
     api.voiceProfile().then(setProfile, () => setNotice({ kind: 'error', text: 'Não consegui ler a voz cadastrada (servidor antigo? reinicie o llm-agent ui).' }));
@@ -115,7 +116,10 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
     setEmail('');
     setCode('');
     setCodeSent(false);
-    if (profile) setAccess(profile.access);
+    if (profile) {
+      setAccess(profile.access);
+      setVerify(profile.verify);
+    }
   };
   const run = async (busy: string, fn: () => Promise<VoiceProfile>, done: string) => {
     setNotice({ kind: 'busy', text: busy });
@@ -230,6 +234,11 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
           </label>
         ))}
         <p className="muted">{ACCESS_OPTIONS.find((o) => o.value === access)?.hint}</p>
+        <label title="Desligada, qualquer voz chamando “Jarvis” abre a conversa (útil quando o microfone, como o do celular, muda o seu timbre)">
+          <input type="checkbox" checked={verify} onChange={() => setVerify(!verify)} disabled={busy} />
+          Conferir se a voz é a minha ao chamar “Jarvis”
+        </label>
+        {!verify && <p className="muted">Sem a conferência, qualquer pessoa perto do microfone pode chamar o Jarvis. A senha falada continua valendo.</p>}
         <label className="field">
           <span>Senha atual</span>
           <input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
@@ -246,8 +255,12 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
             onClick={() =>
               void run(
                 'Salvando…',
-                () => api.setVoiceAccess({ access, password: current, ...(legacy ? { newPassword: password } : {}) }),
-                `Pronto: acesso por ${accessLabel(access).toLowerCase()}.`,
+                async () => {
+                  // A conferencia vai antes: com senha antiga, a troca de senha vem no acesso.
+                  if (verify !== profile.verify) await api.setVoiceVerify(verify, current);
+                  return api.setVoiceAccess({ access, password: current, ...(legacy ? { newPassword: password } : {}) });
+                },
+                `Pronto: acesso por ${accessLabel(access).toLowerCase()}${verify ? '' : ', sem conferir a voz'}.`,
               )
             }
           >
@@ -326,7 +339,7 @@ export function VoiceProfileSettings({ api }: { api: Api }) {
     <SettingsCard title="Sua voz">
       <p className={profile.enrolled ? 'voice-enrolled' : 'muted'}>
         {profile.enrolled
-          ? `✓ Voz cadastrada${profile.enrolledAt ? ` em ${date(profile.enrolledAt)}` : ''}. Acesso: ${legacy ? 'só a voz' : accessLabel(profile.access).toLowerCase()}.`
+          ? `✓ Voz cadastrada${profile.enrolledAt ? ` em ${date(profile.enrolledAt)}` : ''}. Acesso: ${legacy ? 'só a voz' : accessLabel(profile.access).toLowerCase()}${profile.verify ? '' : ' (sem conferir a voz)'}.`
           : 'Nenhuma voz cadastrada: qualquer voz ativa o Jarvis.'}
       </p>
       {profile.enrolled && legacy && (

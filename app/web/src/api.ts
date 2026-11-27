@@ -40,6 +40,8 @@ export interface VoiceProfile {
   access: AccessMode;
   /** Senha antiga, com letras ou simbolos: o proximo pedido da senha exige uma so com numeros. */
   legacyPassword: boolean;
+  /** A voz e conferida ao chamar "Jarvis" (desligada, qualquer voz abre a conversa). */
+  verify: boolean;
 }
 /** Escolha do acesso: pede a senha atual (e a nova, so numeros, se a atual for antiga). */
 export interface VoiceAccessInput {
@@ -175,6 +177,11 @@ export class Api {
 
   enrollVoice(input: VoiceEnrollInput): Promise<VoiceProfile> {
     return this.post('/api/voice/profile', input);
+  }
+
+  /** Liga ou desliga a conferencia da voz ao chamar "Jarvis" (pede a senha atual). */
+  setVoiceVerify(verify: boolean, password: string): Promise<VoiceProfile> {
+    return this.post('/api/voice/profile/verify', { verify, password });
   }
 
   setVoiceAccess(input: VoiceAccessInput): Promise<VoiceProfile> {

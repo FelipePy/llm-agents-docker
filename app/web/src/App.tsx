@@ -98,7 +98,13 @@ function Connected({ token }: { token: string }) {
     on3d: () => setMode3d(!mode3d),
     onReduceMotion: () => setReduceMotion(!reduceMotion),
     onVoiceDemo: () => setVoiceDemo(!voiceDemo),
-    onVoice: () => setVoiceOn(!voiceOn),
+    // Escuta ativa e falar segurando se excluem: marcar a escuta desliga o atalho.
+    onVoice: () => {
+      if (holdKey) {
+        setHoldKey(false);
+        setVoiceOn(true);
+      } else setVoiceOn(!voiceOn);
+    },
     onHoldKey: () => setHoldKey(!holdKey),
     onHotkey: setHotkey,
     onHotkeyCapturing: setHotkeyCapturing,

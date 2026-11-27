@@ -253,6 +253,7 @@ export function createApp(opts: AppOptions): App {
     try {
       if (path === '/api/voice/profile') return reply(await speaker.enroll(input));
       if (path === '/api/voice/profile/access') return reply(speaker.setAccess(input));
+      if (path === '/api/voice/profile/verify') return reply(speaker.setVerify(input));
       if (path === '/api/voice/profile/recover') {
         if (input.method === 'voice') return reply(await speaker.recoverByVoice(input));
         if (input.method === 'email') return reply(await speaker.sendRecoveryEmail());
@@ -266,7 +267,7 @@ export function createApp(opts: AppOptions): App {
   }
 
   async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
-    if (url.pathname === '/api/voice/profile' || url.pathname === '/api/voice/profile/recover' || url.pathname === '/api/voice/profile/access') return profileApi(req, res, url.pathname);
+    if (url.pathname === '/api/voice/profile' || url.pathname === '/api/voice/profile/recover' || url.pathname === '/api/voice/profile/access' || url.pathname === '/api/voice/profile/verify') return profileApi(req, res, url.pathname);
     if (url.pathname === '/api/voice/settings') {
       const store = opts.voice?.settings;
       if (!store) return send(res, 404, { error: 'voz desligada neste servidor' });
