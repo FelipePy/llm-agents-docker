@@ -279,6 +279,22 @@ npx tauri dev     # abre o app em modo de desenvolvimento
 npm run build     # instaladores em src-tauri/target/release/bundle/
 ```
 
+## App Android (o Jarvis no celular)
+
+O app **Jarvis** para Android abre a mesma interface do PC no celular, de qualquer lugar: voz ao vivo (com interrupção), cartões, terminais e configurações. A conexão passa pelo [Tailscale](https://tailscale.com), uma rede privada entre os seus aparelhos. Nada fica exposto na internet e não é preciso abrir porta no roteador. O PC precisa ficar ligado, com o Jarvis aberto (ou o `llm-agent ui` rodando).
+
+1. **No PC:** instale o Tailscale (no Windows, o instalador normal do Windows; o Jarvis no WSL usa o `tailscale.exe` dele) e entre na sua conta.
+2. **No painel do Tailscale** ([login.tailscale.com](https://login.tailscale.com/admin/dns)), em DNS, ligue **MagicDNS** e **HTTPS Certificates**. Sem HTTPS, o celular não libera o microfone.
+3. **No Jarvis do PC:** Configurações (⚙) → **Celular** → **Ligar acesso pelo celular**. O Jarvis roda `tailscale serve`, que publica a interface em `https://<seu-pc>.<tailnet>.ts.net` só para os aparelhos da sua tailnet. **Desligar acesso pelo celular** desfaz isso.
+4. **No celular:** instale o Tailscale (mesma conta) e o APK do Jarvis, abra o app e toque em **Ler QR code**, apontando para o código mostrado em **Mostrar QR code** no PC (ou cole o link).
+
+O QR code leva a chave de acesso do Jarvis (o token da interface): não mostre para outras pessoas. O app guarda o link e abre direto nas próximas vezes; o botão voltar, na tela inicial, oferece **Trocar de PC**. Com o app aberto, a tela não apaga, e a escuta por "Jarvis" funciona como no PC. Para falar segurando um botão, ligue **Falar com…** nas configurações: no celular aparece um botão de microfone no rodapé. Com o app fechado o Jarvis não ouve (a palavra de ativação em segundo plano ainda não existe).
+
+- **Baixar o APK:** o APK só sai quando pedido: rode o workflow **android** na aba Actions (ou `gh workflow run android --ref main`). Ele fica nos artefatos da execução; marcando **publicar**, sai também num release `android-vX.Y.Z`, que dá para baixar direto no celular. Para instalar, permita "instalar apps desconhecidos" para o navegador.
+- **Atualizar por cima:** com os segredos `JARVIS_KEYSTORE_BASE64`, `JARVIS_KEYSTORE_PASSWORD`, `JARVIS_KEY_ALIAS` e `JARVIS_KEY_PASSWORD` no repositório, todos os APKs saem com a mesma chave e instalam por cima. Sem eles, cada APK usa uma chave de depuração diferente, e atualizar exige desinstalar o anterior. Para criar a chave: `keytool -genkeypair -v -keystore jarvis.jks -alias jarvis -keyalg RSA -keysize 2048 -validity 10000` e `base64 -w0 jarvis.jks` para o segredo.
+- **Problemas:** "Não consegui falar com o PC" indica PC desligado ou Tailscale desconectado (no PC ou no celular). "O Jarvis não está rodando" (erro 502) indica que o PC responde, mas o servidor da interface não está aberto.
+- **Compilar à mão:** JDK 17, Android SDK e Gradle 8.11: `gradle -p app/android assembleDebug` (APK em `app/android/app/build/outputs/apk/debug/`).
+
 ## O que o container enxerga
 
 | Caminho no host | No container | Acesso | Quando |
