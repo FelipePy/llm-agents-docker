@@ -7,6 +7,7 @@ import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -52,6 +53,7 @@ class MainActivity : Activity() {
                 "• No navegador do PC, abra https://${savedLink()?.host}: se não abrir lá, o problema está no PC.",
         )
     }
+    private val speaker by lazy { SpeakerRoute.create(getSystemService(AudioManager::class.java)) }
     private val prefs by lazy { getSharedPreferences("jarvis", MODE_PRIVATE) }
 
     /** Pedido de microfone da pagina, esperando a permissao do Android. */
@@ -247,16 +249,19 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
+        speaker.stop()
         web.onPause()
     }
 
     override fun onResume() {
         super.onResume()
         web.onResume()
+        speaker.start()
     }
 
     override fun onDestroy() {
         pendingMic?.deny()
+        speaker.stop()
         handler.removeCallbacks(giveUp)
         web.destroy()
         super.onDestroy()
