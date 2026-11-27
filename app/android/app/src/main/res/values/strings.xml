@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="connect_intro">Conecte este celular ao Jarvis do seu PC.\n\n1. No PC, abra Configurações → Celular e ligue o acesso.\n2. Instale o Tailscale neste celular e entre com a mesma conta do PC.\n3. Toque em “Ler QR code” e aponte para o código mostrado no PC.</string>
+</resources>
