@@ -110,13 +110,13 @@ describe('SettingsPanel', () => {
   });
   it('os grupos nao recolhem: sao titulos simples', () => {
     const html = render({ floating: { open: false, toggle: noop } });
-    for (const grupo of ['Voz', 'Aparência e som', 'Sistema']) expect(html).toContain(`<h2>${grupo}</h2>`);
+    for (const grupo of ['Voz', 'Aparência e som', 'Celular', 'Sistema']) expect(html).toContain(`<h2>${grupo}</h2>`);
     expect(html).not.toMatch(/<h2><button/);
   });
   it('todos os blocos comecam recolhidos, sem ler nada guardado', () => {
     const html = render({ desktop: { autostart: true } as DesktopInfo, floating: { open: false, toggle: noop } });
-    for (const bloco of ['Como falar', 'Legendas', 'Visual e sons', 'Inicialização', 'Janela flutuante']) expect(html).toMatch(new RegExp(`aria-expanded="false"[^>]*>(?:(?!</button>).)*${bloco}</button>`));
-    expect(html.match(/aria-expanded="false"/g)).toHaveLength(5);
+    for (const bloco of ['Como falar', 'Legendas', 'Visual e sons', 'Acesso pelo celular', 'Inicialização', 'Janela flutuante']) expect(html).toMatch(new RegExp(`aria-expanded="false"[^>]*>(?:(?!</button>).)*${bloco}</button>`));
+    expect(html.match(/aria-expanded="false"/g)).toHaveLength(6);
     expect(html).not.toContain('aria-expanded="true"');
     expect(getItem).not.toHaveBeenCalled();
   });

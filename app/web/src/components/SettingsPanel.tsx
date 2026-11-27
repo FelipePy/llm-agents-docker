@@ -6,6 +6,7 @@ import { SettingsCard } from './SettingsCard.tsx';
 import { SttSettings } from './SttSettings.tsx';
 import { BrainSettings } from './BrainSettings.tsx';
 import { VoiceProfileSettings } from './VoiceProfileSettings.tsx';
+import { RemoteSettings } from './RemoteSettings.tsx';
 import { GLOBE_COLORS, GLOBE_STYLES, isGlobeColor, isGlobeStyle } from '../scene/globe.ts';
 import type { SettingsState, SettingsToggles } from './Settings.tsx';
 
@@ -111,6 +112,11 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
             Sons de clique
           </label>
         </SettingsCard>
+      </section>
+
+      <section>
+        <h2>Celular</h2>
+        <RemoteSettings api={api} />
       </section>
 
       {(desktop || floating) && (
