@@ -11,6 +11,39 @@
         android:layout_height="match_parent"
         android:visibility="gone" />
 
+    <!-- Abrindo o Jarvis: aparece ate a pagina do PC responder (ou o tempo acabar). -->
+    <LinearLayout
+        android:id="@+id/loading"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/bg"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="28dp"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:indeterminateTint="@color/gold" />
+
+        <TextView
+            android:id="@+id/loading_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:gravity="center"
+            android:textColor="@color/text"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="Cancelar" />
+    </LinearLayout>
+
     <!-- Conexao com o PC: ler o QR code das configuracoes do Jarvis ou colar o link. -->
     <ScrollView
         android:id="@+id/connect"

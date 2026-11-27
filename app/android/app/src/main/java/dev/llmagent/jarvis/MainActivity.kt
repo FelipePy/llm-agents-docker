@@ -9,6 +9,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowManager
@@ -36,6 +38,20 @@ class MainActivity : Activity() {
     private lateinit var message: TextView
     private lateinit var linkField: EditText
     private lateinit var retry: Button
+    private lateinit var loading: View
+    private lateinit var loadingText: TextView
+    private val handler = Handler(Looper.getMainLooper())
+
+    /** Sem resposta do PC a tempo: explica o que conferir, em vez de esperar o Android desistir (minutos). */
+    private val giveUp = Runnable {
+        showConnect(
+            "O PC (${savedLink()?.host}) não respondeu em ${TIMEOUT_MS / 1000} segundos.\n\n" +
+                "• Confira se o Tailscale está ligado neste celular (ícone de chave na barra).\n" +
+                "• Confira se o PC está ligado, com o Tailscale conectado e o Jarvis aberto.\n" +
+                "• Se o “DNS privado” do Android estiver ligado, desligue (Configurações → Rede).\n" +
+                "• No navegador do PC, abra https://${savedLink()?.host}: se não abrir lá, o problema está no PC.",
+        )
+    }
     private val prefs by lazy { getSharedPreferences("jarvis", MODE_PRIVATE) }
 
     /** Pedido de microfone da pagina, esperando a permissao do Android. */
@@ -51,6 +67,9 @@ class MainActivity : Activity() {
         message = findViewById(R.id.message)
         linkField = findViewById(R.id.link)
         retry = findViewById(R.id.retry)
+        loading = findViewById(R.id.loading)
+        loadingText = findViewById(R.id.loading_text)
+        findViewById<Button>(R.id.cancel).setOnClickListener { showConnect(null) }
 
         // Android 15: o app desenha atras das barras; o conteudo fica entre elas (e acima do teclado).
         if (Build.VERSION.SDK_INT >= 35) {
@@ -79,7 +98,17 @@ class MainActivity : Activity() {
             textZoom = 100
             setSupportZoom(false)
         }
+        // Sem o branco padrao da WebView enquanto a pagina nao desenha.
+        web.setBackgroundColor(getColor(R.color.bg))
         web.webViewClient = object : WebViewClient() {
+            // A pagina do PC comecou a desenhar: a conexao funcionou.
+            override fun onPageCommitVisible(view: WebView, url: String) {
+                if (loading.visibility == View.VISIBLE && savedLink()?.let { url.startsWith(it.origin) } == true) {
+                    handler.removeCallbacks(giveUp)
+                    loading.visibility = View.GONE
+                }
+            }
+
             // Paginas do PC ficam no app; links de fora (noticias, GitHub) abrem no navegador.
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val url = request.url
@@ -173,6 +202,10 @@ class MainActivity : Activity() {
         val link = savedLink() ?: return showConnect(null)
         connect.visibility = View.GONE
         web.visibility = View.VISIBLE
+        loadingText.text = "Conectando ao PC…\n${link.host}"
+        loading.visibility = View.VISIBLE
+        handler.removeCallbacks(giveUp)
+        handler.postDelayed(giveUp, TIMEOUT_MS)
         // Com o Jarvis aberto a tela nao apaga (a escuta continua precisa dela ligada).
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         web.loadUrl(link.url)
@@ -181,6 +214,8 @@ class MainActivity : Activity() {
     /** Tela de conexao; com `problem`, explica o que deu errado e oferece tentar de novo. */
     private fun showConnect(problem: String?) {
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        handler.removeCallbacks(giveUp)
+        loading.visibility = View.GONE
         web.stopLoading()
         web.visibility = View.GONE
         connect.visibility = View.VISIBLE
@@ -222,6 +257,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         pendingMic?.deny()
+        handler.removeCallbacks(giveUp)
         web.destroy()
         super.onDestroy()
     }
@@ -229,5 +265,7 @@ class MainActivity : Activity() {
     private companion object {
         const val KEY_LINK = "link"
         const val REQUEST_MIC = 1
+        /** Espera pela primeira resposta do PC antes de mostrar o que conferir. */
+        const val TIMEOUT_MS = 20_000L
     }
 }
