@@ -168,6 +168,12 @@
 .hotkey-field .link { align-self: flex-start; background: none; border: none; padding: 0; font-size: 12px; color: var(--muted); text-decoration: underline; cursor: pointer; }
 .hotkey-field .link:disabled { opacity: 0.5; text-decoration: none; cursor: default; }
 .stt-notice { font-size: 12px; }
+.remote-steps { margin: 0; padding-left: 20px; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.remote-steps li.done { color: #7fd99a; }
+.remote-steps li.done::marker { content: '✓ '; }
+.remote-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.remote-qr { width: 220px; max-width: 100%; padding: 8px; border-radius: 8px; background: #fff; }
+.remote-qr svg { display: block; width: 100%; height: auto; }
 .voice-phrase { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .voice-phrase > span:first-child { flex: 1; }
 .voice-phrase button { flex: none; }
@@ -181,3 +187,30 @@
 .jarvis-facts ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .jarvis-facts li { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
 .jarvis-facts .link { background: none; border: none; padding: 0; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: 12px; flex: none; }
+
+/* Botao de segurar para falar (so em tela de toque): no rodape da cena, acima do terminal. */
+.talk-button {
+  grid-column: 1 / -1; grid-row: 1; align-self: end; justify-self: center; position: relative; z-index: 7; margin-bottom: 40px;
+  display: grid; place-items: center; width: 64px; height: 64px; padding: 0; border-radius: 50%;
+  border: 1px solid rgba(var(--sys-rgb), 0.4); background: rgba(10, 10, 16, 0.75); color: var(--sys-soft);
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  transition: transform 0.12s, box-shadow 0.12s, color 0.12s;
+}
+.talk-button.holding { color: var(--sys-hot); transform: scale(1.1); box-shadow: 0 0 24px -2px var(--sys-main); }
+
+/* Celular: cartoes em lista centrada abaixo do nucleo, paineis na largura toda, topo enxuto. */
+.ring.narrow .ring-card { width: min(320px, calc(100vw - 32px)); max-width: none; height: 40px; border-radius: 20px; }
+@media (max-width: 640px) {
+  .navbar { top: 10px; left: 10px; right: 10px; gap: 6px; }
+  .crumbs { min-width: 0; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+  .top-actions input { width: 110px; margin-right: 0; }
+  .panel-overlay { top: 56px; left: 8px; right: 8px; bottom: 8px; width: auto; padding: 16px; }
+  .hold-wave.beside-panel { margin-left: 16px; }
+  .captions { width: calc(100% - 32px); bottom: 120px; }
+  .content.three .banner { top: 52px; max-width: calc(100% - 32px); }
+  .modal-overlay { padding: 8px; }
+  .modal .day { padding: 18px 16px; }
+  .tab kbd { display: none; }
+  .settings-panel label { min-height: 32px; }
+  .remote-qr { width: 100%; max-width: 280px; }
+}

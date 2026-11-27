@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import { arcPositions, pageSizeFor, paginate, CARD_SPACING, type RingItem } from '../ring.ts';
+import { arcPositions, listPageSize, listPositions, pageSizeFor, paginate, CARD_SPACING, NARROW_WIDTH, type RingItem } from '../ring.ts';
 
 interface Props {
   /** Todos os itens do nivel (ja filtrados); a paginacao e feita aqui. */
@@ -28,21 +28,23 @@ export function Ring({ items, page, animationKey, loading, onPage, onActivate }:
     return () => observer.disconnect();
   }, []);
 
+  // Celular: lista centrada abaixo do nucleo (o arco a direita sairia da tela).
+  const narrow = size.w > 0 && size.w < NARROW_WIDTH;
   const ry = Math.min(size.h * 0.42, 380);
   const rx = Math.min(size.w * 0.2, 300);
-  const shown = paginate(items, page, pageSizeFor(ry));
-  const positions = arcPositions(shown.items.length, rx, ry);
+  const shown = paginate(items, page, narrow ? listPageSize(size.h) : pageSizeFor(ry));
+  const positions = narrow ? listPositions(shown.items.length, size.h) : arcPositions(shown.items.length, rx, ry);
   const cx = size.w * CENTER_X;
   const lastY = positions.length ? positions[positions.length - 1].y : 0;
 
   return (
-    <div className="ring" ref={ref}>
+    <div className={narrow ? 'ring narrow' : 'ring'} ref={ref}>
       <div key={animationKey}>
         {shown.items.map((item, i) => (
           <button
             key={item.key}
             className={`ring-card tone-${item.tone}`}
-            style={{ left: cx, '--x': `${positions[i].x}px`, '--y': `${positions[i].y}px`, animationDelay: `${i * 25}ms` } as CSSProperties}
+            style={{ left: cx, '--x': narrow ? '-50%' : `${positions[i].x}px`, '--y': `${positions[i].y}px`, animationDelay: `${i * 25}ms` } as CSSProperties}
             disabled={!item.action}
             title={item.subtitle ? `${item.title}\n${item.subtitle}` : item.title}
             onClick={() => onActivate(item)}
@@ -56,7 +58,7 @@ export function Ring({ items, page, animationKey, loading, onPage, onActivate }:
       {loading && <div className="ring-status">Carregando…</div>}
       {!loading && !items.length && <div className="ring-status">Nada por aqui.</div>}
       {shown.pages > 1 && (
-        <div className="ring-pager" style={{ left: cx + rx * 0.6, top: `calc(50% + ${lastY + CARD_SPACING}px)` }}>
+        <div className="ring-pager" style={{ left: narrow ? cx - 52 : cx + rx * 0.6, top: `calc(50% + ${lastY + CARD_SPACING}px)` }}>
           <button onClick={() => onPage(-1)} disabled={shown.page === 0} aria-label="Página anterior">
             ‹
           </button>

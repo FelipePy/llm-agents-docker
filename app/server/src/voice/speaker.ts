@@ -48,6 +48,8 @@ interface Profile {
    */
   numeric: boolean;
   access: AccessMode;
+  /** Conferir a voz ao chamar "Jarvis"? Desligada, qualquer voz abre a conversa (a senha continua valendo). */
+  verify: boolean;
   email: string;
   enrolledAt: string;
 }
@@ -65,6 +67,8 @@ export interface SpeakerView {
   access: AccessMode;
   /** Senha antiga, com letras ou simbolos: o proximo pedido da senha exige redefinir. */
   legacyPassword: boolean;
+  /** A voz e conferida ao chamar "Jarvis". */
+  verify: boolean;
 }
 
 export interface SpeakerDeps {
@@ -149,6 +153,7 @@ function parse(raw: unknown): Profile | null {
     password: o.password,
     numeric: o.numeric === true,
     access: ACCESS_MODES.includes(o.access as AccessMode) ? (o.access as AccessMode) : 'both',
+    verify: o.verify !== false,
     email: typeof o.email === 'string' ? o.email : '',
     enrolledAt: typeof o.enrolledAt === 'string' ? o.enrolledAt : '',
   };
@@ -186,6 +191,10 @@ export class SpeakerProfileStore implements SpeakerCheck {
   async verify(clip: number | undefined): Promise<boolean> {
     const profile = this.profile;
     if (!profile) return true;
+    if (!profile.verify) {
+      this.log('voz (ativação): conferência desligada → aceita');
+      return true;
+    }
     if (clip === undefined) throw new Error('o worker não mandou o áudio da ativação');
     const started = this.now();
     const vector = await this.deps.embedClip(clip);
@@ -202,6 +211,7 @@ export class SpeakerProfileStore implements SpeakerCheck {
       calls: Boolean(p?.calls),
       access: p?.access ?? 'both',
       legacyPassword: Boolean(p && !p.numeric),
+      verify: p?.verify ?? true,
     };
   }
 
@@ -245,6 +255,20 @@ export class SpeakerProfileStore implements SpeakerCheck {
       password = hashPassword(input.newPassword as string);
     }
     this.save({ ...p, password, numeric: true, access: input.access as AccessMode });
+    return { view: this.view() };
+  }
+
+  /** Liga ou desliga a conferencia da voz ao chamar "Jarvis"; pede a senha atual. */
+  setVerify(input: { verify?: unknown; password?: unknown }): Result {
+    const p = this.profile;
+    if (!p) return { error: 'Cadastre a sua voz e a senha primeiro.' };
+    const locked = this.lockProblem();
+    if (locked) return { error: locked };
+    if (typeof input.verify !== 'boolean') return { error: 'Diga se a voz deve ser conferida (verify: true ou false).' };
+    if (typeof input.password !== 'string' || !passwordMatches(input.password, p.password)) return { error: this.failed('Senha incorreta.') };
+    this.failures = 0;
+    this.save({ ...p, verify: input.verify });
+    this.log(`voz: conferência ${input.verify ? 'ligada' : 'desligada'}`);
     return { view: this.view() };
   }
 
@@ -316,6 +340,7 @@ export class SpeakerProfileStore implements SpeakerCheck {
       password: newPassword !== undefined ? hashPassword(newPassword as string) : current!.password,
       numeric: newPassword !== undefined ? true : current!.numeric,
       access: current?.access ?? 'both',
+      verify: current?.verify ?? true,
       email,
       enrolledAt: new Date(this.now()).toISOString(),
     });

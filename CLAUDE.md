@@ -15,6 +15,7 @@ funcionalidade nova nele mesmo (`aplicar_evolucao`). Textos para o usuário são
 | `app/web` | Interface React + Three.js (Vite): cartões, gaveta de terminais, globo do Jarvis, configurações. |
 | `app/voice` | Worker Python da voz: palavra de ativação, detecção de fala, transcrição (whisper local ou Groq), voz (edge-tts). |
 | `app/desktop` | App Tauri (Windows/Linux) em volta da interface. Mudanças aqui só valem com um instalador novo (CI). |
+| `app/android` | App Android (Kotlin, WebView) que abre a interface do PC pelo `tailscale serve` (`app/server/src/remote.ts`). APK só pelo workflow `android`. |
 
 ### Servidor (`app/server/src`)
 - `server.ts`: rotas HTTP (`/api/*`, com token e Origin), WebSocket dos terminais (`/ws`) e da voz (`/ws/voice`), `/api/self-check`.
@@ -48,6 +49,7 @@ python3 -m unittest discover -s app/voice/tests -t app/voice   # se mexer no wor
 bash tests/ui.test.sh && bash tests/restart.test.sh             # se mexer em app/ui.sh ou app/restart.sh
 bash tests/setup.test.sh && bash tests/setup-deps.test.sh      # se mexer em app/setup.sh ou app/restart.sh
 bash tests/voice-setup.test.sh                                  # se mexer em app/voice/setup.sh
+gradle -p app/android testDebugUnitTest assembleDebug           # se mexer em app/android (JDK 17 + Android SDK; o CI roda sempre)
 ```
 
 ## Fluxo de trabalho

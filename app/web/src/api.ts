@@ -40,6 +40,8 @@ export interface VoiceProfile {
   access: AccessMode;
   /** Senha antiga, com letras ou simbolos: o proximo pedido da senha exige uma so com numeros. */
   legacyPassword: boolean;
+  /** A voz e conferida ao chamar "Jarvis" (desligada, qualquer voz abre a conversa). */
+  verify: boolean;
 }
 /** Escolha do acesso: pede a senha atual (e a nova, so numeros, se a atual for antiga). */
 export interface VoiceAccessInput {
@@ -71,6 +73,17 @@ export interface BrainChoiceView extends BrainChoice {
 
 export interface JarvisFact { id: string; about: string; project?: string; text: string; updated: string }
 export interface JarvisMemoryView { facts: JarvisFact[]; conversations: { at: string; text: string }[] }
+
+/** Acesso pelo celular (tailscale serve): estado e o link com o token, quando ligado. */
+export interface RemoteStatus {
+  installed: boolean;
+  running: boolean;
+  host: string | null;
+  https: boolean;
+  serving: boolean;
+  link: string | null;
+  problem: string | null;
+}
 
 const TOKEN_KEY = 'llm-agent-token';
 
@@ -166,6 +179,11 @@ export class Api {
     return this.post('/api/voice/profile', input);
   }
 
+  /** Liga ou desliga a conferencia da voz ao chamar "Jarvis" (pede a senha atual). */
+  setVoiceVerify(verify: boolean, password: string): Promise<VoiceProfile> {
+    return this.post('/api/voice/profile/verify', { verify, password });
+  }
+
   setVoiceAccess(input: VoiceAccessInput): Promise<VoiceProfile> {
     return this.post('/api/voice/profile/access', input);
   }
@@ -175,10 +193,20 @@ export class Api {
     return this.post('/api/voice/profile/recover', input);
   }
 
-  /** POST com JSON; o erro do servidor vira a mensagem da excecao. */
-  private async post<T>(path: string, input: unknown): Promise<T> {
+  /** Acesso pelo celular: o servidor consulta o Tailscale a cada chamada. */
+  remote(): Promise<RemoteStatus> {
+    return this.get('/api/remote');
+  }
+
+  /** Liga ou desliga o tailscale serve; o erro do Tailscale vira a mensagem da excecao. */
+  setRemote(on: boolean): Promise<RemoteStatus> {
+    return this.post('/api/remote', { on }, 'PUT');
+  }
+
+  /** POST (ou PUT) com JSON; o erro do servidor vira a mensagem da excecao. */
+  private async post<T>(path: string, input: unknown, method = 'POST'): Promise<T> {
     const res = await this.fetchImpl(path, {
-      method: 'POST',
+      method,
       headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
       body: JSON.stringify(input),
     });

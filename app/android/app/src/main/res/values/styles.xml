@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#05060A</color>
+    <color name="gold">#FFC94A</color>
+    <color name="text">#E8E2D0</color>
+    <color name="muted">#9A937F</color>
+    <color name="error">#F0A07A</color>
+
+    <style name="Jarvis" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:colorAccent">@color/gold</item>
+    </style>
+</resources>

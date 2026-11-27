@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMessage, ServerMessage, SessionAgent } from './types.ts';
 import { bearer, originAllowed, tokenMatches } from './auth.ts';
+import type { TailscaleRemote } from './remote.ts';
 import { buildOverview, listProjects, projectDetail, projectPathFromId, projectsBase } from './catalog.ts';
 import { scanConversations } from './conversations.ts';
 import { NEWS_DEFAULT, createDayService } from './day.ts';
@@ -93,6 +94,8 @@ export interface AppOptions {
   autoNews?: AutoNewsSetting;
   /** Manual do app consultado pelo Jarvis (o README do projeto). */
   manualPath?: string;
+  /** Acesso pelo celular (tailscale serve): sem ele, /api/remote responde 404. */
+  remote?: Pick<TailscaleRemote, 'status' | 'set' | 'origins'>;
 }
 
 export interface App {
@@ -250,6 +253,7 @@ export function createApp(opts: AppOptions): App {
     try {
       if (path === '/api/voice/profile') return reply(await speaker.enroll(input));
       if (path === '/api/voice/profile/access') return reply(speaker.setAccess(input));
+      if (path === '/api/voice/profile/verify') return reply(speaker.setVerify(input));
       if (path === '/api/voice/profile/recover') {
         if (input.method === 'voice') return reply(await speaker.recoverByVoice(input));
         if (input.method === 'email') return reply(await speaker.sendRecoveryEmail());
@@ -263,7 +267,7 @@ export function createApp(opts: AppOptions): App {
   }
 
   async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
-    if (url.pathname === '/api/voice/profile' || url.pathname === '/api/voice/profile/recover' || url.pathname === '/api/voice/profile/access') return profileApi(req, res, url.pathname);
+    if (url.pathname === '/api/voice/profile' || url.pathname === '/api/voice/profile/recover' || url.pathname === '/api/voice/profile/access' || url.pathname === '/api/voice/profile/verify') return profileApi(req, res, url.pathname);
     if (url.pathname === '/api/voice/settings') {
       const store = opts.voice?.settings;
       if (!store) return send(res, 404, { error: 'voz desligada neste servidor' });
@@ -294,6 +298,25 @@ export function createApp(opts: AppOptions): App {
       if (!input || typeof input !== 'object') return send(res, 400, { error: 'JSON inválido' });
       const result = await choice.set(input as { provider?: unknown; model?: unknown });
       return 'error' in result ? send(res, 400, result) : send(res, 200, result.choice);
+    }
+    if (url.pathname === '/api/remote') {
+      const remote = opts.remote;
+      if (!remote) return send(res, 404, { error: 'acesso pelo celular indisponível neste servidor' });
+      if (req.method === 'GET') return send(res, 200, await remote.status());
+      if (req.method !== 'PUT') return send(res, 405, { error: 'use GET ou PUT' });
+      let input: unknown;
+      try {
+        input = await readJson(req);
+      } catch {
+        return send(res, 400, { error: 'JSON inválido' });
+      }
+      const on = (input as { on?: unknown } | null)?.on;
+      if (typeof on !== 'boolean') return send(res, 400, { error: 'informe "on" (true ou false)' });
+      try {
+        return send(res, 200, await remote.set(on));
+      } catch (err) {
+        return send(res, 400, { error: (err as Error).message });
+      }
     }
     if (url.pathname === '/api/news/auto') {
       if (req.method === 'GET') return send(res, 200, { enabled: autoNews.enabled() });
@@ -346,6 +369,9 @@ export function createApp(opts: AppOptions): App {
     }
   }
 
+  // Origens extras: as configuradas e a do celular (https://<pc>.ts.net), quando houver.
+  const origins = () => [...opts.extraOrigins, ...(opts.remote?.origins() ?? [])];
+
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
@@ -358,7 +384,7 @@ export function createApp(opts: AppOptions): App {
         return await jarvisMcp(req, res);
       }
       if (url.pathname.startsWith('/api/')) {
-        if (!originAllowed(req.headers.origin, port, opts.extraOrigins)) return send(res, 403, { error: 'origem não permitida' });
+        if (!originAllowed(req.headers.origin, port, origins())) return send(res, 403, { error: 'origem não permitida' });
         if (!tokenMatches(bearer(req.headers.authorization), opts.token)) return send(res, 401, { error: 'token inválido' });
         return await api(req, res, url);
       }
@@ -691,7 +717,7 @@ export function createApp(opts: AppOptions): App {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const allowed =
       (url.pathname === '/ws' || (url.pathname === '/ws/voice' && opts.voice)) &&
-      originAllowed(req.headers.origin, port, opts.extraOrigins) &&
+      originAllowed(req.headers.origin, port, origins()) &&
       tokenMatches(url.searchParams.get('token'), opts.token);
     if (!allowed) {
       socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');

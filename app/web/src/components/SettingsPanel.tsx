@@ -6,6 +6,7 @@ import { SettingsCard } from './SettingsCard.tsx';
 import { SttSettings } from './SttSettings.tsx';
 import { BrainSettings } from './BrainSettings.tsx';
 import { VoiceProfileSettings } from './VoiceProfileSettings.tsx';
+import { RemoteSettings } from './RemoteSettings.tsx';
 import { GLOBE_COLORS, GLOBE_STYLES, isGlobeColor, isGlobeStyle } from '../scene/globe.ts';
 import type { SettingsState, SettingsToggles } from './Settings.tsx';
 
@@ -32,8 +33,8 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
         <h2>Voz</h2>
         <div className="settings-column">
           <SettingsCard title="Como falar">
-            <label title={settings.holdKey ? `Desligada enquanto o atalho ${settings.hotkey.label} estiver ativado` : 'Escuta o microfone esperando “Jarvis”'}>
-              <input type="checkbox" checked={settings.voice} disabled={settings.holdKey} onChange={toggles.onVoice} />
+            <label title={settings.holdKey ? `Marque para voltar a ouvir “Jarvis” (desliga o falar com ${settings.hotkey.label})` : 'Escuta o microfone esperando “Jarvis”'}>
+              <input type="checkbox" checked={settings.voice} onChange={toggles.onVoice} />
               Escuta ativa
             </label>
             <label title={`Segure ${settings.hotkey.label} para falar; ao soltar, o Jarvis responde`}>
@@ -111,6 +112,11 @@ export function SettingsPanel({ api, settings, toggles, voiceStatus, desktop, on
             Sons de clique
           </label>
         </SettingsCard>
+      </section>
+
+      <section>
+        <h2>Celular</h2>
+        <RemoteSettings api={api} />
       </section>
 
       {(desktop || floating) && (

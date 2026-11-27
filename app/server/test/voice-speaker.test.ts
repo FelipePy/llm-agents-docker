@@ -51,7 +51,7 @@ test('cosseno, media e senha', () => {
 
 test('primeiro cadastro: 4 frases e senha so de numeros, de 4 a 6 digitos; arquivo 0600 sem a senha', async () => {
   const s = setup();
-  assert.deepEqual(s.store.view(), { enrolled: false, enrolledAt: null, emailHint: null, emailRecovery: false, calls: false, access: 'both', legacyPassword: false });
+  assert.deepEqual(s.store.view(), { enrolled: false, enrolledAt: null, emailHint: null, emailRecovery: false, calls: false, access: 'both', legacyPassword: false, verify: true });
   assert.equal(await s.store.verify(1), true, 'sem perfil, qualquer voz vale');
   assert.match(JSON.stringify(await s.store.enroll({ audio: four(), calls: three() })), /Defina uma senha/);
   assert.match(JSON.stringify(await s.store.enroll({ audio: four(), calls: three(), password: 'abc12345' })), /só números/);
@@ -351,4 +351,25 @@ test('/api/voice/profile: cadastro pelo worker, verificacao e recuperacao', asyn
   } finally {
     await app.close();
   }
+});
+
+test('conferencia da voz: desligada com a senha, qualquer voz chamando "Jarvis" abre', async () => {
+  const s = setup();
+  assert.match(JSON.stringify(s.store.setVerify({ verify: false, password: '482193' })), /Cadastre a sua voz/);
+  await s.store.enroll({ audio: four(), calls: three(), password: '482193' });
+  s.clips.set(1, OTHER);
+  assert.equal(await s.store.verify(1), false);
+  assert.equal(s.store.view().verify, true);
+  assert.match(JSON.stringify(s.store.setVerify({ verify: false, password: '000000' })), /Senha incorreta/);
+  assert.match(JSON.stringify(s.store.setVerify({ verify: 'nao', password: '482193' })), /verify/);
+  const off = s.store.setVerify({ verify: false, password: '482193' });
+  assert.ok('view' in off && off.view.verify === false);
+  assert.equal(await s.store.verify(1), true);
+  assert.equal(await s.store.verify(undefined), true, 'sem conferir, nem precisa do audio');
+  assert.equal(s.make().view().verify, false, 'fica salvo');
+  // Refazer a voz mantem a escolha; ligar de novo volta a conferir.
+  await s.store.enroll({ audio: four(), calls: three(), currentPassword: '482193' });
+  assert.equal(s.make().view().verify, false);
+  s.store.setVerify({ verify: true, password: '482193' });
+  assert.equal(await s.store.verify(1), false);
 });
